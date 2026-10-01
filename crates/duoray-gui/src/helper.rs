@@ -144,6 +144,7 @@ mod install_impl {
         if !src.exists() {
             bail!("не найден {} (соберите workspace целиком)", src.display());
         }
+        check_fresh(&src)?;
         let uid = String::from_utf8(std::process::Command::new("/usr/bin/id").arg("-u").output()?.stdout)?
             .trim()
             .parse::<u32>()?;
@@ -232,6 +233,7 @@ mod install_impl {
             if !src.exists() {
                 bail!("не найден {} (соберите workspace целиком)", src.display());
             }
+            check_fresh(&src)?;
             (
                 LOCAL_HELPER.to_string(),
                 format!(
@@ -310,4 +312,40 @@ pub fn wait_ready(timeout: Duration) -> Result<(), OpenError> {
             Err(e) => return Err(e),
         }
     }
+}
+
+/// Refuses to install a helper binary older than this app (e.g. after
+/// `cargo run -p duoray-gui`, which does not rebuild the helper): it would be
+/// reported as outdated again right after the password prompt.
+#[cfg(unix)]
+fn check_fresh(helper: &std::path::Path) -> Result<()> {
+    use std::io::Read;
+    // Helpers before protocol 3 ignore the flag and try to serve: give up on them.
+    let mut child = std::process::Command::new(helper)
+        .arg("--protocol")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while child.try_wait()?.is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = child.wait();
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    let protocol: u32 = out.trim().parse().unwrap_or(0);
+    if protocol < PROTOCOL {
+        bail!(
+            "помощник рядом с DUORAY устарел (протокол {protocol}, нужен {PROTOCOL}). \
+             Соберите его: cargo build --release -p duoray-helper"
+        );
+    }
+    Ok(())
 }

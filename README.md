@@ -60,6 +60,7 @@ GUI (Slint, от пользователя)
 git clone <url>/Duotun
 git clone <url>/Duoray
 cd Duoray
+cargo build --release -p duoray-helper   # помощник: GUI ставит его отсюда
 cargo run --release -p duoray-gui
 ```
 

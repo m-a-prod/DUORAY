@@ -21,6 +21,11 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 fn main() -> Result<()> {
+    // The GUI checks a helper binary before installing it.
+    if std::env::args().any(|a| a == "--protocol") {
+        println!("{PROTOCOL}");
+        return Ok(());
+    }
     let logs = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,duotun=info".into()),
