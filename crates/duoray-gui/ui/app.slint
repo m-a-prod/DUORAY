@@ -1,0 +1,1540 @@
+import { Button, LineEdit, ListView, Switch, ComboBox, Palette, Spinner, ScrollView } from "std-widgets.slint";
+
+export struct SubRow {
+    name: string,
+    meta: string,
+    // Traffic used, 0..1; negative when the plan is unlimited.
+    usage: float,
+    error: string,
+}
+
+export struct ServerRow {
+    flag: string,
+    flag-image: image,
+    has-flag-image: bool,
+    name: string,
+    description: string,
+    protocol: string,
+    transport: string,
+    endpoint: string,
+    proxies: int,
+    ping-text: string,
+    // 0 none, 1 fast, 2 medium, 3 slow, 4 failed, 5 pending
+    ping-level: int,
+}
+
+export global Theme {
+    // Text size multiplier from the settings (1.0 = 100 %).
+    in-out property <float> text-scale: 1.0;
+    out property <length> radius: 12px;
+    out property <brush> danger: #e5484d;
+    out property <brush> card: Palette.alternate-background;
+    out property <brush> muted: Palette.foreground.with-alpha(0.62);
+    out property <brush> ok: #30a46c;
+    out property <brush> warn: #f5a524;
+}
+
+component Badge inherits Rectangle {
+    in property <string> text;
+    border-radius: 7px;
+    background: Palette.accent-background;
+    width: 38px;
+    height: 26px;
+    Text {
+        text: root.text;
+        color: Palette.accent-foreground;
+        font-size: 12px * Theme.text-scale;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> accent;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: accent ? Palette.accent-background : Palette.border;
+    background: accent ? Palette.accent-background.with-alpha(0.15) : transparent;
+    height: 22px;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        Text {
+            text: root.text;
+            font-size: 11px * Theme.text-scale;
+            color: root.accent ? Palette.foreground : Theme.muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+component PingChip inherits Rectangle {
+    in property <string> text;
+    in property <int> level;
+    property <brush> tone: level == 1 ? Theme.ok : level == 2 ? Theme.warn : level == 3 || level == 4 ? Theme.danger : Theme.muted;
+    border-radius: 6px;
+    height: 22px;
+    min-width: 54px;
+    horizontal-stretch: 0;
+    background: tone.with-alpha(0.14);
+    // The layout gives the chip its natural width (text or spinner + padding).
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: center;
+        // Still measuring: a small spinner instead of a glyph the font may lack.
+        if root.level == 5: VerticalLayout {
+            alignment: center;
+            Spinner {
+                indeterminate: true;
+                width: 14px;
+                height: 14px;
+            }
+        }
+        if root.level != 5: Text {
+            text: root.text;
+            font-size: 11px * Theme.text-scale;
+            font-weight: 700;
+            color: root.tone;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SectionLabel inherits Text {
+    font-size: 11px * Theme.text-scale;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: Theme.muted;
+    vertical-alignment: center;
+}
+
+component EmptyState inherits VerticalLayout {
+    in property <string> title;
+    in property <string> hint;
+    alignment: center;
+    spacing: 6px;
+    Text {
+        text: root.title;
+        font-size: 18px * Theme.text-scale;
+        font-weight: 700;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: root.hint;
+        color: Theme.muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+
+// Material Design icons (Apache 2.0), 24×24 viewBox.
+global Icons {
+    out property <string> refresh: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
+    out property <string> more: "M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z";
+    out property <string> info: "M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z";
+    out property <string> send: "M2.01 21 23 12 2.01 3 2 10l15 2-15 2z";
+    out property <string> expand-more: "M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z";
+    out property <string> expand-less: "m12 8-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z";
+    out property <string> sort: "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z";
+    out property <string> add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z";
+    out property <string> speed: "m20.38 8.57-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z";
+}
+
+component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <brush> tint: Palette.foreground;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: touch.has-hover && root.enabled ? Palette.foreground.with-alpha(0.10) : transparent;
+    opacity: root.enabled ? 1 : 0.4;
+    animate background { duration: 120ms; }
+    Path {
+        commands: root.icon;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        width: 20px;
+        height: 20px;
+        fill: root.tint;
+        // Rings with holes (ⓘ) must not depend on the renderer's default rule.
+        fill-rule: evenodd;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Refresh button whose own icon spins while a refresh is running.
+component RefreshButton inherits Rectangle {
+    in property <bool> spinning;
+    callback clicked();
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: touch.has-hover && !root.spinning ? Palette.foreground.with-alpha(0.10) : transparent;
+    animate background { duration: 120ms; }
+    // A vector path in a rotating box: rotating a colorized image renders
+    // incorrectly on some GPUs (seen on Windows).
+    Rectangle {
+        width: 20px;
+        height: 20px;
+        // One turn per second, only while spinning (so no redraws when idle).
+        transform-rotation: root.spinning ? mod(animation-tick() / 1ms, 1000) * 0.36deg : 0deg;
+        Path {
+            commands: Icons.refresh;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            width: parent.width;
+            height: parent.height;
+            fill: Palette.foreground;
+            fill-rule: evenodd;
+        }
+    }
+    touch := TouchArea {
+        enabled: !root.spinning;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger;
+    callback clicked();
+    height: 34px;
+    border-radius: 7px;
+    background: touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+    Text {
+        x: 10px;
+        text: root.text;
+        font-size: 13px * Theme.text-scale;
+        color: root.danger ? Theme.danger : Palette.foreground;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// ── Settings building blocks ───────────────────────────────────
+
+// Single-line input with the same 36 px height as the combo boxes.
+component TextField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+    callback edited();
+    height: 36px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: input.has-focus ? Palette.accent-background : Palette.border;
+    background: Palette.control-background;
+    animate border-color { duration: 120ms; }
+    input := TextInput {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        vertical-alignment: center;
+        font-size: 13px * Theme.text-scale;
+        color: Palette.foreground;
+        single-line: true;
+        edited => {
+            root.edited();
+        }
+    }
+    if root.text == "" && !input.has-focus: Text {
+        x: 12px;
+        height: parent.height;
+        vertical-alignment: center;
+        text: root.placeholder;
+        font-size: 13px * Theme.text-scale;
+        color: Theme.muted;
+    }
+}
+
+component Divider inherits Rectangle {
+    height: 1px;
+    background: Palette.border;
+}
+
+// Title + explanation on the left, a switch on the right.
+component ToggleRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> description;
+    in-out property <bool> checked;
+    callback toggled();
+    spacing: 16px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 4px;
+        Text {
+            text: root.title;
+            font-size: 14px * Theme.text-scale;
+            font-weight: 700;
+        }
+        Text {
+            text: root.description;
+            font-size: 12px * Theme.text-scale;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            checked <=> root.checked;
+            toggled => {
+                root.toggled();
+            }
+        }
+    }
+}
+
+// Fixed-width label column so every control lines up.
+component FieldLabel inherits Text {
+    width: 150px;
+    font-size: 13px * Theme.text-scale;
+    color: Theme.muted;
+    vertical-alignment: center;
+}
+
+component SettingsCard inherits Rectangle {
+    background: Theme.card;
+    border-radius: Theme.radius;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 14px;
+        alignment: start;
+        @children
+    }
+}
+
+component SettingsPage inherits Rectangle {
+    background: Palette.background;
+
+    in-out property <bool> happ-enabled;
+    in-out property <string> app-version;
+    in-out property <string> os: "macOS";
+    in-out property <string> os-version;
+    in-out property <string> model;
+    in-out property <string> locale;
+    in-out property <string> user-id;
+    in-out property <string> hwid;
+    in property <string> duoray-ua;
+    in property <string> duoray-hwid;
+    in property <string> helper-status;
+    in property <bool> helper-busy;
+    // 0 HTTP GET, 1 HTTP HEAD, 2 TCP, 3 ICMP
+    in-out property <int> ping-mode-index;
+    in-out property <string> ping-threads: "1";
+    in-out property <string> ping-url;
+    in-out property <bool> send-device-info: true;
+    in-out property <string> text-scale-choice: "100%";
+    in-out property <string> font-choice: "Системный";
+    in-out property <string> theme-choice: "Тёмная";
+    in property <[string]> font-choices: ["Системный"];
+
+    // Fired on every edit; the app saves (debounced), no Save button.
+    callback changed();
+    callback back();
+    callback randomize-ids();
+    callback randomize-device();
+    callback reset();
+    callback reinstall-helper();
+    callback uninstall-helper();
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            // Pack sections at the top; spare height must not stretch the cards.
+            alignment: start;
+
+            Text {
+                text: "Настройки";
+                font-size: 24px * Theme.text-scale;
+                font-weight: 800;
+            }
+
+            // ── Subscription requests ──
+            SectionLabel {
+                text: "ЗАПРОСЫ ПОДПИСОК";
+            }
+            SettingsCard {
+                ToggleRow {
+                    title: "Отправлять HWID и данные устройства";
+                    description: "Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent.";
+                    checked <=> root.send-device-info;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
+                ToggleRow {
+                    title: "Happ Spoof";
+                    description: "Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию DUORAY представляется собой.";
+                    checked <=> root.happ-enabled;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+
+                if root.happ-enabled: VerticalLayout {
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Версия Happ";
+                        }
+                        TextField {
+                            text <=> root.app-version;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "ОС";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["macOS", "Windows", "iOS", "Android"];
+                            current-value <=> root.os;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Версия ОС";
+                        }
+                        TextField {
+                            text <=> root.os-version;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Модель";
+                        }
+                        TextField {
+                            text <=> root.model;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Язык";
+                        }
+                        TextField {
+                            text <=> root.locale;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "User ID";
+                        }
+                        TextField {
+                            text <=> root.user-id;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "HWID";
+                        }
+                        TextField {
+                            text <=> root.hwid;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        padding-left: 162px;
+                        Button {
+                            text: "Новые ID";
+                            clicked => {
+                                root.randomize-ids();
+                            }
+                        }
+                        Button {
+                            text: "Случайное устройство";
+                            clicked => {
+                                root.randomize-device();
+                            }
+                        }
+                        Button {
+                            text: "Сбросить";
+                            clicked => {
+                                root.reset();
+                            }
+                        }
+                    }
+                }
+
+                Divider { }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "Будет отправлено";
+                        font-size: 12px * Theme.text-scale;
+                        font-weight: 700;
+                        color: Theme.muted;
+                    }
+                    Text {
+                        text: "User-Agent: " + (root.happ-enabled ? "Happ/" + root.app-version + "/" + root.os + "/" + root.user-id : root.duoray-ua);
+                        font-size: 12px * Theme.text-scale;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.send-device-info
+                            ? "x-hwid: " + (root.happ-enabled ? root.hwid : root.duoray-hwid)
+                            : "HWID и данные устройства не отправляются";
+                        font-size: 12px * Theme.text-scale;
+                        color: root.send-device-info ? Palette.foreground : Theme.muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // ── Ping ──
+            SectionLabel {
+                text: "ПИНГ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Способ";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["HTTP GET — через сам сервер", "HTTP HEAD — через сервер, легче", "TCP — соединение с сервером", "ICMP — обычный ping"];
+                        current-index <=> root.ping-mode-index;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Потоков";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["1", "2", "4", "8", "16"];
+                        current-value <=> root.ping-threads;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                if root.ping-mode-index <= 1: HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Адрес проверки";
+                    }
+                    TextField {
+                        text <=> root.ping-url;
+                        placeholder: "http://cp.cloudflare.com/generate_204";
+                        edited => {
+                            root.changed();
+                        }
+                    }
+                }
+                Text {
+                    text: root.ping-mode-index == 0
+                        ? "HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ."
+                        : root.ping-mode-index == 1
+                        ? "HTTP HEAD: как GET, но без тела ответа — чуть быстрее и легче для сервера."
+                        : root.ping-mode-index == 2
+                        ? "TCP: время подключения к порту сервера. Быстро и без xray, но не проверяет, что прокси работает."
+                        : "ICMP: обычный ping. Многие серверы на него не отвечают — будет «—», хотя сервер рабочий.";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их.";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.warn;
+                    wrap: word-wrap;
+                }
+            }
+
+            // ── Interface ──
+            SectionLabel {
+                text: "ИНТЕРФЕЙС";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Тема";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["Тёмная", "Светлая", "Как в системе"];
+                        current-value <=> root.theme-choice;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Размер текста";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["90%", "100%", "110%", "120%", "130%"];
+                        current-value <=> root.text-scale-choice;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Шрифт";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: root.font-choices;
+                        current-value <=> root.font-choice;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+            }
+
+            // ── Connection ──
+            SectionLabel {
+                text: "ПОДКЛЮЧЕНИЕ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Помощник TUN";
+                            font-size: 14px * Theme.text-scale;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: root.helper-status;
+                            font-size: 12px * Theme.text-scale;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button {
+                                text: "Переустановить";
+                                enabled: !root.helper-busy;
+                                clicked => {
+                                    root.reinstall-helper();
+                                }
+                            }
+                            Button {
+                                text: "Удалить";
+                                enabled: !root.helper-busy;
+                                clicked => {
+                                    root.uninstall-helper();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "DUORAY";
+    icon: @image-url("assets/duoray-icon.svg");
+    preferred-width: 1080px;
+    preferred-height: 700px;
+    min-width: 780px;
+    min-height: 500px;
+    background: Palette.background;
+    default-font-size: 13px * Theme.text-scale;
+    default-font-family: root.font-family;
+
+    in property <[SubRow]> subs;
+    in property <[ServerRow]> servers;
+    in-out property <int> current-sub: -1;
+    in-out property <int> current-server: -1;
+    in property <string> header-title;
+    in property <string> header-meta;
+    in property <string> announce;
+    // Traffic line under the header: "86 ГБ / ∞"; usage < 0 means unlimited.
+    in property <string> usage-text;
+    in property <float> usage-fraction: -1;
+    in property <bool> has-web-page;
+    in property <bool> has-support;
+    in property <bool> announce-hidden;
+    in-out property <string> font-family;
+    // Hand-added links have no traffic, web page or support link.
+    in property <bool> show-usage-row: true;
+    in-out property <bool> confirm-menu-delete;
+    in property <string> sub-error;
+    in property <bool> busy;
+    in property <string> status;
+    in-out property <bool> adding;
+    in-out property <string> add-error;
+    // Index of the subscription whose delete button awaits confirmation.
+    in-out property <int> confirm-remove-index: -1;
+    in-out property <bool> settings-open;
+
+    // Settings page (aliases into it).
+    in-out property <bool> happ-enabled <=> settings-page.happ-enabled;
+    in-out property <string> app-version <=> settings-page.app-version;
+    in-out property <string> os <=> settings-page.os;
+    in-out property <string> os-version <=> settings-page.os-version;
+    in-out property <string> model <=> settings-page.model;
+    in-out property <string> locale <=> settings-page.locale;
+    in-out property <string> user-id <=> settings-page.user-id;
+    in-out property <string> hwid <=> settings-page.hwid;
+    in-out property <string> duoray-ua <=> settings-page.duoray-ua;
+    in-out property <string> duoray-hwid <=> settings-page.duoray-hwid;
+    in-out property <string> settings-helper-status <=> settings-page.helper-status;
+    in-out property <bool> settings-helper-busy <=> settings-page.helper-busy;
+    in-out property <int> ping-mode-index <=> settings-page.ping-mode-index;
+    in-out property <string> ping-threads <=> settings-page.ping-threads;
+    in-out property <string> ping-url <=> settings-page.ping-url;
+    in-out property <bool> send-device-info <=> settings-page.send-device-info;
+    in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
+    in-out property <string> font-choice <=> settings-page.font-choice;
+    in-out property <string> theme-choice <=> settings-page.theme-choice;
+    // 0 = follow the system, 1 = dark, 2 = light.
+    in property <int> theme-mode: 1;
+    changed theme-mode => {
+        root.apply-theme();
+    }
+    init => {
+        root.apply-theme();
+    }
+    function apply-theme() {
+        Palette.color-scheme = root.theme-mode == 1 ? ColorScheme.dark
+            : root.theme-mode == 2 ? ColorScheme.light : ColorScheme.unknown;
+    }
+    in-out property <[string]> font-choices <=> settings-page.font-choices;
+    in property <bool> pinging;
+    // The sort button appears once this subscription has been pinged.
+    in property <bool> has-ping-results;
+    in property <bool> sort-by-ping;
+
+    // Connection: "idle" | "connecting" | "connected" | "disconnecting" | "failed"
+    in property <string> conn-state: "idle";
+    in property <string> conn-title: "Не подключено";
+    in property <string> conn-detail;
+    in property <bool> can-connect;
+    // Live latency of the active connection (0 level = hidden).
+    in property <string> conn-ping-text;
+    in property <int> conn-ping-level;
+
+    in-out property <bool> helper-dialog;
+    in property <string> helper-dialog-text;
+    in property <bool> helper-busy;
+    in property <string> helper-error;
+
+    callback select-sub(int);
+    callback select-server(int);
+    callback add-subscription(string, string);
+    callback refresh-current();
+    callback open-web-page();
+    callback open-support();
+    callback copy-sub-link();
+    callback ping-current();
+    callback toggle-sort();
+    callback toggle-announce();
+    callback add-from-clipboard();
+    callback remove-sub(int);
+    callback settings-changed <=> settings-page.changed;
+    callback randomize-ids <=> settings-page.randomize-ids;
+    callback randomize-device <=> settings-page.randomize-device;
+    callback reset-happ <=> settings-page.reset;
+    callback reinstall-helper <=> settings-page.reinstall-helper;
+    callback uninstall-helper <=> settings-page.uninstall-helper;
+    callback open-settings();
+    callback toggle-connection();
+    callback install-helper();
+
+    HorizontalLayout {
+        // ── Sidebar ─────────────────────────────────────────────
+        Rectangle {
+            // Grows with the window (about a quarter), within sane bounds.
+            min-width: 260px;
+            max-width: 380px;
+            horizontal-stretch: 26;
+            background: Theme.card;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 14px;
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    // Logo and wordmark share one optical center line: the middle of
+                    // the capitals, not of the text box (which includes descender space).
+                    Rectangle {
+                        height: logo.height;
+                        logo := Image {
+                            source: @image-url("assets/logo.svg");
+                            // The SVG is white; tint it so it works in light and dark themes.
+                            colorize: Palette.foreground;
+                            x: 0;
+                            y: 0;
+                            height: wordmark.font-metrics.cap-height * 1.6;
+                            width: self.height * 198 / 161;
+                            image-fit: contain;
+                        }
+                        wordmark := Text {
+                            x: logo.width + 12px;
+                            y: parent.height / 2 - (self.font-metrics.ascent - self.font-metrics.cap-height / 2);
+                            text: "DUORAY";
+                            font-size: 22px * Theme.text-scale;
+                            font-weight: 800;
+                            letter-spacing: 1px;
+                            vertical-alignment: top;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    SectionLabel {
+                        text: "ПОДПИСКИ";
+                        horizontal-stretch: 1;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: Icons.add;
+                            tint: Palette.accent-background;
+                            clicked => {
+                                add-menu.show();
+                            }
+                        }
+                        add-menu := PopupWindow {
+                            x: -180px;
+                            y: 36px;
+                            width: 212px;
+                            close-policy: close-on-click-outside;
+                            Rectangle {
+                                background: Palette.background;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: Palette.border;
+                                drop-shadow-blur: 16px;
+                                drop-shadow-color: #00000070;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 2px;
+                                    MenuItem {
+                                        text: "Из буфера обмена";
+                                        clicked => {
+                                            add-menu.close();
+                                            root.settings-open = false;
+                                            root.add-from-clipboard();
+                                        }
+                                    }
+                                    MenuItem {
+                                        text: "Ввести вручную";
+                                        clicked => {
+                                            add-menu.close();
+                                            root.settings-open = false;
+                                            root.add-error = "";
+                                            root.adding = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if root.subs.length == 0: Text {
+                    text: "Пока пусто. Добавьте ссылку на подписку.";
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                    font-size: 12px * Theme.text-scale;
+                }
+
+                subs-list := ListView {
+                    vertical-stretch: 1;
+                    for sub[i] in root.subs: Rectangle {
+                        height: sub-layout.preferred-height + 6px;
+                        Rectangle {
+                            x: 0;
+                            // Gutter only when a scrollbar is actually shown.
+                            width: parent.width;
+                            y: 3px;
+                            height: parent.height - 6px;
+                            border-radius: Theme.radius;
+                            background: i == root.current-sub ? Palette.selection-background
+                                : sub-touch.has-hover ? Palette.control-background : transparent;
+                            sub-touch := TouchArea {
+                                clicked => {
+                                    root.confirm-remove-index = -1;
+                                    // Picking a subscription always shows its servers.
+                                    root.settings-open = false;
+                                    root.select-sub(i);
+                                }
+                            }
+                            sub-layout := VerticalLayout {
+                                padding: 12px;
+                                padding-right: 48px;
+                                spacing: 5px;
+                                Text {
+                                    text: sub.name;
+                                    font-size: 14px * Theme.text-scale;
+                                    font-weight: 700;
+                                    overflow: elide;
+                                    color: i == root.current-sub ? Palette.selection-foreground : Palette.foreground;
+                                }
+                                Text {
+                                    text: sub.meta;
+                                    font-size: 11px * Theme.text-scale;
+                                    overflow: elide;
+                                    color: i == root.current-sub ? Palette.selection-foreground : Theme.muted;
+                                }
+                                if sub.usage >= 0: Rectangle {
+                                    height: 4px;
+                                    border-radius: 2px;
+                                    background: Palette.border;
+                                    Rectangle {
+                                        x: 0;
+                                        width: parent.width * min(1, sub.usage);
+                                        border-radius: 2px;
+                                        background: sub.usage > 0.9 ? Theme.danger : Palette.accent-background;
+                                    }
+                                }
+                                if sub.error != "": Text {
+                                    text: sub.error;
+                                    font-size: 11px * Theme.text-scale;
+                                    color: Theme.danger;
+                                    overflow: elide;
+                                }
+                            }
+
+                            // Delete: fades in on hover, second click confirms.
+                            del := Rectangle {
+                                property <bool> confirming: root.confirm-remove-index == i;
+                                x: parent.width - self.width - 10px;
+                                y: (parent.height - self.height) / 2;
+                                height: 28px;
+                                width: confirming ? 86px : 28px;
+                                border-radius: 14px;
+                                background: confirming ? Theme.danger
+                                    : del-touch.has-hover ? Theme.danger.with-alpha(0.25) : Palette.foreground.with-alpha(0.08);
+                                opacity: sub-touch.has-hover || del-touch.has-hover || confirming ? 1 : 0;
+                                animate opacity, width, background { duration: 150ms; easing: ease-out; }
+                                if !confirming: Path {
+                                    width: 10px;
+                                    height: 10px;
+                                    commands: "M 0 0 L 10 10 M 10 0 L 0 10";
+                                    stroke: del-touch.has-hover ? Theme.danger : Palette.foreground;
+                                    stroke-width: 1.6px;
+                                }
+                                if confirming: Text {
+                                    text: "Удалить?";
+                                    color: white;
+                                    font-size: 12px * Theme.text-scale;
+                                    font-weight: 700;
+                                }
+                                del-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        if (del.confirming) {
+                                            root.confirm-remove-index = -1;
+                                            root.remove-sub(i);
+                                        } else {
+                                            root.confirm-remove-index = i;
+                                        }
+                                    }
+                                }
+                                Timer {
+                                    interval: 3s;
+                                    running: del.confirming;
+                                    triggered => {
+                                        root.confirm-remove-index = -1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Connection card
+                Rectangle {
+                    border-radius: Theme.radius;
+                    background: Palette.background;
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 10px;
+                                    height: 10px;
+                                    border-radius: 5px;
+                                    background: root.conn-state == "connected" ? Theme.ok
+                                        : root.conn-state == "failed" ? Theme.danger
+                                        : root.conn-state == "idle" ? Palette.border : Theme.warn;
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: root.conn-title;
+                                        font-size: 14px * Theme.text-scale;
+                                        font-weight: 700;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                    if root.conn-ping-level != 0: PingChip {
+                                        text: root.conn-ping-text;
+                                        level: root.conn-ping-level;
+                                    }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                if root.conn-detail != "": Text {
+                                    text: root.conn-detail;
+                                    font-size: 11px * Theme.text-scale;
+                                    color: root.conn-state == "failed" ? Theme.danger : Theme.muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                        Button {
+                            text: root.conn-state == "connected" ? "Отключиться"
+                                : root.conn-state == "connecting" ? "Подключение…"
+                                : root.conn-state == "disconnecting" ? "Отключение…"
+                                : root.can-connect ? "Подключиться" : "Выберите сервер";
+                            primary: root.conn-state != "connected";
+                            enabled: root.conn-state == "connected" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
+                            clicked => {
+                                root.toggle-connection();
+                            }
+                        }
+                    }
+                }
+
+                Button {
+                    text: root.settings-open ? "← К серверам" : "Настройки";
+                    primary: root.settings-open;
+                    clicked => {
+                        if (!root.settings-open) {
+                            root.open-settings();
+                        }
+                        root.settings-open = !root.settings-open;
+                    }
+                }
+                Text {
+                    text: root.status;
+                    font-size: 11px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // ── Main: servers or settings ───────────────────────────
+        Rectangle {
+        horizontal-stretch: 74;
+        settings-page := SettingsPage {
+            visible: root.settings-open;
+            back => {
+                root.settings-open = false;
+            }
+        }
+        VerticalLayout {
+            visible: !root.settings-open;
+            padding: 22px;
+            spacing: 14px;
+
+            if root.current-sub < 0: EmptyState {
+                title: "Нет подписки";
+                hint: "Нажмите «Добавить» и вставьте ссылку на подписку.";
+            }
+
+            // Subscription header, laid out like Happ: title row, traffic row, announcement.
+            if root.current-sub >= 0: Rectangle {
+                background: Theme.card;
+                border-radius: Theme.radius;
+                VerticalLayout {
+                    padding: 14px;
+                    padding-bottom: root.announce != "" ? 14px : 12px;
+                    spacing: 10px;
+
+                    HorizontalLayout {
+                        spacing: 4px;
+                        // Collapse / expand the announcement, like Happ.
+                        if root.announce != "": VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: root.announce-hidden ? Icons.expand-more : Icons.expand-less;
+                                clicked => {
+                                    root.toggle-announce();
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 2px;
+                            Text {
+                                text: root.header-title;
+                                font-size: 22px * Theme.text-scale;
+                                font-weight: 800;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.header-meta;
+                                font-size: 11px * Theme.text-scale;
+                                color: Theme.muted;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            RefreshButton {
+                                spinning: root.busy;
+                                clicked => {
+                                    root.refresh-current();
+                                }
+                            }
+                        }
+                        if root.has-ping-results: VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.sort;
+                                // Highlighted while the list is sorted by ping.
+                                tint: root.sort-by-ping ? Palette.accent-background : Palette.foreground;
+                                background: root.sort-by-ping ? Palette.accent-background.with-alpha(0.18) : transparent;
+                                clicked => {
+                                    root.toggle-sort();
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.speed;
+                                enabled: !root.pinging;
+                                clicked => {
+                                    root.ping-current();
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            more-button := IconButton {
+                                icon: Icons.more;
+                                clicked => {
+                                    root.confirm-menu-delete = false;
+                                    sub-menu.show();
+                                }
+                            }
+                        }
+                    }
+
+                    if root.show-usage-row: HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.info;
+                                tint: Palette.accent-background;
+                                enabled: root.has-web-page;
+                                clicked => {
+                                    root.open-web-page();
+                                }
+                            }
+                        }
+                        // Traffic used / limit.
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 20px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 10px;
+                            border-width: 1px;
+                            border-color: Palette.border;
+                            clip: true;
+                            if root.usage-fraction >= 0: Rectangle {
+                                x: 0;
+                                width: parent.width * min(1, root.usage-fraction);
+                                background: root.usage-fraction > 0.9 ? Theme.danger.with-alpha(0.7) : Palette.accent-background.with-alpha(0.55);
+                            }
+                            Text {
+                                text: root.usage-text;
+                                font-size: 11px * Theme.text-scale;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.send;
+                                tint: #2aabee;
+                                enabled: root.has-support;
+                                clicked => {
+                                    root.open-support();
+                                }
+                            }
+                        }
+                    }
+
+                    if root.announce != "" && !root.announce-hidden: Text {
+                        text: root.announce;
+                        font-size: 12px * Theme.text-scale;
+                        color: Theme.muted;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+
+                sub-menu := PopupWindow {
+                    x: parent.width - 230px;
+                    y: 48px;
+                    width: 220px;
+                    close-policy: close-on-click-outside;
+                    Rectangle {
+                        background: Palette.background;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: Palette.border;
+                        drop-shadow-blur: 16px;
+                        drop-shadow-color: #00000070;
+                        VerticalLayout {
+                            padding: 6px;
+                            spacing: 2px;
+                            MenuItem {
+                                text: "Скопировать ссылку";
+                                clicked => {
+                                    root.copy-sub-link();
+                                    sub-menu.close();
+                                }
+                            }
+                            MenuItem {
+                                text: root.confirm-menu-delete ? "Точно удалить?" : "Удалить подписку";
+                                danger: true;
+                                clicked => {
+                                    if (root.confirm-menu-delete) {
+                                        root.confirm-menu-delete = false;
+                                        sub-menu.close();
+                                        root.remove-sub(root.current-sub);
+                                    } else {
+                                        root.confirm-menu-delete = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.current-sub >= 0 && root.sub-error != "": Rectangle {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.danger;
+                VerticalLayout {
+                    padding: 12px;
+                    Text {
+                        text: root.sub-error;
+                        color: Theme.danger;
+                        font-size: 12px * Theme.text-scale;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // First run: make it obvious that a server has to be picked.
+            if root.current-sub >= 0 && root.current-server < 0 && root.servers.length > 0: Rectangle {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Palette.accent-background;
+                background: Palette.accent-background.with-alpha(0.12);
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 10px;
+                    Text {
+                        text: "Выберите сервер из списка ниже, затем нажмите «Подключиться».";
+                        font-size: 13px * Theme.text-scale;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.current-sub >= 0: servers-list := ListView {
+                vertical-stretch: 1;
+                for srv[i] in root.servers: Rectangle {
+                    height: 66px;
+                    Rectangle {
+                        // Leave a gutter for the scrollbar so rows never run under it.
+                        x: 0;
+                        width: parent.width - (servers-list.content-height > servers-list.visible-height ? 16px : 0px);
+                        y: 2px;
+                        height: parent.height - 4px;
+                        border-radius: Theme.radius;
+                        background: i == root.current-server ? Palette.selection-background
+                            : srv-touch.has-hover ? Theme.card : transparent;
+                        srv-touch := TouchArea {
+                            clicked => {
+                                root.select-server(i);
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 14px;
+                            VerticalLayout {
+                                alignment: center;
+                                if srv.has-flag-image: Image {
+                                    source: srv.flag-image;
+                                    width: 34px;
+                                    height: 34px;
+                                    image-fit: contain;
+                                }
+                                if !srv.has-flag-image: Badge {
+                                    text: srv.flag == "" ? "··" : srv.flag;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 3px;
+                                horizontal-stretch: 1;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: srv.name;
+                                        font-size: 14px * Theme.text-scale;
+                                        font-weight: 600;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                        color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
+                                    }
+                                }
+                                Text {
+                                    text: srv.description != "" ? srv.description : srv.endpoint;
+                                    font-size: 11px * Theme.text-scale;
+                                    overflow: elide;
+                                    color: i == root.current-server ? Palette.selection-foreground : Theme.muted;
+                                }
+                            }
+                            if srv.ping-level != 0: VerticalLayout {
+                                alignment: center;
+                                PingChip {
+                                    text: srv.ping-text;
+                                    level: srv.ping-level;
+                                }
+                            }
+                            if srv.proxies > 1: VerticalLayout {
+                                alignment: center;
+                                Chip {
+                                    text: "авто × " + srv.proxies;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Chip {
+                                    text: srv.protocol;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Chip {
+                                    text: srv.transport;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    // ── Helper install dialog ──────────────────────────────────
+    if root.helper-dialog: Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(520px, parent.width - 40px);
+            height: helper-layout.preferred-height;
+            border-radius: 16px;
+            background: Palette.background;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000060;
+            helper-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Нужен помощник";
+                    font-size: 18px * Theme.text-scale;
+                    font-weight: 800;
+                }
+                Text {
+                    text: root.helper-dialog-text;
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.helper-error != "": Text {
+                    text: root.helper-error;
+                    color: Theme.danger;
+                    font-size: 12px * Theme.text-scale;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    if root.helper-busy: VerticalLayout {
+                        alignment: center;
+                        Spinner {
+                            indeterminate: true;
+                            width: 20px;
+                            height: 20px;
+                        }
+                    }
+                    Button {
+                        text: "Отмена";
+                        enabled: !root.helper-busy;
+                        clicked => {
+                            root.helper-dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "Установить";
+                        primary: true;
+                        enabled: !root.helper-busy;
+                        clicked => {
+                            root.install-helper();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Add subscription dialog ────────────────────────────────
+    if root.adding: Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(520px, parent.width - 40px);
+            height: dialog.preferred-height;
+            border-radius: 16px;
+            background: Palette.background;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000060;
+            dialog := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Добавить";
+                    font-size: 18px * Theme.text-scale;
+                    font-weight: 800;
+                }
+                Text {
+                    text: "Ссылка на подписку из панели или бота, либо сами ссылки vless://, vmess://, trojan://, ss:// — можно несколько, каждую с новой строки. Одиночные ссылки попадут в группу «Мои серверы».";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                url-edit := LineEdit {
+                    placeholder-text: "https://…/sub/…  или  vless://…";
+                    accepted => {
+                        root.add-subscription(url-edit.text, name-edit.text);
+                    }
+                }
+                name-edit := LineEdit {
+                    placeholder-text: "Название (необязательно)";
+                    accepted => {
+                        root.add-subscription(url-edit.text, name-edit.text);
+                    }
+                }
+                if root.add-error != "": Text {
+                    text: root.add-error;
+                    color: Theme.danger;
+                    font-size: 12px * Theme.text-scale;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: "Отмена";
+                        clicked => {
+                            root.adding = false;
+                        }
+                    }
+                    Button {
+                        text: "Добавить";
+                        primary: true;
+                        clicked => {
+                            root.add-subscription(url-edit.text, name-edit.text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
