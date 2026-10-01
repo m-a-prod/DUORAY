@@ -16,6 +16,12 @@ Windows и Linux. Без Electron и webview: интерфейс на [Slint](ht
   `new-domain`) и запасной адрес (`fallback-url`).
 - **TUN без утечек DNS:** весь трафик и весь DNS идут через сервер, запросы к
   DNS мимо туннеля блокируются (pf / nftables / брандмауэр Windows).
+- **Маршрутизация.** Простой режим — переключатели «Российские сайты»,
+  «Белый список» (мобильные белые списки), «Локальная сеть» и игры
+  (Steam и CS2, FACEIT, Riot, Battle.net, Epic, EA, Ubisoft) напрямую.
+  Продвинутый — профили со своими правилами по доменам, IP и портам, как в
+  Throne. Правила встают поверх правил подписки, не ломая их.
+- **По приложениям:** выбранные программы мимо VPN или только они через VPN.
 - **Пароль администратора — один раз.** Туннель поднимает маленький системный
   помощник; дальше подключение работает без прав.
 - **Пинг:** HTTP GET / HTTP HEAD через сам сервер, TCP, ICMP; число потоков
@@ -88,8 +94,21 @@ packaging/windows/build.sh x64   # или x86
 | Подключение (TUN) | ✅ | ✅ (x64, x86) | код готов, не проверялось |
 | Установщик | — | ✅ NSIS | нет |
 
+## Маршрутизация: откуда данные
+
+| Что | Источник |
+|---|---|
+| Российские IP, белый список IP | `geoip.dat` [runetfreedom](https://github.com/runetfreedom/russia-v2ray-rules-dat) (`geoip:ru`, `geoip:ru-whitelist`), скачивается раз в сутки |
+| Белый список доменов | [hxehex/russia-mobile-internet-whitelist](https://github.com/hxehex/russia-mobile-internet-whitelist) |
+| Российские домены, игры | `geosite.dat` из комплекта xray ([domain-list-community](https://github.com/v2fly/domain-list-community)) |
+| Серверы CS2 и Dota 2 | Steam Web API `GetSDRConfig` + подсети Valve AS32590 |
+| Riot, Blizzard | подсети AS6507, AS57976 (RIPEstat) |
+
+Базы лежат в каталоге данных (`geo/`); пока они не скачаны, работают
+встроенные снимки и `geoip.dat` из комплекта xray.
+
 ## Лицензии
 
-Код — MIT. Флаги — [Twemoji](https://github.com/jdecked/twemoji), CC-BY 4.0
+Код — MIT. Снимки списков — см. `crates/duoray-core/assets/routing/NOTICE.md`. Флаги — [Twemoji](https://github.com/jdecked/twemoji), CC-BY 4.0
 (см. `crates/duoray-gui/assets/NOTICE.md`). xray-core (MPL-2.0) и Wintun
 поставляются в установщике со своими лицензиями.

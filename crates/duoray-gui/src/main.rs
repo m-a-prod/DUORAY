@@ -17,6 +17,7 @@ slint::include_modules!();
 mod connection;
 mod helper;
 mod ping;
+mod routing_ui;
 #[cfg(windows)]
 mod windows_helper;
 
@@ -102,6 +103,9 @@ enum ConnState {
 
 type Shared = Arc<Mutex<App>>;
 
+/// Where the "Нет VPN? Купить" button leads.
+const BUY_URL: &str = "https://t.me/dualizm_bot";
+
 fn main() -> anyhow::Result<()> {
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
@@ -134,6 +138,7 @@ fn main() -> anyhow::Result<()> {
     ui.set_font_choices(ModelRc::new(VecModel::from(
         std::iter::once(SYSTEM_FONT).chain(FONTS.iter().copied()).map(slint::SharedString::from).collect::<Vec<_>>(),
     )));
+    routing_ui::install(&ui, &app);
     {
         let st = app.lock().unwrap();
         apply_appearance(&ui, &st.store.settings);
@@ -511,8 +516,30 @@ fn main() -> anyhow::Result<()> {
             ui.set_settings_open(true);
             let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
             slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
-                snapshot(ui_weak.unwrap().window(), &prefix.with_extension("settings.png"));
-                let _ = slint::quit_event_loop();
+                let ui = ui_weak.unwrap();
+                snapshot(ui.window(), &prefix.with_extension("settings.png"));
+                ui.set_settings_open(false);
+                ui.set_routing_open(true);
+                // Hide the long games list so the apps block fits in the shot.
+                ui.set_routing_games(ModelRc::new(VecModel::from(Vec::<GameRow>::new())));
+                ui.set_routing_app_mode(1);
+                ui.invoke_routing_changed();
+                ui.invoke_routing_app_added("Steam".into());
+                ui.invoke_routing_pick_running();
+                ui.set_routing_picking(true);
+                let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                    let ui = ui_weak.unwrap();
+                    snapshot(ui.window(), &prefix.with_extension("routing.png"));
+                    ui.set_routing_advanced(true);
+                    ui.invoke_routing_changed();
+                    ui.invoke_routing_add_rule();
+                    let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                    slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                        snapshot(ui_weak.unwrap().window(), &prefix.with_extension("routing-advanced.png"));
+                        let _ = slint::quit_event_loop();
+                    });
+                });
             });
         });
     }
@@ -584,10 +611,19 @@ fn restore_selection_in_current(ui: &AppWindow, st: &App) {
 
 /// While connected, picking another server switches the connection to it.
 fn follow_selection(ui: &AppWindow, app: &Shared) {
+    switch_connection(ui, app, false);
+}
+
+/// Restarts the active connection (e.g. the routing changed).
+fn reconnect(ui: &AppWindow, app: &Shared) {
+    switch_connection(ui, app, true);
+}
+
+fn switch_connection(ui: &AppWindow, app: &Shared, force: bool) {
     let mut st = app.lock().unwrap();
     let Some(wanted) = server_key(ui, &st) else { return };
     let ConnState::Connected { key, .. } = &st.conn_state else { return };
-    if *key == wanted {
+    if *key == wanted && !force {
         return;
     }
     let name = selected_server(ui, &st).map(|s| display_name(&s.name).1).unwrap_or_default();
@@ -646,8 +682,10 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     let generation = st.conn_gen;
     st.conn_state = ConnState::Connecting { name: name.clone() };
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
+    let routing = st.store.settings.routing.clone();
     render(ui, &st);
     drop(st);
+    let geo = routing_ui::geo_dir(app);
 
     let on_failure = {
         let (ui_weak, app) = (ui.as_weak(), app.clone());
@@ -658,12 +696,20 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     };
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let result = connection::connect(&server, &run_dir, on_failure);
+        let result = connection::connect(&server, &run_dir, &routing, &geo, on_failure);
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Connecting { .. });
             match result {
                 Ok(conn) if still_wanted => {
+                    ui.set_routing_warnings(
+                        if conn.warnings.is_empty() {
+                            String::new()
+                        } else {
+                            format!("Не применено: {}", conn.warnings.join(", "))
+                        }
+                        .into(),
+                    );
                     st.conn_state = ConnState::Connected { name, tun: conn.tun.clone(), key };
                     st.conn = Some(conn);
                     st.live_ping = None;
@@ -855,6 +901,7 @@ fn render(ui: &AppWindow, st: &App) {
     ui.set_conn_ping_text(live_text.into());
     ui.set_conn_ping_level(live_level);
     ui.set_can_connect(selected_server(ui, st).is_some());
+    ui.set_show_buy(!st.store.subscriptions.iter().any(is_active_dualizm));
 
     let Some(sub) = current(ui, st) else {
         ui.set_servers(ModelRc::new(VecModel::from(Vec::<ServerRow>::new())));
@@ -1027,6 +1074,16 @@ fn date(unix: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{d:02}.{m:02}.{y}")
+}
+
+/// A DUALIZM subscription that still works: has servers and has not expired.
+fn is_active_dualizm(sub: &Subscription) -> bool {
+    let host = url::Url::parse(&sub.url).ok().and_then(|u| u.host_str().map(str::to_lowercase)).unwrap_or_default();
+    let ours = host == "dualizm.space"
+        || host.ends_with(".dualizm.space")
+        || sub.info.title.as_deref().is_some_and(|t| t.to_uppercase().contains("DUALIZM"));
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    ours && !sub.servers.is_empty() && sub.info.expire.is_none_or(|e| e == 0 || e > now)
 }
 
 fn first_line(s: &str) -> String {

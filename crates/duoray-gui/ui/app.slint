@@ -143,6 +143,9 @@ global Icons {
     out property <string> expand-less: "m12 8-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z";
     out property <string> sort: "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z";
     out property <string> add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z";
+    out property <string> arrow-up: "M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z";
+    out property <string> arrow-down: "M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z";
+    out property <string> delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
     out property <string> speed: "m20.38 8.57-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z";
 }
 
@@ -697,6 +700,539 @@ component SettingsPage inherits Rectangle {
     }
 }
 
+// ── Routing ────────────────────────────────────────────────────
+
+export struct GameRow {
+    id: string,
+    title: string,
+    subtitle: string,
+    on: bool,
+}
+
+// One advanced rule; lists are free text, parsed by the app.
+export struct RuleRow {
+    enabled: bool,
+    // 0 via VPN, 1 direct, 2 block
+    action: int,
+    domains: string,
+    ips: string,
+    ports: string,
+    // 0 TCP+UDP, 1 TCP, 2 UDP
+    network: int,
+}
+
+component RuleCard inherits Rectangle {
+    in property <RuleRow> rule;
+    in property <int> index;
+    in property <bool> first;
+    in property <bool> last;
+    callback edited(RuleRow);
+    callback move(int);
+    callback remove();
+    background: Palette.background;
+    border-radius: 10px;
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: root.rule.enabled;
+                    toggled => {
+                        root.edited({ enabled: self.checked, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
+                    }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: "Правило " + (root.index + 1);
+                font-size: 14px * Theme.text-scale;
+                font-weight: 700;
+                vertical-alignment: center;
+                color: root.rule.enabled ? Palette.foreground : Theme.muted;
+            }
+            IconButton {
+                icon: Icons.arrow-up;
+                enabled: !root.first;
+                clicked => {
+                    root.move(-1);
+                }
+            }
+            IconButton {
+                icon: Icons.arrow-down;
+                enabled: !root.last;
+                clicked => {
+                    root.move(1);
+                }
+            }
+            IconButton {
+                icon: Icons.delete;
+                tint: Theme.danger;
+                clicked => {
+                    root.remove();
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            ComboBox {
+                height: 36px;
+                horizontal-stretch: 1;
+                model: ["Через VPN", "Напрямую", "Блокировать"];
+                current-index: root.rule.action;
+                selected => {
+                    root.edited({ enabled: root.rule.enabled, action: self.current-index, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
+                }
+            }
+            ComboBox {
+                height: 36px;
+                horizontal-stretch: 1;
+                model: ["TCP и UDP", "Только TCP", "Только UDP"];
+                current-index: root.rule.network;
+                selected => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: self.current-index });
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            FieldLabel {
+                text: "Домены";
+                width: 70px;
+            }
+            domains := TextField {
+                text: root.rule.domains;
+                placeholder: "youtube.com, geosite:google, keyword:ozon";
+                edited => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: domains.text, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            FieldLabel {
+                text: "IP";
+                width: 70px;
+            }
+            ips := TextField {
+                text: root.rule.ips;
+                placeholder: "1.2.3.4, 10.0.0.0/8, geoip:ru";
+                edited => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: ips.text, ports: root.rule.ports, network: root.rule.network });
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            FieldLabel {
+                text: "Порты";
+                width: 70px;
+            }
+            ports := TextField {
+                text: root.rule.ports;
+                placeholder: "443, 27000-27100";
+                edited => {
+                    root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: ports.text, network: root.rule.network });
+                }
+            }
+        }
+    }
+}
+
+component RoutingPage inherits Rectangle {
+    background: Palette.background;
+
+    in-out property <bool> advanced;
+    in-out property <bool> lan;
+    in-out property <bool> ru;
+    in-out property <bool> whitelist;
+    in property <[GameRow]> games;
+    in property <[string]> profiles;
+    in-out property <int> profile-index;
+    in-out property <string> profile-name;
+    in property <[RuleRow]> rules;
+    in-out property <int> default-action;
+    in-out property <bool> keep-panel: true;
+    in-out property <string> domain-strategy: "Как в подписке";
+    in property <string> geo-status;
+    in property <bool> geo-busy;
+    in property <string> warnings;
+    // 0 off, 1 listed apps bypass the VPN, 2 only listed apps use it
+    in-out property <int> app-mode;
+    in property <[string]> apps;
+    in property <[string]> running;
+    in-out property <bool> picking;
+
+    // Any switch or profile field changed; the app reads the properties.
+    callback changed();
+    callback game-toggled(int, bool);
+    callback rule-edited(int, RuleRow);
+    callback rule-moved(int, int);
+    callback rule-removed(int);
+    callback add-rule();
+    callback add-profile();
+    callback remove-profile();
+    callback select-profile(int);
+    callback update-geo();
+    callback app-added(string);
+    callback app-removed(int);
+    callback pick-running();
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            alignment: start;
+
+            Text {
+                text: "Маршрутизация";
+                font-size: 24px * Theme.text-scale;
+                font-weight: 800;
+            }
+            Text {
+                text: "Что пускать мимо VPN. «Напрямую» — значит с вашим обычным интернетом и IP. Всё остальное идёт так, как настроено в подписке.";
+                font-size: 12px * Theme.text-scale;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+
+            SettingsCard {
+                ToggleRow {
+                    title: "Продвинутый режим";
+                    description: "Свои правила по доменам, IP и портам, несколько профилей. Для тех, кто знает, что такое geosite и CIDR.";
+                    checked <=> root.advanced;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+            }
+
+            if !root.advanced: VerticalLayout {
+                spacing: 12px;
+                SectionLabel {
+                    text: "НАПРЯМУЮ";
+                }
+                SettingsCard {
+                    ToggleRow {
+                        title: "Российские сайты";
+                        description: "Все российские IP-адреса и сайты .ru, .рф, .su: Госуслуги, банки, маркетплейсы, видео. Они видят вас как обычно и работают быстрее.";
+                        checked <=> root.ru;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Белый список";
+                        description: "Только сайты из белых списков мобильных операторов — те, что открываются даже при ограничениях мобильного интернета. Остальные российские сайты пойдут через VPN.";
+                        checked <=> root.whitelist;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Локальная сеть";
+                        description: "Роутер, принтеры, NAS и другие устройства дома или в офисе.";
+                        checked <=> root.lan;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                }
+
+                SectionLabel {
+                    text: "ИГРЫ НАПРЯМУЮ";
+                }
+                SettingsCard {
+                    for g[i] in root.games: VerticalLayout {
+                        spacing: 14px;
+                        if i > 0: Divider { }
+                        ToggleRow {
+                            title: g.title;
+                            description: g.subtitle;
+                            checked: g.on;
+                            toggled => {
+                                root.game-toggled(i, self.checked);
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: "Игры напрямую — минимальный пинг до игровых серверов. Если игра или магазин заблокированы у провайдера, оставьте их через VPN.";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.advanced: VerticalLayout {
+                spacing: 12px;
+                SectionLabel {
+                    text: "ПРОФИЛЬ";
+                }
+                SettingsCard {
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ComboBox {
+                            height: 36px;
+                            horizontal-stretch: 1;
+                            model: root.profiles;
+                            current-index <=> root.profile-index;
+                            selected => {
+                                root.select-profile(self.current-index);
+                            }
+                        }
+                        Button {
+                            text: "Новый";
+                            clicked => {
+                                root.add-profile();
+                            }
+                        }
+                        Button {
+                            text: "Удалить";
+                            enabled: root.profiles.length > 1;
+                            clicked => {
+                                root.remove-profile();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Название";
+                        }
+                        TextField {
+                            text <=> root.profile-name;
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Остальной трафик";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["Через VPN", "Напрямую", "Блокировать"];
+                            current-index <=> root.default-action;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Domain strategy";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["Как в подписке", "AsIs", "IPIfNonMatch", "IPOnDemand"];
+                            current-value <=> root.domain-strategy;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Правила подписки";
+                        description: "После ваших правил применять правила из подписки. Если выключить, работают только ваши.";
+                        checked <=> root.keep-panel;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    SectionLabel {
+                        text: "ПРАВИЛА";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: "Добавить правило";
+                        clicked => {
+                            root.add-rule();
+                        }
+                    }
+                }
+                if root.rules.length == 0: Text {
+                    text: "Правил нет. Пример: «Напрямую» + домены «geosite:category-ru» или IP «geoip:ru».";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                for r[i] in root.rules: RuleCard {
+                    rule: r;
+                    index: i;
+                    first: i == 0;
+                    last: i == root.rules.length - 1;
+                    edited(row) => {
+                        root.rule-edited(i, row);
+                    }
+                    move(d) => {
+                        root.rule-moved(i, d);
+                    }
+                    remove => {
+                        root.rule-removed(i);
+                    }
+                }
+                Text {
+                    text: "Правила проверяются сверху вниз, срабатывает первое подходящее. Домены: example.com (с поддоменами), full:, keyword:, regexp:, geosite:… IP: адреса, подсети, geoip:ru, geoip:ru-whitelist, geoip:private. Через запятую.";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            SectionLabel {
+                text: "ПРИЛОЖЕНИЯ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Режим";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["Выключено", "Эти программы — мимо VPN", "Только эти программы — через VPN"];
+                        current-index <=> root.app-mode;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                Text {
+                    text: root.app-mode == 0 ? "Все программы идут по правилам выше."
+                        : root.app-mode == 1 ? "Выбранные программы работают с вашим обычным IP: например, Steam и игры, банковские приложения, торренты."
+                        : "Через VPN идут только выбранные программы, всё остальное — напрямую.";
+                    font-size: 12px * Theme.text-scale;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.app-mode != 0: VerticalLayout {
+                    spacing: 8px;
+                    for a[i] in root.apps: HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: a;
+                            font-size: 13px * Theme.text-scale;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        IconButton {
+                            icon: Icons.delete;
+                            tint: Theme.danger;
+                            clicked => {
+                                root.app-removed(i);
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        new-app := TextField {
+                            placeholder: "steam.exe, Telegram или путь";
+                        }
+                        Button {
+                            text: "Добавить";
+                            enabled: new-app.text != "";
+                            clicked => {
+                                root.app-added(new-app.text);
+                                new-app.text = "";
+                            }
+                        }
+                        Button {
+                            text: root.picking ? "Скрыть" : "Из запущенных";
+                            clicked => {
+                                if (!root.picking) {
+                                    root.pick-running();
+                                }
+                                root.picking = !root.picking;
+                            }
+                        }
+                    }
+                    if root.picking: Rectangle {
+                        height: 240px;
+                        border-radius: 8px;
+                        background: Palette.background;
+                        ListView {
+                            for name in root.running: Rectangle {
+                                height: 32px;
+                                background: pick-touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+                                Text {
+                                    x: 12px;
+                                    width: parent.width - 24px;
+                                    height: parent.height;
+                                    text: name;
+                                    font-size: 13px * Theme.text-scale;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                pick-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.app-added(name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.warnings != "": Text {
+                text: root.warnings;
+                font-size: 12px * Theme.text-scale;
+                color: Theme.warn;
+                wrap: word-wrap;
+            }
+
+            SectionLabel {
+                text: "БАЗЫ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Российские IP, белые списки, серверы игр";
+                            font-size: 14px * Theme.text-scale;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: root.geo-status;
+                            font-size: 12px * Theme.text-scale;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: root.geo-busy ? "Обновление…" : "Обновить";
+                            enabled: !root.geo-busy;
+                            clicked => {
+                                root.update-geo();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "DUORAY";
     icon: @image-url("assets/duoray-icon.svg");
@@ -733,6 +1269,44 @@ export component AppWindow inherits Window {
     // Index of the subscription whose delete button awaits confirmation.
     in-out property <int> confirm-remove-index: -1;
     in-out property <bool> settings-open;
+    in-out property <bool> routing-open;
+    // No active DUALIZM subscription: offer to buy one.
+    in property <bool> show-buy;
+
+    // Routing page (aliases into it).
+    in-out property <bool> routing-advanced <=> routing-page.advanced;
+    in-out property <bool> routing-lan <=> routing-page.lan;
+    in-out property <bool> routing-ru <=> routing-page.ru;
+    in-out property <bool> routing-whitelist <=> routing-page.whitelist;
+    in-out property <[GameRow]> routing-games <=> routing-page.games;
+    in-out property <[string]> routing-profiles <=> routing-page.profiles;
+    in-out property <int> routing-profile-index <=> routing-page.profile-index;
+    in-out property <string> routing-profile-name <=> routing-page.profile-name;
+    in-out property <[RuleRow]> routing-rules <=> routing-page.rules;
+    in-out property <int> routing-default-action <=> routing-page.default-action;
+    in-out property <bool> routing-keep-panel <=> routing-page.keep-panel;
+    in-out property <string> routing-domain-strategy <=> routing-page.domain-strategy;
+    in-out property <string> routing-geo-status <=> routing-page.geo-status;
+    in-out property <bool> routing-geo-busy <=> routing-page.geo-busy;
+    in-out property <string> routing-warnings <=> routing-page.warnings;
+    callback routing-changed <=> routing-page.changed;
+    callback routing-game-toggled <=> routing-page.game-toggled;
+    callback routing-rule-edited <=> routing-page.rule-edited;
+    callback routing-rule-moved <=> routing-page.rule-moved;
+    callback routing-rule-removed <=> routing-page.rule-removed;
+    callback routing-add-rule <=> routing-page.add-rule;
+    callback routing-add-profile <=> routing-page.add-profile;
+    callback routing-remove-profile <=> routing-page.remove-profile;
+    callback routing-select-profile <=> routing-page.select-profile;
+    callback routing-update-geo <=> routing-page.update-geo;
+    in-out property <int> routing-app-mode <=> routing-page.app-mode;
+    in-out property <[string]> routing-apps <=> routing-page.apps;
+    in-out property <[string]> routing-running <=> routing-page.running;
+    in-out property <bool> routing-picking <=> routing-page.picking;
+    callback routing-app-added <=> routing-page.app-added;
+    callback routing-app-removed <=> routing-page.app-removed;
+    callback routing-pick-running <=> routing-page.pick-running;
+    callback buy();
 
     // Settings page (aliases into it).
     in-out property <bool> happ-enabled <=> settings-page.happ-enabled;
@@ -882,6 +1456,7 @@ export component AppWindow inherits Window {
                                         clicked => {
                                             add-menu.close();
                                             root.settings-open = false;
+                                            root.routing-open = false;
                                             root.add-from-clipboard();
                                         }
                                     }
@@ -890,6 +1465,7 @@ export component AppWindow inherits Window {
                                         clicked => {
                                             add-menu.close();
                                             root.settings-open = false;
+                                            root.routing-open = false;
                                             root.add-error = "";
                                             root.adding = true;
                                         }
@@ -925,6 +1501,7 @@ export component AppWindow inherits Window {
                                     root.confirm-remove-index = -1;
                                     // Picking a subscription always shows its servers.
                                     root.settings-open = false;
+                                    root.routing-open = false;
                                     root.select-sub(i);
                                 }
                             }
@@ -1012,6 +1589,47 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                if root.show-buy: Rectangle {
+                    height: 44px;
+                    border-radius: Theme.radius;
+                    background: buy-touch.has-hover ? Palette.accent-background.brighter(10%) : Palette.accent-background;
+                    animate background { duration: 120ms; }
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        spacing: 6px;
+                        Text {
+                            text: "Нет VPN?";
+                            color: Palette.accent-foreground.with-alpha(0.75);
+                            font-size: 13px * Theme.text-scale;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "Купить DUALIZM";
+                            color: Palette.accent-foreground;
+                            font-size: 13px * Theme.text-scale;
+                            font-weight: 800;
+                            vertical-alignment: center;
+                        }
+                        Path {
+                            commands: Icons.send;
+                            viewbox-width: 24;
+                            viewbox-height: 24;
+                            width: 16px;
+                            height: 16px;
+                            y: (parent.height - self.height) / 2;
+                            fill: Palette.accent-foreground;
+                        }
+                    }
+                    buy-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.buy();
+                        }
+                    }
+                }
+
                 // Connection card
                 Rectangle {
                     border-radius: Theme.radius;
@@ -1074,14 +1692,28 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Button {
-                    text: root.settings-open ? "← К серверам" : "Настройки";
-                    primary: root.settings-open;
-                    clicked => {
-                        if (!root.settings-open) {
-                            root.open-settings();
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        horizontal-stretch: 1;
+                        text: root.routing-open ? "← К серверам" : "Маршрутизация";
+                        primary: root.routing-open;
+                        clicked => {
+                            root.settings-open = false;
+                            root.routing-open = !root.routing-open;
                         }
-                        root.settings-open = !root.settings-open;
+                    }
+                    Button {
+                        horizontal-stretch: 1;
+                        text: root.settings-open ? "← К серверам" : "Настройки";
+                        primary: root.settings-open;
+                        clicked => {
+                            if (!root.settings-open) {
+                                root.open-settings();
+                            }
+                            root.routing-open = false;
+                            root.settings-open = !root.settings-open;
+                        }
                     }
                 }
                 Text {
@@ -1096,14 +1728,18 @@ export component AppWindow inherits Window {
         // ── Main: servers or settings ───────────────────────────
         Rectangle {
         horizontal-stretch: 74;
+        routing-page := RoutingPage {
+            visible: root.routing-open;
+        }
         settings-page := SettingsPage {
             visible: root.settings-open;
             back => {
                 root.settings-open = false;
+                root.routing-open = false;
             }
         }
         VerticalLayout {
-            visible: !root.settings-open;
+            visible: !root.settings-open && !root.routing-open;
             padding: 22px;
             spacing: 14px;
 

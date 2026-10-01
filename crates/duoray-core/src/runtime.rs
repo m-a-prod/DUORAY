@@ -1,19 +1,21 @@
 //! Turns a subscription entry into the config xray actually runs.
 //!
 //! The subscription author's config is kept intact (routing, DNS, balancers,
-//! observatory, bridges). Only three things change:
+//! observatory, bridges). Only these things change:
 //! 1. `inbounds` become one password-protected SOCKS inbound on loopback,
 //!    tagged `socks` like the panel's own, so its routing rules still apply;
 //! 2. every outbound that dials the network is bound to the physical
 //!    interface, otherwise `direct` traffic would loop back into the TUN;
 //! 3. server hostnames are resolved now, before the TUN exists (SNI/Host keep
-//!    the name), and those IPs are routed around the TUN.
+//!    the name), and those IPs are routed around the TUN;
+//! 4. the user's routing (see [`crate::routing`]) is merged into the panel's.
 
 use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
+use crate::routing::{self, GeoData, RoutingSettings};
 use crate::server::{Server, Source};
 use crate::xray;
 
@@ -23,12 +25,22 @@ pub struct Runtime {
     pub user: String,
     pub pass: String,
     pub bypass: Vec<IpAddr>,
+    /// SOCKS inbound whose traffic always goes direct (per-app bypass).
+    pub direct_socks: Option<SocketAddr>,
+    /// Routing entries that were skipped (e.g. a missing geo database).
+    pub warnings: Vec<String>,
+}
+
+/// User routing to merge into the config.
+pub struct Routing<'a> {
+    pub settings: &'a RoutingSettings,
+    pub geo: &'a GeoData,
 }
 
 const SERVICE_PROTOCOLS: &[&str] = &["freedom", "blackhole", "dns", "loopback"];
 
-pub fn build(server: &Server, iface: &str) -> Result<Runtime> {
-    build_with(server, iface, |host| {
+pub fn build(server: &Server, iface: &str, routing: Option<Routing>) -> Result<Runtime> {
+    build_with(server, iface, routing, |host| {
         (host, 0)
             .to_socket_addrs()
             .with_context(|| format!("cannot resolve {host}"))?
@@ -41,11 +53,16 @@ pub fn build(server: &Server, iface: &str) -> Result<Runtime> {
 pub fn build_with(
     server: &Server,
     iface: &str,
+    routing: Option<Routing>,
     mut resolve: impl FnMut(&str) -> Result<IpAddr>,
 ) -> Result<Runtime> {
     let mut config = match &server.source {
         Source::Json(v) => v.clone(),
         Source::Link(p) => xray::config_from_profile(p),
+    };
+    let warnings = match &routing {
+        Some(r) => routing::apply(&mut config, r.settings, r.geo),
+        None => vec![],
     };
 
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
@@ -72,6 +89,15 @@ pub fn build_with(
         },
         "sniffing": sniffing
     }]);
+    let mut direct_socks = None;
+    if routing.as_ref().is_some_and(|r| r.settings.apps.active()) {
+        let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+        let mut inbound = config["inbounds"][0].clone();
+        inbound["tag"] = json!(routing::DIRECT_INBOUND);
+        inbound["port"] = json!(port);
+        config["inbounds"].as_array_mut().unwrap().push(inbound);
+        direct_socks = Some(SocketAddr::from(([127, 0, 0, 1], port)));
+    }
 
     let mut bypass = vec![];
     let Some(outbounds) = config["outbounds"].as_array_mut() else {
@@ -100,7 +126,7 @@ pub fn build_with(
     bypass.sort();
     bypass.dedup();
 
-    Ok(Runtime { config, socks, user, pass, bypass })
+    Ok(Runtime { config, socks, user, pass, bypass, direct_socks, warnings })
 }
 
 /// Replaces hostnames in an outbound's server list with IPs, keeping the name
@@ -181,7 +207,7 @@ mod tests {
             ],
             "routing": {"balancers": [{"tag": "b", "selector": ["proxy"]}]}
         }));
-        let rt = build_with(&s, "en0", |h| {
+        let rt = build_with(&s, "en0", None, |h| {
             assert_eq!(h, "se.example.com");
             Ok("1.2.3.4".parse().unwrap())
         })
@@ -213,9 +239,30 @@ mod tests {
     #[test]
     fn link_server_gets_full_config() {
         let p = crate::link::parse("vless://id@5.6.7.8:443?security=reality&pbk=K&sni=a.b&type=tcp#L").unwrap();
-        let rt = build_with(&Server::from_link(p), "en0", |_| unreachable!()).unwrap();
+        let rt = build_with(&Server::from_link(p), "en0", None, |_| unreachable!()).unwrap();
         assert_eq!(rt.config["outbounds"][0]["protocol"], "vless");
         assert_eq!(rt.config["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"], "K");
         assert_eq!(rt.bypass, vec!["5.6.7.8".parse::<IpAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn routing_binds_direct_and_adds_bypass_inbound() {
+        let p = crate::link::parse("vless://id@5.6.7.8:443?security=reality&pbk=K&sni=a.b&type=tcp#L").unwrap();
+        let settings = RoutingSettings {
+            apps: crate::routing::AppRouting { mode: crate::routing::AppMode::Bypass, apps: vec!["curl".into()] },
+            ..Default::default()
+        };
+        let geo = GeoData::load(None, None);
+        let rt = build_with(&Server::from_link(p), "en0", Some(Routing { settings: &settings, geo: &geo }), |_| {
+            unreachable!()
+        })
+        .unwrap();
+        let c = &rt.config;
+        let direct = c["outbounds"].as_array().unwrap().iter().find(|o| o["tag"] == routing::DIRECT_TAG).unwrap();
+        assert_eq!(direct["streamSettings"]["sockopt"]["interface"], "en0");
+        assert_eq!(c["inbounds"][1]["tag"], routing::DIRECT_INBOUND);
+        assert_eq!(c["inbounds"][1]["settings"]["accounts"][0]["pass"], rt.pass.as_str());
+        assert_eq!(rt.direct_socks.unwrap().port(), c["inbounds"][1]["port"].as_u64().unwrap() as u16);
+        assert_eq!(rt.warnings, ["нет базы для geoip:private"], "no geo files in tests");
     }
 }

@@ -33,6 +33,7 @@ pub struct Settings {
     pub font: String,
     /// "dark" (default), "light" or "system".
     pub theme: String,
+    pub routing: crate::routing::RoutingSettings,
 }
 
 impl Default for Settings {
@@ -45,6 +46,7 @@ impl Default for Settings {
             text_scale: 100,
             font: String::new(),
             theme: "dark".into(),
+            routing: Default::default(),
         }
     }
 }

@@ -189,7 +189,7 @@ fn http(
     worker: usize,
 ) -> Result<Duration> {
     let Some(iface) = iface else { bail!("нет подключения к сети") };
-    let rt = runtime::build(server, iface)?;
+    let rt = runtime::build(server, iface, None)?;
     std::fs::create_dir_all(run_dir)?;
     let config = run_dir.join(format!("ping-{worker}.json"));
     connection::write_private(&config, &serde_json::to_vec(&rt.config)?)?;

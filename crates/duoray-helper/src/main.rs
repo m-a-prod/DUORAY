@@ -277,6 +277,11 @@ async fn start(req: TunRequest) -> Result<(Session, String)> {
         bypass: req.bypass,
         ..Default::default()
     };
+    if let Some(a) = req.apps {
+        cfg.direct_socks = Some(Socks5 { server: a.direct_socks, auth: cfg.socks.auth.clone() });
+        let mode = if a.only { duotun::process::AppMode::Only } else { duotun::process::AppMode::Bypass };
+        cfg.apps = Some(duotun::process::AppRules { mode, apps: a.apps });
+    }
     // Wintun adapters are addressed by name; give ours a recognizable one.
     if cfg!(windows) {
         cfg.tun_name = Some("DUORAY".into());
@@ -338,6 +343,14 @@ fn validate(req: &TunRequest) -> Result<()> {
     }
     if req.bypass.len() > 256 {
         bail!("too many bypass addresses");
+    }
+    if let Some(a) = &req.apps {
+        if !a.direct_socks.ip().is_loopback() {
+            bail!("direct SOCKS address must be loopback, got {}", a.direct_socks);
+        }
+        if a.apps.len() > 256 || a.apps.iter().any(|n| n.len() > 1024) {
+            bail!("app list too long");
+        }
     }
     Ok(())
 }

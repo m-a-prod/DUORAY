@@ -4,7 +4,7 @@ use std::io::BufReader;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use duoray_core::helper_proto::{self, PROTOCOL, Request, Response, TunRequest};
+use duoray_core::helper_proto::{self, MIN_PROTOCOL, PROTOCOL, Request, Response, TunRequest};
 
 #[derive(Debug)]
 pub enum OpenError {
@@ -26,15 +26,17 @@ type Conn = std::fs::File;
 pub struct HelperSession {
     conn: BufReader<Conn>,
     pub version: String,
+    pub protocol: u32,
 }
 
 impl HelperSession {
     pub fn open() -> Result<Self, OpenError> {
         let conn = connect().map_err(|_| OpenError::Missing)?;
-        let mut s = Self { conn: BufReader::new(conn), version: String::new() };
+        let mut s = Self { conn: BufReader::new(conn), version: String::new(), protocol: 0 };
         match s.call(&Request::Hello) {
-            Ok(Response::Hello { protocol, version }) if protocol == PROTOCOL => {
+            Ok(Response::Hello { protocol, version }) if (MIN_PROTOCOL..=PROTOCOL).contains(&protocol) => {
                 s.version = version;
+                s.protocol = protocol;
                 Ok(s)
             }
             Ok(Response::Hello { version, .. }) => Err(OpenError::Outdated(version)),

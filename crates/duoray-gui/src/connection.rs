@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use duoray_core::helper_proto::TunRequest;
+use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, TunRequest};
+use duoray_core::routing::AppMode;
+use duoray_core::geo::GeoDir;
+use duoray_core::routing::{GeoData, RoutingSettings};
 use duoray_core::runtime;
 use duoray_core::server::Server;
 
@@ -47,12 +50,16 @@ pub struct Connection {
     pub socks: SocketAddr,
     pub user: String,
     pub pass: String,
+    /// Routing entries that could not be applied (shown on the routing page).
+    pub warnings: Vec<String>,
 }
 
 /// `on_failure` is called (from another thread) if the TUN or xray dies.
 pub fn connect(
     server: &Server,
     run_dir: &Path,
+    routing: &RoutingSettings,
+    geo: &GeoDir,
     on_failure: impl Fn(String) + Send + Sync + Clone + 'static,
 ) -> Result<Connection, ConnectError> {
     let mut helper = HelperSession::open().map_err(|e| match e {
@@ -61,15 +68,25 @@ pub fn connect(
         OpenError::Other(e) => ConnectError::Other(e),
     })?;
 
+    // Per-app routing needs a helper that knows it.
+    if routing.apps.active() && helper.protocol < PROTOCOL_APPS {
+        return Err(ConnectError::HelperOutdated(helper.version.clone()));
+    }
     let iface = physical_interface()?;
-    let rt = runtime::build(server, &iface).context("preparing xray config")?;
+    // Fresh databases if downloaded, else the ones shipped with xray (then
+    // tags missing there, like geoip:ru-whitelist, are skipped).
+    let assets = geo.assets().map(Path::to_path_buf).or_else(|| find_xray().ok().and_then(|(_, a)| a));
+    let geo_data = GeoData::load(assets.as_deref(), Some(&geo.lists()));
+    let rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
+        .context("preparing xray config")?;
+    let warnings = rt.warnings.clone();
 
     std::fs::create_dir_all(run_dir)?;
     kill_stale_xray(run_dir);
     let config_path = run_dir.join("xray.json");
     write_private(&config_path, &serde_json::to_vec_pretty(&rt.config)?)?;
     let log_path = run_dir.join("xray.log");
-    let mut child = spawn_xray(&config_path, &log_path)?;
+    let mut child = spawn_xray(&config_path, &log_path, assets.as_deref())?;
     let _ = std::fs::write(run_dir.join("xray.pid"), child.id().to_string());
 
     if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(10)) {
@@ -85,6 +102,11 @@ pub fn connect(
         pass: rt.pass,
         bypass: rt.bypass,
         ipv6: true,
+        apps: rt.direct_socks.map(|direct_socks| AppsRequest {
+            only: routing.apps.mode == AppMode::Only,
+            apps: routing.apps.apps.clone(),
+            direct_socks,
+        }),
     }) {
         Ok(t) => t,
         Err(e) => {
@@ -127,7 +149,7 @@ pub fn connect(
         }
     });
 
-    Ok(Connection { helper, xray, closing, tun, socks, user, pass })
+    Ok(Connection { helper, xray, closing, tun, socks, user, pass, warnings })
 }
 
 impl Connection {
@@ -322,8 +344,8 @@ pub fn find_xray() -> Result<(PathBuf, Option<PathBuf>)> {
     Ok((bin, assets))
 }
 
-fn spawn_xray(config: &Path, log: &Path) -> Result<Child> {
-    let (bin, assets) = find_xray()?;
+fn spawn_xray(config: &Path, log: &Path, assets: Option<&Path>) -> Result<Child> {
+    let (bin, _) = find_xray()?;
     let log_file = std::fs::File::create(log)?;
     let mut cmd = Command::new(bin);
     hidden(&mut cmd);

@@ -1192,6 +1192,7 @@ dependencies = [
  "slint-build",
  "socket2",
  "ureq",
+ "url",
  "windows-sys 0.61.2",
 ]
 
@@ -1224,6 +1225,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tun-rs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
