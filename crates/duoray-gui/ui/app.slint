@@ -353,6 +353,8 @@ component SettingsPage inherits Rectangle {
     in-out property <string> font-choice: "Системный";
     in-out property <string> theme-choice: "Тёмная";
     in property <[string]> font-choices: ["Системный"];
+    in-out property <bool> hysteria-restart;
+    in-out property <string> hysteria-minutes: "5";
 
     // Fired on every edit; the app saves (debounced), no Save button.
     callback changed();
@@ -657,6 +659,29 @@ component SettingsPage inherits Rectangle {
                 text: "ПОДКЛЮЧЕНИЕ";
             }
             SettingsCard {
+                ToggleRow {
+                    title: "Перезапускать Hysteria2";
+                    description: "Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения.";
+                    checked <=> root.hysteria-restart;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                if root.hysteria-restart: HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel {
+                        text: "Каждые, минут";
+                    }
+                    ComboBox {
+                        height: 36px;
+                        model: ["1", "2", "3", "5", "10", "15", "30", "60"];
+                        current-value <=> root.hysteria-minutes;
+                        selected => {
+                            root.changed();
+                        }
+                    }
+                }
+                Divider { }
                 HorizontalLayout {
                     spacing: 12px;
                     VerticalLayout {
@@ -1328,6 +1353,8 @@ export component AppWindow inherits Window {
     in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
     in-out property <string> font-choice <=> settings-page.font-choice;
     in-out property <string> theme-choice <=> settings-page.theme-choice;
+    in-out property <bool> hysteria-restart <=> settings-page.hysteria-restart;
+    in-out property <string> hysteria-minutes <=> settings-page.hysteria-minutes;
     // 0 = follow the system, 1 = dark, 2 = light.
     in property <int> theme-mode: 1;
     changed theme-mode => {

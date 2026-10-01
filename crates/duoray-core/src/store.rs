@@ -34,6 +34,10 @@ pub struct Settings {
     /// "dark" (default), "light" or "system".
     pub theme: String,
     pub routing: crate::routing::RoutingSettings,
+    /// Restart xray every `hysteria_restart_minutes` while connected through
+    /// Hysteria (it can stall after a while; a fresh xray revives it).
+    pub hysteria_restart: bool,
+    pub hysteria_restart_minutes: u32,
 }
 
 impl Default for Settings {
@@ -47,6 +51,8 @@ impl Default for Settings {
             font: String::new(),
             theme: "dark".into(),
             routing: Default::default(),
+            hysteria_restart: false,
+            hysteria_restart_minutes: 5,
         }
     }
 }

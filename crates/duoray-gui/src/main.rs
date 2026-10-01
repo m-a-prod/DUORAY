@@ -88,6 +88,9 @@ struct App {
     ping_progress: Option<(usize, usize)>,
     /// Bumped per transient status message, so an old timer never clears a newer one.
     status_gen: u64,
+    /// When the current xray was started (for the periodic Hysteria restart).
+    xray_started: Option<std::time::Instant>,
+    xray_restarting: bool,
 }
 
 enum ConnState {
@@ -130,6 +133,8 @@ fn main() -> anyhow::Result<()> {
         live_ping_busy: false,
         ping_progress: None,
         status_gen: 0,
+        xray_started: None,
+        xray_restarting: false,
     }));
     let device = Arc::new(Device::detect());
 
@@ -266,6 +271,8 @@ fn main() -> anyhow::Result<()> {
             load_happ(&ui, &st.store.settings.happ);
             load_ping(&ui, &st.store.settings.ping);
             ui.set_send_device_info(st.store.settings.send_device_info);
+            ui.set_hysteria_restart(st.store.settings.hysteria_restart);
+            ui.set_hysteria_minutes(st.store.settings.hysteria_restart_minutes.to_string().into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
             let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
             ui.set_theme_choice(theme.into());
@@ -452,6 +459,16 @@ fn main() -> anyhow::Result<()> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mut st = app.lock().unwrap();
             measure_live_ping(&ui, &app, &mut st);
+        }
+    });
+
+    // Hysteria2 can stall after a while: optionally restart xray on a timer.
+    let hysteria_timer = slint::Timer::default();
+    hysteria_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(15), {
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            restart_hysteria_if_due(&ui, &app);
         }
     });
 
@@ -712,6 +729,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     );
                     st.conn_state = ConnState::Connected { name, tun: conn.tun.clone(), key };
                     st.conn = Some(conn);
+                    st.xray_started = Some(std::time::Instant::now());
                     st.live_ping = None;
                     // First reading right away, then every 5 s from the timer.
                     measure_live_ping(&ui, &app, &mut st);
@@ -1145,6 +1163,8 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.happ = read_happ(ui);
     st.store.settings.ping = read_ping(ui, &st.store.settings.ping);
     st.store.settings.send_device_info = ui.get_send_device_info();
+    st.store.settings.hysteria_restart = ui.get_hysteria_restart();
+    st.store.settings.hysteria_restart_minutes = ui.get_hysteria_minutes().parse().unwrap_or(5);
     let theme = ui.get_theme_choice();
     st.store.settings.theme = THEMES.iter().find(|t| t.1 == theme.as_str()).map_or("dark", |t| t.0).to_string();
     st.store.settings.text_scale = ui.get_text_scale_choice().trim_end_matches('%').parse().unwrap_or(100);
@@ -1171,6 +1191,42 @@ fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
     ui.set_theme_mode(mode);
     ui.global::<Theme>().set_text_scale(s.text_scale.clamp(80, 150) as f32 / 100.0);
     ui.set_font_family(s.font.clone().into());
+}
+
+fn restart_hysteria_if_due(ui: &AppWindow, app: &Shared) {
+    let mut st = app.lock().unwrap();
+    let settings = &st.store.settings;
+    let every = std::time::Duration::from_secs(u64::from(settings.hysteria_restart_minutes.max(1)) * 60);
+    let (true, false, Some(started), Some(conn), ConnState::Connected { .. }) =
+        (settings.hysteria_restart, st.xray_restarting, st.xray_started, &st.conn, &st.conn_state)
+    else {
+        return;
+    };
+    if !conn.hysteria || started.elapsed() < every {
+        return;
+    }
+    let job = conn.xray_restarter();
+    let generation = st.conn_gen;
+    st.xray_restarting = true;
+    drop(st);
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    std::thread::spawn(move || {
+        let result = job();
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            let mut st = app.lock().unwrap();
+            st.xray_restarting = false;
+            st.xray_started = Some(std::time::Instant::now());
+            if st.conn_gen != generation {
+                return;
+            }
+            let msg = match result {
+                Ok(()) => "Hysteria2 перезапущена".to_string(),
+                Err(e) => format!("Перезапуск Hysteria2 не удался: {}", first_line(&format!("{e:#}"))),
+            };
+            flash_status(&ui, &app, &mut st, msg);
+            render(&ui, &st);
+        });
+    });
 }
 
 /// Measures the active connection through xray's own SOCKS inbound (no extra

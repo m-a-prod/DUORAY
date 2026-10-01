@@ -52,6 +52,19 @@ pub struct Connection {
     pub pass: String,
     /// Routing entries that could not be applied (shown on the routing page).
     pub warnings: Vec<String>,
+    /// The config dials Hysteria somewhere (directly or in a balancer).
+    pub hysteria: bool,
+    respawn: Respawn,
+}
+
+/// Everything needed to start the same xray again.
+#[derive(Clone)]
+struct Respawn {
+    config: PathBuf,
+    log: PathBuf,
+    assets: Option<PathBuf>,
+    pid_file: PathBuf,
+    socks: SocketAddr,
 }
 
 /// `on_failure` is called (from another thread) if the TUN or xray dies.
@@ -80,6 +93,9 @@ pub fn connect(
     let rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
         .context("preparing xray config")?;
     let warnings = rt.warnings.clone();
+    let hysteria = rt.config["outbounds"]
+        .as_array()
+        .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));
 
     std::fs::create_dir_all(run_dir)?;
     kill_stale_xray(run_dir);
@@ -87,7 +103,15 @@ pub fn connect(
     write_private(&config_path, &serde_json::to_vec_pretty(&rt.config)?)?;
     let log_path = run_dir.join("xray.log");
     let mut child = spawn_xray(&config_path, &log_path, assets.as_deref())?;
-    let _ = std::fs::write(run_dir.join("xray.pid"), child.id().to_string());
+    let pid_file = run_dir.join("xray.pid");
+    let _ = std::fs::write(&pid_file, child.id().to_string());
+    let respawn = Respawn {
+        config: config_path.clone(),
+        log: log_path.clone(),
+        assets: assets.clone(),
+        pid_file,
+        socks: rt.socks,
+    };
 
     if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(10)) {
         let _ = child.kill();
@@ -149,10 +173,29 @@ pub fn connect(
         }
     });
 
-    Ok(Connection { helper, xray, closing, tun, socks, user, pass, warnings })
+    Ok(Connection { helper, xray, closing, tun, socks, user, pass, warnings, hysteria, respawn })
 }
 
 impl Connection {
+    /// Restarts xray with the same config, port and credentials while the TUN
+    /// stays up: open connections drop, new ones go through the fresh xray.
+    /// Returns a job to run off the UI thread. The watchdog shares the lock,
+    /// so it never sees the old process exit.
+    pub fn xray_restarter(&self) -> impl FnOnce() -> Result<()> + Send + 'static {
+        let (xray, r) = (self.xray.clone(), self.respawn.clone());
+        move || {
+            let mut child = xray.lock().unwrap();
+            let _ = child.kill();
+            let _ = child.wait();
+            let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
+            let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
+            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(10));
+            // Keep it even if not ready yet: the watchdog reports a dead one.
+            *child = fresh;
+            ready.map_err(|e| e.context(log_tail(&r.log)))
+        }
+    }
+
     /// TUN down first (network restored), then xray.
     pub fn disconnect(self) {
         self.closing.store(true, std::sync::atomic::Ordering::SeqCst);
