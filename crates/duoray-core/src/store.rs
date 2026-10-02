@@ -209,18 +209,7 @@ impl Store {
         if profiles.is_empty() {
             anyhow::bail!(errors.into_iter().next().unwrap_or_else(|| "no share links found".into()));
         }
-        let index = match self.subscriptions.iter().position(Subscription::is_manual) {
-            Some(i) => i,
-            None => {
-                self.subscriptions.push(Subscription {
-                    id: format!("{:x}{:04x}", now(), fastrand::u16(..)),
-                    name: MANUAL_GROUP_NAME.into(),
-                    updated_at: Some(now()),
-                    ..Default::default()
-                });
-                self.subscriptions.len() - 1
-            }
-        };
+        let index = self.ensure_manual_group();
         let group = &mut self.subscriptions[index];
         let mut added = 0;
         for p in profiles {
@@ -232,6 +221,33 @@ impl Store {
         }
         group.updated_at = Some(now());
         Ok((group.id.clone(), added))
+    }
+
+    /// The manual section remains available even before adding its first server.
+    pub fn ensure_manual_group(&mut self) -> usize {
+        if let Some(i) = self.subscriptions.iter().position(Subscription::is_manual) {
+            return i;
+        }
+        self.subscriptions.push(Subscription {
+            id: format!("{:x}{:04x}", now(), fastrand::u16(..)),
+            name: MANUAL_GROUP_NAME.into(),
+            updated_at: Some(now()),
+            ..Default::default()
+        });
+        self.subscriptions.len() - 1
+    }
+
+    /// Never edit fetched subscriptions through the manual-server UI.
+    pub fn remove_manual_server(&mut self, id: &str, index: usize) -> bool {
+        let Some(group) = self.subscriptions.iter_mut().find(|s| s.id == id && s.is_manual()) else {
+            return false;
+        };
+        if index >= group.servers.len() {
+            return false;
+        }
+        group.servers.remove(index);
+        group.updated_at = Some(now());
+        true
     }
 
     pub fn get(&self, id: &str) -> Option<&Subscription> {
@@ -280,6 +296,29 @@ mod tests {
         assert!(s.get(&id).unwrap().is_manual());
         assert_eq!(s.get(&id).unwrap().display_name(), MANUAL_GROUP_NAME);
         assert!(s.add_links("garbage://x").is_err());
+    }
+
+    #[test]
+    fn removing_manual_servers_preserves_other_servers_and_the_group() {
+        let mut store = Store::default();
+        let (id, _) = store.add_links("vless://id@1.2.3.4:443#A\ntrojan://pw@5.6.7.8:443#B").unwrap();
+        let fetched_servers = store.get(&id).unwrap().servers.clone();
+        let fetched_id = store.add("https://p.example/sub/x", "").unwrap();
+        store.subscriptions.last_mut().unwrap().servers = fetched_servers;
+        assert!(!store.remove_manual_server(&fetched_id, 0));
+        assert_eq!(store.get(&fetched_id).unwrap().servers.len(), 2);
+        assert!(!store.remove_manual_server(&id, 2));
+        assert!(store.remove_manual_server(&id, 0));
+        assert_eq!(store.get(&id).unwrap().servers[0].name, "B");
+        assert!(store.remove_manual_server(&id, 0));
+        assert!(store.get(&id).unwrap().servers.is_empty());
+        let index = store.ensure_manual_group();
+        assert_eq!(store.subscriptions[index].id, id, "reuse the empty manual section");
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.json");
+        store.save(&path).unwrap();
+        assert!(Store::load(&path).unwrap().get(&id).unwrap().servers.is_empty());
     }
 
     #[test]

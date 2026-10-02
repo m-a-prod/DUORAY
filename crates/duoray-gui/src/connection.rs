@@ -50,7 +50,7 @@ pub struct Connection {
     pub socks: SocketAddr,
     pub user: String,
     pub pass: String,
-    /// Routing entries that could not be applied (shown on the routing page).
+    /// Skipped routing entries and compatibility warnings shown on the routing page.
     pub warnings: Vec<String>,
     /// The config dials Hysteria somewhere (directly or in a balancer).
     pub hysteria: bool,
@@ -93,6 +93,25 @@ pub fn connect(
     let rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
         .context("preparing xray config")?;
     let warnings = rt.warnings.clone();
+    #[cfg(target_os = "macos")]
+    let warnings = {
+        let mut warnings = warnings;
+        if routing.apps.active()
+            && Command::new("/bin/ps").args(["-axo", "comm="]).output().ok().is_some_and(|out| {
+                out.status.success()
+                    && String::from_utf8_lossy(&out.stdout).lines().any(|line| {
+                        Path::new(line.trim()).file_name().is_some_and(|name| name == "com.adguard.mac.adguard.network-extension")
+                    })
+            })
+        {
+            warnings.push(
+                "Работает сетевое расширение AdGuard. При фильтрации оно может открывать соединения от своего имени: \
+                 правила Chrome и Zen тогда не сработают. Исключите выбранные приложения из фильтрации AdGuard \
+                 или временно выключите его защиту для проверки, затем полностью перезапустите браузер.".into(),
+            );
+        }
+        warnings
+    };
     let hysteria = rt.config["outbounds"]
         .as_array()
         .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));

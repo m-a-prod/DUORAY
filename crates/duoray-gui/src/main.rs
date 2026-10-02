@@ -181,6 +181,55 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    ui.on_select_manual({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let index = st.store.ensure_manual_group();
+            ui.set_current_sub(index as i32);
+            ui.set_current_server(-1);
+            ui.set_confirm_remove_index(-1);
+            restore_selection_in_current(&ui, &st);
+            save(&mut st);
+            render(&ui, &st);
+        }
+    });
+
+    ui.on_remove_server({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move |row| {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            if matches!(st.conn_state, ConnState::Connecting { .. } | ConnState::Switching { .. } | ConnState::Disconnecting) {
+                return;
+            }
+            let selected = server_key(&ui, &st);
+            let Some(sub) = current(&ui, &st).filter(|s| s.is_manual()) else { return };
+            let Some(index) = usize::try_from(row).ok().and_then(|row| display_order(&st, sub).get(row).copied()) else {
+                return;
+            };
+            let (id, removed) = (sub.id.clone(), key_of(sub, &sub.servers[index]));
+            let disconnect = matches!(&st.conn_state, ConnState::Connected { key, .. } if key == &removed);
+            if !st.store.remove_manual_server(&id, index) {
+                return;
+            }
+            st.ping_results.remove(&removed);
+            if st.store.settings.last_server.as_ref() == Some(&removed) {
+                st.store.settings.last_server = None;
+            }
+            // Preserve selection by identity, including when the list is sorted by ping.
+            let next_row = selected.as_deref().and_then(|key| current(&ui, &st).and_then(|sub| row_of(&st, sub, key)));
+            ui.set_current_server(next_row.map_or(-1, |row| row as i32));
+            save(&mut st);
+            render(&ui, &st);
+            drop(st);
+            if disconnect {
+                toggle_connection(&ui, &app);
+            }
+        }
+    });
+
     ui.on_toggle_connection({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || toggle_connection(&ui_weak.unwrap(), &app)
@@ -723,7 +772,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                         if conn.warnings.is_empty() {
                             String::new()
                         } else {
-                            format!("Не применено: {}", conn.warnings.join(", "))
+                            format!("Предупреждения:\n{}", conn.warnings.join("\n"))
                         }
                         .into(),
                     );
@@ -866,11 +915,17 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
 }
 
 fn render(ui: &AppWindow, st: &App) {
+    let manual = st.store.subscriptions.iter().find(|s| s.is_manual());
+    ui.set_manual_meta(manual.map_or_else(|| "Нет серверов".to_string(), sub_meta).into());
+    ui.set_manual_selected(current(ui, st).is_some_and(Subscription::is_manual));
     let subs: Vec<SubRow> = st
         .store
         .subscriptions
         .iter()
-        .map(|s| SubRow {
+        .enumerate()
+        .filter(|(_, s)| !s.is_manual())
+        .map(|(index, s)| SubRow {
+            index: index as i32,
             name: s.display_name().into(),
             meta: sub_meta(s).into(),
             usage: usage(s),

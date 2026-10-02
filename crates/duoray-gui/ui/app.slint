@@ -1,6 +1,8 @@
 import { Button, LineEdit, ListView, Switch, ComboBox, Palette, Spinner, ScrollView } from "std-widgets.slint";
 
 export struct SubRow {
+    // Storage index: manual groups are shown outside this list.
+    index: int,
     name: string,
     meta: string,
     // Traffic used, 0..1; negative when the plan is unlimited.
@@ -283,6 +285,7 @@ component ToggleRow inherits HorizontalLayout {
     in property <string> description;
     in-out property <bool> checked;
     callback toggled();
+    height: self.preferred-height;
     spacing: 16px;
     VerticalLayout {
         horizontal-stretch: 1;
@@ -291,6 +294,7 @@ component ToggleRow inherits HorizontalLayout {
             text: root.title;
             font-size: 14px * Theme.text-scale;
             font-weight: 700;
+            wrap: word-wrap;
         }
         Text {
             text: root.description;
@@ -321,7 +325,8 @@ component FieldLabel inherits Text {
 component SettingsCard inherits Rectangle {
     background: Theme.card;
     border-radius: Theme.radius;
-    VerticalLayout {
+    height: card-layout.preferred-height;
+    card-layout := VerticalLayout {
         padding: 16px;
         spacing: 14px;
         alignment: start;
@@ -366,7 +371,10 @@ component SettingsPage inherits Rectangle {
     callback uninstall-helper();
 
     ScrollView {
-        VerticalLayout {
+        content-width: max(self.visible-width, settings-content.min-width);
+        // Scroll the full natural content height, not the layout's minimum height.
+        content-height: max(self.visible-height, settings-content.preferred-height);
+        settings-content := VerticalLayout {
             padding: 24px;
             spacing: 12px;
             // Pack sections at the top; spare height must not stretch the cards.
@@ -402,6 +410,7 @@ component SettingsPage inherits Rectangle {
                 }
 
                 if root.happ-enabled: VerticalLayout {
+                    height: self.preferred-height;
                     spacing: 10px;
                     HorizontalLayout {
                         spacing: 12px;
@@ -756,7 +765,8 @@ component RuleCard inherits Rectangle {
     callback remove();
     background: Palette.background;
     border-radius: 10px;
-    VerticalLayout {
+    height: rule-layout.preferred-height;
+    rule-layout := VerticalLayout {
         padding: 12px;
         spacing: 8px;
         HorizontalLayout {
@@ -906,7 +916,9 @@ component RoutingPage inherits Rectangle {
     callback pick-running();
 
     ScrollView {
-        VerticalLayout {
+        content-width: max(self.visible-width, routing-content.min-width);
+        content-height: max(self.visible-height, routing-content.preferred-height);
+        routing-content := VerticalLayout {
             padding: 24px;
             spacing: 12px;
             alignment: start;
@@ -935,6 +947,7 @@ component RoutingPage inherits Rectangle {
             }
 
             if !root.advanced: VerticalLayout {
+                height: self.preferred-height;
                 spacing: 12px;
                 SectionLabel {
                     text: "НАПРЯМУЮ";
@@ -973,6 +986,7 @@ component RoutingPage inherits Rectangle {
                 }
                 SettingsCard {
                     for g[i] in root.games: VerticalLayout {
+                        height: self.preferred-height;
                         spacing: 14px;
                         if i > 0: Divider { }
                         ToggleRow {
@@ -994,6 +1008,7 @@ component RoutingPage inherits Rectangle {
             }
 
             if root.advanced: VerticalLayout {
+                height: self.preferred-height;
                 spacing: 12px;
                 SectionLabel {
                     text: "ПРОФИЛЬ";
@@ -1144,8 +1159,10 @@ component RoutingPage inherits Rectangle {
                     wrap: word-wrap;
                 }
                 if root.app-mode != 0: VerticalLayout {
+                    height: self.preferred-height;
                     spacing: 8px;
                     for a[i] in root.apps: HorizontalLayout {
+                        height: self.preferred-height;
                         spacing: 8px;
                         Text {
                             horizontal-stretch: 1;
@@ -1190,6 +1207,7 @@ component RoutingPage inherits Rectangle {
                         border-radius: 8px;
                         background: Palette.background;
                         ListView {
+                            content-width: self.visible-width;
                             for name in root.running: Rectangle {
                                 height: 32px;
                                 background: pick-touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
@@ -1234,6 +1252,7 @@ component RoutingPage inherits Rectangle {
                             text: "Российские IP, белые списки, серверы игр";
                             font-size: 14px * Theme.text-scale;
                             font-weight: 700;
+                            wrap: word-wrap;
                         }
                         Text {
                             text: root.geo-status;
@@ -1270,6 +1289,8 @@ export component AppWindow inherits Window {
     default-font-family: root.font-family;
 
     in property <[SubRow]> subs;
+    in property <bool> manual-selected;
+    in property <string> manual-meta;
     in property <[ServerRow]> servers;
     in-out property <int> current-sub: -1;
     in-out property <int> current-server: -1;
@@ -1388,7 +1409,9 @@ export component AppWindow inherits Window {
     in property <string> helper-error;
 
     callback select-sub(int);
+    callback select-manual();
     callback select-server(int);
+    callback remove-server(int);
     callback add-subscription(string, string);
     callback refresh-current();
     callback open-web-page();
@@ -1421,30 +1444,77 @@ export component AppWindow inherits Window {
                 padding: 18px;
                 spacing: 14px;
 
-                HorizontalLayout {
-                    spacing: 10px;
-                    // Logo and wordmark share one optical center line: the middle of
-                    // the capitals, not of the text box (which includes descender space).
-                    Rectangle {
-                        height: logo.height;
-                        logo := Image {
-                            source: @image-url("assets/logo.svg");
-                            // The SVG is white; tint it so it works in light and dark themes.
-                            colorize: Palette.foreground;
-                            x: 0;
-                            y: 0;
-                            height: wordmark.font-metrics.cap-height * 1.6;
-                            width: self.height * 198 / 161;
-                            image-fit: contain;
+                Rectangle {
+                    height: brand-symbol.height + 12px;
+                    background: transparent;
+                    brand-symbol := Image {
+                        source: @image-url("assets/logo.svg");
+                        colorize: Palette.foreground;
+                        height: 26px * Theme.text-scale;
+                        width: self.height * 198 / 161;
+                        x: 0;
+                        y: 4px;
+                        image-fit: contain;
+                    }
+                    brand-wordmark := Text {
+                        x: brand-symbol.width + 12px;
+                        y: brand-symbol.y + brand-symbol.height / 2
+                            - (self.font-metrics.ascent - self.font-metrics.cap-height / 2);
+                        width: parent.width - self.x;
+                        height: self.preferred-height;
+                        text: "DUORAY";
+                        font-size: 19px * Theme.text-scale;
+                        font-weight: 700;
+                        letter-spacing: 0.8px;
+                        color: Palette.foreground;
+                        vertical-alignment: top;
+                        overflow: elide;
+                    }
+                }
+
+                // A permanent section for share links, above fetched subscriptions.
+                Rectangle {
+                    height: manual-layout.preferred-height;
+                    border-radius: Theme.radius;
+                    background: root.manual-selected ? Palette.selection-background
+                        : manual-touch.has-hover ? Palette.control-background : transparent;
+                    manual-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.settings-open = false;
+                            root.routing-open = false;
+                            root.select-manual();
                         }
-                        wordmark := Text {
-                            x: logo.width + 12px;
-                            y: parent.height / 2 - (self.font-metrics.ascent - self.font-metrics.cap-height / 2);
-                            text: "DUORAY";
-                            font-size: 22px * Theme.text-scale;
-                            font-weight: 800;
-                            letter-spacing: 1px;
-                            vertical-alignment: top;
+                    }
+                    manual-layout := VerticalLayout {
+                        padding: 12px;
+                        padding-right: 48px;
+                        spacing: 5px;
+                        Text {
+                            text: "Мои серверы";
+                            font-size: 14px * Theme.text-scale;
+                            font-weight: 700;
+                            color: root.manual-selected ? Palette.selection-foreground : Palette.foreground;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.manual-meta;
+                            font-size: 11px * Theme.text-scale;
+                            color: root.manual-selected ? Palette.selection-foreground : Theme.muted;
+                            overflow: elide;
+                        }
+                    }
+                    IconButton {
+                        x: parent.width - self.width - 8px;
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.add;
+                        tint: root.manual-selected ? Palette.selection-foreground : Palette.accent-background;
+                        clicked => {
+                            root.settings-open = false;
+                            root.routing-open = false;
+                            root.select-manual();
+                            root.add-error = "";
+                            root.adding = true;
                         }
                     }
                 }
@@ -1512,7 +1582,7 @@ export component AppWindow inherits Window {
 
                 subs-list := ListView {
                     vertical-stretch: 1;
-                    for sub[i] in root.subs: Rectangle {
+                    for sub in root.subs: Rectangle {
                         height: sub-layout.preferred-height + 6px;
                         Rectangle {
                             x: 0;
@@ -1521,7 +1591,7 @@ export component AppWindow inherits Window {
                             y: 3px;
                             height: parent.height - 6px;
                             border-radius: Theme.radius;
-                            background: i == root.current-sub ? Palette.selection-background
+                            background: sub.index == root.current-sub ? Palette.selection-background
                                 : sub-touch.has-hover ? Palette.control-background : transparent;
                             sub-touch := TouchArea {
                                 clicked => {
@@ -1529,7 +1599,7 @@ export component AppWindow inherits Window {
                                     // Picking a subscription always shows its servers.
                                     root.settings-open = false;
                                     root.routing-open = false;
-                                    root.select-sub(i);
+                                    root.select-sub(sub.index);
                                 }
                             }
                             sub-layout := VerticalLayout {
@@ -1541,13 +1611,13 @@ export component AppWindow inherits Window {
                                     font-size: 14px * Theme.text-scale;
                                     font-weight: 700;
                                     overflow: elide;
-                                    color: i == root.current-sub ? Palette.selection-foreground : Palette.foreground;
+                                    color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
                                 }
                                 Text {
                                     text: sub.meta;
                                     font-size: 11px * Theme.text-scale;
                                     overflow: elide;
-                                    color: i == root.current-sub ? Palette.selection-foreground : Theme.muted;
+                                    color: sub.index == root.current-sub ? Palette.selection-foreground : Theme.muted;
                                 }
                                 if sub.usage >= 0: Rectangle {
                                     height: 4px;
@@ -1570,7 +1640,7 @@ export component AppWindow inherits Window {
 
                             // Delete: fades in on hover, second click confirms.
                             del := Rectangle {
-                                property <bool> confirming: root.confirm-remove-index == i;
+                                property <bool> confirming: root.confirm-remove-index == sub.index;
                                 x: parent.width - self.width - 10px;
                                 y: (parent.height - self.height) / 2;
                                 height: 28px;
@@ -1598,9 +1668,9 @@ export component AppWindow inherits Window {
                                     clicked => {
                                         if (del.confirming) {
                                             root.confirm-remove-index = -1;
-                                            root.remove-sub(i);
+                                            root.remove-sub(sub.index);
                                         } else {
-                                            root.confirm-remove-index = i;
+                                            root.confirm-remove-index = sub.index;
                                         }
                                     }
                                 }
@@ -1812,7 +1882,7 @@ export component AppWindow inherits Window {
                                 overflow: elide;
                             }
                         }
-                        VerticalLayout {
+                        if !root.manual-selected: VerticalLayout {
                             alignment: center;
                             RefreshButton {
                                 spinning: root.busy;
@@ -1843,7 +1913,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        VerticalLayout {
+                        if !root.manual-selected: VerticalLayout {
                             alignment: center;
                             more-button := IconButton {
                                 icon: Icons.more;
@@ -1985,7 +2055,13 @@ export component AppWindow inherits Window {
                 }
             }
 
-            if root.current-sub >= 0: servers-list := ListView {
+            if root.manual-selected && root.servers.length == 0: EmptyState {
+                vertical-stretch: 1;
+                title: "Пока нет серверов";
+                hint: "Нажмите «+» рядом с «Мои серверы» и добавьте ссылку на сервер.";
+            }
+
+            if root.current-sub >= 0 && (!root.manual-selected || root.servers.length > 0): servers-list := ListView {
                 vertical-stretch: 1;
                 for srv[i] in root.servers: Rectangle {
                     height: 66px;
@@ -2064,6 +2140,17 @@ export component AppWindow inherits Window {
                                 alignment: center;
                                 Chip {
                                     text: srv.transport;
+                                }
+                            }
+                            if root.manual-selected: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: Icons.delete;
+                                    tint: Theme.danger;
+                                    enabled: root.conn-state != "connecting" && root.conn-state != "disconnecting";
+                                    clicked => {
+                                        root.remove-server(i);
+                                    }
                                 }
                             }
                         }
@@ -2200,4 +2287,3 @@ export component AppWindow inherits Window {
         }
     }
 }
-
