@@ -67,6 +67,18 @@ cargo run --release -p duoray-gui
 Во время работы нужен `xray`: рядом с бинарником `duoray`, в `PATH`
 или в `/usr/lib/duoray` (Linux). На macOS проще всего `brew install xray`.
 
+### Linux (AppImage)
+
+```sh
+packaging/linux/appimage.sh     # → dist/DUORAY-<версия>-x86_64.AppImage
+```
+
+Один файл для любого x86_64-дистрибутива с glibc 2.28+ (Ubuntu 20.04,
+Debian 10, Fedora, Arch, Mint…), внутри xray и geo-базы. Нужны `zig` и
+`cargo install cargo-zigbuild`. Пользователю: `chmod +x DUORAY-*.AppImage`
+и запустить; при первом подключении DUORAY попросит пароль и поставит
+помощника. Без FUSE: `./DUORAY-*.AppImage --appimage-extract-and-run`.
+
 ### Linux (установка)
 
 ```sh

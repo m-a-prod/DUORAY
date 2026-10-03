@@ -280,6 +280,9 @@ mod install_impl {
     pub fn install() -> Result<()> {
         let uid = user_uid()?;
         // A package already ships a root-owned helper; otherwise copy ours.
+        // An AppImage's FUSE mount is not readable by root: hand the helper over
+        // through a temporary copy.
+        let mut staged = None;
         let (helper, copy) = match PACKAGED_HELPERS.iter().find(|p| std::path::Path::new(p).is_file()) {
             Some(p) => (p.to_string(), String::new()),
             None => {
@@ -288,16 +291,17 @@ mod install_impl {
                     bail!("не найден {} (соберите workspace целиком)", src.display());
                 }
                 check_fresh(&src)?;
-                (
-                    LOCAL_HELPER.to_string(),
-                    format!(
-                        "install -d -m 755 /usr/local/libexec/duoray\n\
-                         install -m 755 -o root -g root {} {LOCAL_HELPER}.new\n\
-                         mv -f {LOCAL_HELPER}.new {LOCAL_HELPER}\n\
-                         command -v restorecon >/dev/null 2>&1 && restorecon -F {LOCAL_HELPER} || true\n",
-                        shell_quote(&src.to_string_lossy())
-                    ),
-                )
+                let tmp = std::env::temp_dir().join(format!("duoray-helper-{}.bin", std::process::id()));
+                std::fs::copy(&src, &tmp).context("копирование помощника")?;
+                let copy = format!(
+                    "install -d -m 755 /usr/local/libexec/duoray\n\
+                     install -m 755 -o root -g root {} {LOCAL_HELPER}.new\n\
+                     mv -f {LOCAL_HELPER}.new {LOCAL_HELPER}\n\
+                     command -v restorecon >/dev/null 2>&1 && restorecon -F {LOCAL_HELPER} || true\n",
+                    shell_quote(&tmp.to_string_lossy())
+                );
+                staged = Some(tmp);
+                (LOCAL_HELPER.to_string(), copy)
             }
         };
         let setcap = match crate::connection::find_xray() {
@@ -307,7 +311,11 @@ mod install_impl {
             ),
             _ => String::new(),
         };
-        run_as_admin(&install_script(&helper, &copy, &setcap, uid))
+        let result = run_as_admin(&install_script(&helper, &copy, &setcap, uid));
+        if let Some(tmp) = staged {
+            let _ = std::fs::remove_file(tmp);
+        }
+        result
     }
 
     fn install_script(helper: &str, copy: &str, setcap: &str, uid: u32) -> String {

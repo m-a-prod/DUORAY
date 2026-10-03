@@ -6,3 +6,5 @@
 .vscode/
 *.swp
 packaging/windows/stage-*/
+packaging/linux/AppDir/
+packaging/linux/cache/
