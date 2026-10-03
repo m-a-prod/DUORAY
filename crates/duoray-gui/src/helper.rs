@@ -34,6 +34,11 @@ impl HelperSession {
         let conn = connect().map_err(|_| OpenError::Missing)?;
         let mut s = Self { conn: BufReader::new(conn), version: String::new(), protocol: 0 };
         match s.call(&Request::Hello) {
+            // Linux helpers before 0.2.0 lack the fixes that make the tunnel work there
+            // (rp_filter, host firewall, DNS redirect): same protocol, but replace them.
+            Ok(Response::Hello { version, .. }) if cfg!(target_os = "linux") && older(&version, "0.2.0") => {
+                Err(OpenError::Outdated(version))
+            }
             Ok(Response::Hello { protocol, version }) if (MIN_PROTOCOL..=PROTOCOL).contains(&protocol) => {
                 s.version = version;
                 s.protocol = protocol;
@@ -78,6 +83,12 @@ impl HelperSession {
             .context("помощник не отвечает")?
             .context("помощник закрыл соединение")
     }
+}
+
+/// `a < b` for dotted numeric versions.
+fn older(a: &str, b: &str) -> bool {
+    let parse = |v: &str| v.split('.').map(|p| p.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
+    parse(a) < parse(b)
 }
 
 #[cfg(unix)]
@@ -189,92 +200,196 @@ mod install_impl {
 
 #[cfg(target_os = "macos")]
 pub use install_impl::{install, uninstall};
+#[cfg(not(target_os = "linux"))]
+const LOG_HINT: &str = "/var/log/duoray-helper.log";
 
 #[cfg(target_os = "linux")]
 mod install_impl {
     use super::*;
 
+    const SERVICE: &str = "duoray-helper";
     const UNIT: &str = "/etc/systemd/system/duoray-helper.service";
-    /// Where a helper not shipped by a package gets copied.
-    const LOCAL_HELPER: &str = "/usr/local/lib/duoray/duoray-helper";
-    const PACKAGED_HELPER: &str = "/usr/lib/duoray/duoray-helper";
+    const OPENRC: &str = "/etc/init.d/duoray-helper";
+    const RUNIT: &str = "/etc/sv/duoray-helper";
+    /// Where a helper not shipped by a package gets copied. libexec: SELinux
+    /// (Fedora) lets services execute bin_t files from there, not lib_t ones.
+    const LOCAL_HELPER: &str = "/usr/local/libexec/duoray/duoray-helper";
+    /// Helpers installed by a package or by packaging/linux/install.sh.
+    const PACKAGED_HELPERS: &[&str] = &["/usr/libexec/duoray/duoray-helper", "/usr/lib/duoray/duoray-helper"];
+    /// Paths older builds installed to.
+    const OLD_HELPERS: &[&str] = &["/usr/local/lib/duoray/duoray-helper"];
 
     fn shell_quote(s: &str) -> String {
         format!("'{}'", s.replace('\'', r"'\''"))
     }
 
-    /// Runs a script as root through polkit (graphical password prompt).
+    fn is_root() -> bool {
+        // SAFETY: plain syscall.
+        unsafe { libc::geteuid() == 0 }
+    }
+
+    /// The desktop user the helper serves: the real user even under sudo/pkexec.
+    fn user_uid() -> Result<u32> {
+        if is_root() {
+            for var in ["PKEXEC_UID", "SUDO_UID"] {
+                if let Some(uid) = std::env::var(var).ok().and_then(|v| v.parse().ok()) {
+                    return Ok(uid);
+                }
+            }
+            bail!("запустите через sudo от своего пользователя: sudo duoray --install-helper");
+        }
+        // SAFETY: plain syscall.
+        Ok(unsafe { libc::getuid() })
+    }
+
+    /// Runs a script as root: directly when already root (`sudo duoray
+    /// --install-helper`), otherwise through polkit (graphical password prompt).
     fn run_as_admin(script: &str) -> Result<()> {
         let path = std::env::temp_dir().join(format!("duoray-helper-{}.sh", std::process::id()));
-        std::fs::write(&path, script)?;
-        let out = std::process::Command::new("pkexec")
-            .arg("/bin/sh")
-            .arg(&path)
-            .output()
-            .map_err(|_| anyhow!("не найден pkexec (polkit). Установите polkit и агент аутентификации"))?;
+        crate::connection::write_private(&path, script.as_bytes())?;
+        let out = if is_root() {
+            std::process::Command::new("/bin/sh").arg(&path).output()?
+        } else {
+            std::process::Command::new("pkexec").arg("/bin/sh").arg(&path).output().map_err(|_| {
+                anyhow!("не найден pkexec (polkit). Установите polkit или выполните в терминале: sudo duoray --install-helper")
+            })?
+        };
         let _ = std::fs::remove_file(&path);
+        let err = String::from_utf8_lossy(&out.stderr);
         match out.status.code() {
             Some(0) => Ok(()),
+            _ if err.contains("authentication agent") || err.contains("No session for cookie") => bail!(
+                "нет агента polkit, который спросил бы пароль. Запустите агент вашего окружения \
+                 или выполните в терминале: sudo duoray --install-helper"
+            ),
             // 126: the user dismissed the dialog, 127: not authorized.
-            Some(126) | Some(127) => bail!("установка отменена"),
-            _ => bail!("установка не удалась: {}", String::from_utf8_lossy(&out.stderr).trim()),
+            Some(126) | Some(127) if !is_root() => bail!("установка отменена"),
+            _ => bail!("установка не удалась: {}", err.trim()),
         }
     }
 
+    /// Before 5.7 binding a socket to a device (xray's `sockopt.interface`)
+    /// needs CAP_NET_RAW; without it `direct` traffic loops into the TUN.
+    fn needs_net_raw() -> bool {
+        let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+        let mut parts = release.trim().split(|c: char| !c.is_ascii_digit()).filter_map(|p| p.parse::<u32>().ok());
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        (major, minor) < (5, 7)
+    }
+
     pub fn install() -> Result<()> {
-        let uid = String::from_utf8(std::process::Command::new("id").arg("-u").output()?.stdout)?
-            .trim()
-            .parse::<u32>()?;
+        let uid = user_uid()?;
         // A package already ships a root-owned helper; otherwise copy ours.
-        let (helper, copy) = if std::path::Path::new(PACKAGED_HELPER).is_file() {
-            (PACKAGED_HELPER.to_string(), String::new())
-        } else {
-            let src = std::env::current_exe()?.with_file_name("duoray-helper");
-            if !src.exists() {
-                bail!("не найден {} (соберите workspace целиком)", src.display());
+        let (helper, copy) = match PACKAGED_HELPERS.iter().find(|p| std::path::Path::new(p).is_file()) {
+            Some(p) => (p.to_string(), String::new()),
+            None => {
+                let src = std::env::current_exe()?.with_file_name("duoray-helper");
+                if !src.exists() {
+                    bail!("не найден {} (соберите workspace целиком)", src.display());
+                }
+                check_fresh(&src)?;
+                (
+                    LOCAL_HELPER.to_string(),
+                    format!(
+                        "install -d -m 755 /usr/local/libexec/duoray\n\
+                         install -m 755 -o root -g root {} {LOCAL_HELPER}.new\n\
+                         mv -f {LOCAL_HELPER}.new {LOCAL_HELPER}\n\
+                         command -v restorecon >/dev/null 2>&1 && restorecon -F {LOCAL_HELPER} || true\n",
+                        shell_quote(&src.to_string_lossy())
+                    ),
+                )
             }
-            check_fresh(&src)?;
-            (
-                LOCAL_HELPER.to_string(),
-                format!(
-                    "install -d -m 755 /usr/local/lib/duoray\ninstall -m 755 -o root -g root {} {LOCAL_HELPER}\n",
-                    shell_quote(&src.to_string_lossy())
-                ),
-            )
         };
-        // xray runs as the user but must bind its sockets to the uplink
-        // (SO_BINDTODEVICE), or `direct` traffic loops back into the TUN.
         let setcap = match crate::connection::find_xray() {
-            Ok((xray, _)) => format!(
-                "setcap cap_net_raw,cap_net_admin+ep {} || echo 'setcap failed' >&2\n",
+            Ok((xray, _)) if needs_net_raw() => format!(
+                "setcap cap_net_raw+ep {} || echo 'setcap failed' >&2\n",
                 shell_quote(&xray.to_string_lossy())
             ),
-            Err(_) => String::new(),
+            _ => String::new(),
         };
+        run_as_admin(&install_script(&helper, &copy, &setcap, uid))
+    }
+
+    fn install_script(helper: &str, copy: &str, setcap: &str, uid: u32) -> String {
+        let old: Vec<String> = OLD_HELPERS.iter().map(|p| shell_quote(p)).collect();
         let unit = format!(
             "[Unit]\nDescription=DUORAY TUN helper\nAfter=network.target\n\n\
              [Service]\nExecStart={helper} --allowed-uid {uid}\nRestart=always\nRestartSec=2\n\n\
              [Install]\nWantedBy=multi-user.target\n"
         );
-        let script = format!(
-            "set -e\n{copy}{setcap}cat > {UNIT} <<'DUORAY_UNIT'\n{unit}DUORAY_UNIT\n\
-             systemctl daemon-reload\n\
-             systemctl enable duoray-helper.service\n\
-             systemctl restart duoray-helper.service\n"
+        let openrc = format!(
+            "#!/sbin/openrc-run\n\
+             description=\"DUORAY TUN helper\"\n\
+             command={helper}\n\
+             command_args=\"--allowed-uid {uid}\"\n\
+             supervisor=supervise-daemon\n\
+             respawn_delay=2\n\
+             output_log=/var/log/duoray-helper.log\n\
+             error_log=/var/log/duoray-helper.log\n\
+             depend() {{ need net; }}\n"
         );
-        run_as_admin(&script)
+        let runit = format!("#!/bin/sh\nexec {helper} --allowed-uid {uid} 2>&1\n");
+        // One service manager: whichever init the system booted with.
+        format!(
+            "set -e\n{copy}{setcap}rm -f {old}\n\
+             if [ -d /run/systemd/system ]; then\n\
+             cat > {UNIT} <<'DUORAY_UNIT'\n{unit}DUORAY_UNIT\n\
+             systemctl daemon-reload\n\
+             systemctl enable {SERVICE}.service\n\
+             systemctl restart {SERVICE}.service\n\
+             elif command -v openrc-run >/dev/null 2>&1; then\n\
+             cat > {OPENRC} <<'DUORAY_RC'\n{openrc}DUORAY_RC\n\
+             chmod 755 {OPENRC}\n\
+             rc-update add {SERVICE} default\n\
+             rc-service {SERVICE} restart\n\
+             elif command -v sv >/dev/null 2>&1; then\n\
+             mkdir -p {RUNIT}\n\
+             cat > {RUNIT}/run <<'DUORAY_RUN'\n{runit}DUORAY_RUN\n\
+             chmod 755 {RUNIT}/run\n\
+             for d in /var/service /run/runit/service /etc/runit/runsvdir/default; do\n\
+             if [ -d \"$d\" ]; then ln -sfn {RUNIT} \"$d/{SERVICE}\"; break; fi\n\
+             done\n\
+             sleep 1; sv restart {SERVICE} || true\n\
+             else\n\
+             echo 'неизвестная система инициализации (нужен systemd, OpenRC или runit)' >&2; exit 1\n\
+             fi\n",
+            old = old.join(" "),
+        )
     }
 
     pub fn uninstall() -> Result<()> {
+        let helpers: Vec<String> = std::iter::once(LOCAL_HELPER).chain(OLD_HELPERS.iter().copied()).map(shell_quote).collect();
         run_as_admin(&format!(
-            "systemctl disable --now duoray-helper.service 2>/dev/null || true\n\
-             rm -f {UNIT} {LOCAL_HELPER} {sock}\n\
-             systemctl daemon-reload\n",
+            "if [ -d /run/systemd/system ]; then\n\
+             systemctl disable --now {SERVICE}.service 2>/dev/null || true\n\
+             rm -f {UNIT}\n\
+             systemctl daemon-reload\n\
+             fi\n\
+             if [ -x {OPENRC} ]; then rc-service {SERVICE} stop || true; rc-update del {SERVICE} default || true; rm -f {OPENRC}; fi\n\
+             if [ -d {RUNIT} ]; then sv stop {SERVICE} || true; rm -f /var/service/{SERVICE} /run/runit/service/{SERVICE} /etc/runit/runsvdir/default/{SERVICE}; rm -rf {RUNIT}; fi\n\
+             rm -f {helpers} {sock}\n",
+            helpers = helpers.join(" "),
             sock = helper_proto::SOCKET_PATH
         ))
     }
+
+    /// Where to look when the helper does not come up.
+    pub const LOG_HINT: &str = "journalctl -u duoray-helper";
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn install_script_is_valid_shell() {
+            let script = super::install_script("/usr/local/libexec/duoray/duoray-helper", "true\n", "", 1000);
+            assert!(script.contains("ExecStart=/usr/local/libexec/duoray/duoray-helper --allowed-uid 1000"));
+            let out = std::process::Command::new("sh").args(["-n", "-c", &script]).output().unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
 }
 
+#[cfg(target_os = "linux")]
+use install_impl::LOG_HINT;
 #[cfg(target_os = "linux")]
 pub use install_impl::{install, uninstall};
 
@@ -294,7 +409,7 @@ pub fn describe() -> String {
 pub fn install_and_wait() -> Result<()> {
     install()?;
     wait_ready(Duration::from_secs(10)).map_err(|e| match e {
-        OpenError::Missing => anyhow!("помощник установлен, но не запустился (см. /var/log/duoray-helper.log)"),
+        OpenError::Missing => anyhow!("помощник установлен, но не запустился (см. {LOG_HINT})"),
         OpenError::Outdated(v) => anyhow!("запустилась старая версия помощника {v}"),
         OpenError::Other(e) => e,
     })

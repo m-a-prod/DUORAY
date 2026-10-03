@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=DUORAY
+GenericName=VPN Client
+GenericName[ru]=VPN-клиент
+Comment=VPN client on xray-core
+Comment[ru]=VPN-клиент на xray-core
+Exec=duoray
+Icon=duoray
+Terminal=false
+Categories=Network;
+Keywords=vpn;xray;vless;proxy;
+StartupWMClass=duoray

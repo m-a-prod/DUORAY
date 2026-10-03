@@ -429,7 +429,55 @@ fn running_apps() -> Vec<String> {
             }
         }
     }
-    #[cfg(not(windows))]
+    // Executable names as the tunnel sees them (/proc/<pid>/exe), plus the
+    // argv[0] name of apps run by a shared runtime (Electron, Python, Java):
+    // `ps` truncates names to 15 characters and shows neither reliably.
+    #[cfg(target_os = "linux")]
+    {
+        const SYSTEM: &[&str] = &[
+            "systemd", "dbus-daemon", "dbus-broker", "dbus-broker-launch", "pipewire", "pipewire-pulse",
+            "wireplumber", "xdg-desktop-portal", "xdg-document-portal", "xdg-permission-store", "gvfsd",
+            "at-spi-bus-launcher", "at-spi2-registryd", "bash", "sh", "zsh", "fish", "dash", "sudo", "su",
+            "login", "ps", "xray", "duoray-helper", "xwayland", "pulseaudio", "gnome-keyring-daemon", "ssh-agent",
+            "gpg-agent", "dconf-service", "flatpak-portal", "flatpak-session-helper", "bwrap",
+        ];
+        const SYSTEM_DIRS: &[&str] = &["/usr/lib/systemd/", "/lib/systemd/", "/usr/libexec/", "/usr/lib/polkit"];
+        const RUNTIMES: &[&str] = &["electron", "python", "java", "node", "mono", "wine", "dotnet"];
+        // SAFETY: plain syscall.
+        let uid = unsafe { libc::getuid() };
+        let entries = std::fs::read_dir("/proc").into_iter().flatten().flatten();
+        for entry in entries {
+            use std::os::unix::fs::MetadataExt;
+            if !entry.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit())
+                || entry.metadata().ok().map(|m| m.uid()) != Some(uid)
+            {
+                continue;
+            }
+            let Ok(exe) = std::fs::read_link(entry.path().join("exe")) else { continue };
+            let path = exe.to_string_lossy();
+            if SYSTEM_DIRS.iter().any(|d| path.starts_with(d)) {
+                continue;
+            }
+            let name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let lower = name.to_lowercase();
+            if RUNTIMES.iter().any(|r| lower.starts_with(r)) {
+                let argv0 = std::fs::read(entry.path().join("cmdline")).ok().and_then(|c| {
+                    let first = c.split(|b| *b == 0).next()?.to_vec();
+                    let first = String::from_utf8_lossy(&first).into_owned();
+                    Some(first.rsplit('/').next().unwrap_or(&first).to_string())
+                });
+                if let Some(a) = argv0.filter(|a| !a.is_empty() && !a.starts_with('-') && *a != name) {
+                    add(&a);
+                    continue;
+                }
+            }
+            let family = ["xdg-desktop-portal", "xdg-document", "gvfsd", "at-spi", "dbus-"];
+            if !SYSTEM.contains(&lower.as_str()) && !family.iter().any(|f| lower.starts_with(f)) {
+                add(&name);
+            }
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         const SYSTEM_DIRS: &[&str] = &["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/", "/Library/Apple/", "/usr/lib/"];
         if let Ok(out) = std::process::Command::new("ps").args(["-axo", "comm="]).output() {

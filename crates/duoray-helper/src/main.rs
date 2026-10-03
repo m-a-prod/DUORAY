@@ -291,6 +291,10 @@ async fn start(req: TunRequest) -> Result<(Session, String)> {
     if cfg!(windows) {
         cfg.tun_name = Some("DUORAY".into());
     }
+    // Not the kernel's tunN: OpenVPN and others use those names.
+    if cfg!(target_os = "linux") {
+        cfg.tun_name = Some("duoray0".into());
+    }
     if !req.ipv6 {
         cfg.v6 = None;
     }

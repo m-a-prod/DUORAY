@@ -67,13 +67,16 @@ struct Respawn {
     socks: SocketAddr,
 }
 
-/// `on_failure` is called (from another thread) if the TUN or xray dies.
+/// `on_failure` is called (from another thread) if the TUN or xray dies,
+/// `on_uplink_change` (Linux) when the network moved to another interface:
+/// xray is bound to the old one, so the connection has to be made again.
 pub fn connect(
     server: &Server,
     run_dir: &Path,
     routing: &RoutingSettings,
     geo: &GeoDir,
     on_failure: impl Fn(String) + Send + Sync + Clone + 'static,
+    on_uplink_change: impl Fn() + Send + 'static,
 ) -> Result<Connection, ConnectError> {
     let mut helper = HelperSession::open().map_err(|e| match e {
         OpenError::Missing => ConnectError::HelperMissing,
@@ -166,12 +169,24 @@ pub fn connect(
     std::thread::spawn({
         let (xray, helper, closing) = (xray.clone(), helper.clone(), closing.clone());
         let log_path = log_path.clone();
+        let iface = iface.clone();
         move || {
             let gone = |closing: &std::sync::atomic::AtomicBool| closing.load(std::sync::atomic::Ordering::SeqCst);
+            let mut moved = 0;
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 if gone(&closing) {
                     return;
+                }
+                // Twice in a row: interfaces come and go for a moment while switching.
+                if cfg!(target_os = "linux") {
+                    match uplink_interface() {
+                        Some(now) if now != iface => moved += 1,
+                        _ => moved = 0,
+                    }
+                    if moved >= 2 {
+                        return on_uplink_change();
+                    }
                 }
                 if let Ok(Some(status)) = xray.lock().unwrap().try_wait() {
                     if !gone(&closing) {
@@ -330,7 +345,7 @@ fn linux_default_devs() -> Result<Vec<String>> {
 
 #[cfg(target_os = "linux")]
 fn is_tunnel_dev(dev: &str) -> bool {
-    ["tun", "tap", "wg", "utun", "tailscale", "ppp", "zt", "nekoray", "throne", "sing"]
+    ["duoray", "tun", "tap", "wg", "utun", "tailscale", "ppp", "zt", "nekoray", "throne", "sing"]
         .iter()
         .any(|p| dev.starts_with(p))
 }
@@ -388,21 +403,35 @@ pub fn find_xray() -> Result<(PathBuf, Option<PathBuf>)> {
         candidates.extend(std::env::split_paths(&path).map(|p| p.join(name)));
     }
     candidates.extend(["/opt/homebrew/bin/xray", "/usr/local/bin/xray"].map(PathBuf::from));
+    // Started from a desktop launcher, PATH may lack the user's own bin dir
+    // (where the official install script and manual installs put xray).
+    #[cfg(target_os = "linux")]
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        candidates.push(home.join(".local/bin/xray"));
+    }
     let bin = candidates
         .into_iter()
         .find(|p| p.is_file())
         .context("xray не найден: положите его рядом с DUORAY или установите (brew install xray)")?;
 
     // geoip.dat/geosite.dat: next to xray, next to us, or the Homebrew share dir.
-    let assets = [
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut dirs = vec![
         bin.parent().map(Path::to_path_buf),
         exe_dir,
         Some(PathBuf::from("/opt/homebrew/share/xray")),
         Some(PathBuf::from("/usr/local/share/xray")),
-    ]
-    .into_iter()
-    .flatten()
-    .find(|d| d.join("geoip.dat").is_file());
+    ];
+    // Distribution packages and the official install script (system or --user).
+    #[cfg(target_os = "linux")]
+    {
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+        dirs.push(data_home.map(|d| d.join("xray")));
+        dirs.extend(["/usr/share/xray", "/usr/share/v2ray", "/usr/local/share/v2ray"].map(|d| Some(PathBuf::from(d))));
+    }
+    let assets = dirs.into_iter().flatten().find(|d| d.join("geoip.dat").is_file());
     Ok((bin, assets))
 }
 
@@ -419,7 +448,59 @@ fn spawn_xray(config: &Path, log: &Path, assets: Option<&Path>) -> Result<Child>
     if let Some(a) = assets {
         cmd.env("XRAY_LOCATION_ASSET", a);
     }
+    #[cfg(target_os = "linux")]
+    return linux_spawn::spawn_tied(cmd).context("запуск xray");
+    #[allow(unreachable_code)]
     cmd.spawn().context("запуск xray")
+}
+
+/// xray must not outlive the GUI, even when the GUI is killed outright:
+/// the kernel signals it when its parent goes away (PR_SET_PDEATHSIG).
+#[cfg(target_os = "linux")]
+mod linux_spawn {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Child, Command};
+    use std::sync::mpsc::{Sender, channel};
+    use std::sync::{Mutex, OnceLock};
+
+    type Job = (Command, Sender<std::io::Result<Child>>);
+
+    /// The death signal follows the parent *thread*, and connections are made
+    /// from short-lived threads, so children are forked from this one, which
+    /// lives as long as the process.
+    fn spawner() -> &'static Mutex<Sender<Job>> {
+        static SPAWNER: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
+        SPAWNER.get_or_init(|| {
+            let (tx, rx) = channel::<Job>();
+            std::thread::Builder::new()
+                .name("child-spawner".into())
+                .spawn(move || {
+                    for (mut cmd, reply) in rx {
+                        let _ = reply.send(cmd.spawn());
+                    }
+                })
+                .expect("spawner thread");
+            Mutex::new(tx)
+        })
+    }
+
+    pub fn spawn_tied(mut cmd: Command) -> std::io::Result<Child> {
+        let parent = std::process::id();
+        // SAFETY: only async-signal-safe calls between fork and exec.
+        unsafe {
+            cmd.pre_exec(move || {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                // The GUI died before prctl took effect.
+                if libc::getppid() as u32 != parent {
+                    libc::_exit(1);
+                }
+                Ok(())
+            });
+        }
+        let (tx, rx) = channel();
+        spawner().lock().unwrap().send((cmd, tx)).map_err(|_| std::io::Error::other("spawner gone"))?;
+        rx.recv().map_err(|_| std::io::Error::other("spawner gone"))?
+    }
 }
 
 pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration) -> Result<()> {

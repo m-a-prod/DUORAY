@@ -32,6 +32,7 @@ fn os_name() -> &'static str {
     }
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn cmd(program: &str, args: &[&str]) -> Option<String> {
     let mut command = Command::new(program);
     command.args(args);
@@ -109,9 +110,12 @@ fn os_version() -> Option<String> {
     return cmd("/usr/bin/sw_vers", &["-productVersion"]);
     #[cfg(target_os = "linux")]
     return std::fs::read_to_string("/etc/os-release").ok().and_then(|s| {
-        s.lines()
-            .find_map(|l| l.strip_prefix("VERSION_ID="))
+        // Rolling releases (Arch, CachyOS, Tumbleweed) have no VERSION_ID.
+        ["VERSION_ID=", "BUILD_ID="]
+            .iter()
+            .find_map(|key| s.lines().find_map(|l| l.strip_prefix(key)))
             .map(|v| v.trim_matches('"').to_string())
+            .or_else(|| Some("rolling".into()))
     });
     #[cfg(windows)]
     return cmd("cmd", &["/C", "ver"]);

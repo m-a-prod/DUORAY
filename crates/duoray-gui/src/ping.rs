@@ -81,9 +81,14 @@ fn tcp(host: &str, port: u16, iface: Option<&str>, timeout: Duration) -> Result<
     Ok(start.elapsed())
 }
 
-/// Keeps the probe off the TUN (macOS: IP_BOUND_IF). Elsewhere binding needs
-/// privileges, so the probe uses the normal route.
+/// Keeps the probe off the TUN (macOS: IP_BOUND_IF, Linux: SO_BINDTODEVICE,
+/// unprivileged since Linux 5.7). On Windows binding needs privileges, so the
+/// probe uses the normal route.
 fn bind_to(socket: &socket2::Socket, iface: Option<&str>) {
+    #[cfg(target_os = "linux")]
+    if let Some(name) = iface {
+        let _ = socket.bind_device(Some(name.as_bytes()));
+    }
     #[cfg(target_os = "macos")]
     if let Some(name) = iface
         && let Ok(cname) = std::ffi::CString::new(name)
@@ -92,7 +97,7 @@ fn bind_to(socket: &socket2::Socket, iface: Option<&str>) {
         let index = unsafe { libc::if_nametoindex(cname.as_ptr()) };
         let _ = socket.bind_device_by_index_v4(std::num::NonZeroU32::new(index));
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let _ = (socket, iface);
 }
 
@@ -139,25 +144,26 @@ fn icmp(host: &str, _iface: Option<&str>, timeout: Duration) -> Result<Duration>
 
 #[cfg(not(windows))]
 fn icmp(host: &str, iface: Option<&str>, timeout: Duration) -> Result<Duration> {
-    let ms = timeout.as_millis().to_string();
-    let mut cmd = Command::new("/sbin/ping");
     #[cfg(target_os = "macos")]
-    {
-        cmd.args(["-c", "1", "-W", &ms]);
+    let cmd = {
+        let mut cmd = Command::new("/sbin/ping");
+        cmd.args(["-c", "1", "-W", &timeout.as_millis().to_string()]);
         if let Some(i) = iface {
             cmd.args(["-b", i]);
         }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let secs = timeout.as_secs().max(1).to_string();
-        cmd = Command::new("ping");
-        cmd.args(["-c", "1", "-W", &secs]);
+        cmd
+    };
+    #[cfg(not(target_os = "macos"))]
+    let cmd = {
+        // Location differs between distributions (/bin, /usr/bin): use PATH.
+        let mut cmd = Command::new("ping");
+        cmd.args(["-c", "1", "-W", &timeout.as_secs().max(1).to_string()]);
         if let Some(i) = iface {
             cmd.args(["-I", i]);
         }
-        let _ = &ms;
-    }
+        cmd
+    };
+    let mut cmd = cmd;
     let out = cmd.arg(host).stdin(Stdio::null()).output().context("не удалось запустить ping")?;
     let text = String::from_utf8_lossy(&out.stdout);
     parse_ping_time(&text).context("нет ответа")

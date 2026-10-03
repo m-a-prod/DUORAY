@@ -110,6 +110,22 @@ type Shared = Arc<Mutex<App>>;
 const BUY_URL: &str = "https://t.me/dualizm_bot";
 
 fn main() -> anyhow::Result<()> {
+    // Without a polkit agent the GUI cannot ask for the password:
+    // `sudo duoray --install-helper` does the same from a terminal.
+    #[cfg(target_os = "linux")]
+    match std::env::args().nth(1).as_deref() {
+        Some("--install-helper") => {
+            helper::install()?;
+            println!("Помощник DUORAY установлен.");
+            return Ok(());
+        }
+        Some("--uninstall-helper") => {
+            helper::uninstall()?;
+            println!("Помощник DUORAY удалён.");
+            return Ok(());
+        }
+        _ => {}
+    }
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
     let path = Store::default_path()?;
@@ -760,9 +776,24 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
             let _ = ui_weak.upgrade_in_event_loop(move |ui| connection_failed(&ui, &app, generation, msg));
         }
     };
+    let on_uplink_change = {
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let app = app.clone();
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                let current = {
+                    let st = app.lock().unwrap();
+                    st.conn_gen == generation && matches!(st.conn_state, ConnState::Connected { .. })
+                };
+                if current {
+                    reconnect(&ui, &app);
+                }
+            });
+        }
+    };
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let result = connection::connect(&server, &run_dir, &routing, &geo, on_failure);
+        let result = connection::connect(&server, &run_dir, &routing, &geo, on_failure, on_uplink_change);
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Connecting { .. });
