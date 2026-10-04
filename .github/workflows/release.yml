@@ -5,9 +5,8 @@
 # hub stays on the release machine: `packaging/release.sh --from-github <tag>`
 # signs the manifest with a key that is never given to CI.
 #
-# Duotun is checked out next to DUORAY (crates/duoray-helper uses it by path).
-# If that repository is private, add a DUOTUN_TOKEN secret: a fine-grained
-# token with read access to m-a-prod/DUOTUN.
+# Duotun is checked out next to DUORAY (crates/duoray-helper uses it by path)
+# with the DUOTUN_SSH_KEY secret: a read-only deploy key of m-a-prod/DUOTUN.
 
 name: release
 
@@ -37,7 +36,7 @@ jobs:
         with:
           repository: m-a-prod/DUOTUN
           path: DUOTUN
-          token: ${{ secrets.DUOTUN_TOKEN || github.token }}
+          ssh-key: ${{ secrets.DUOTUN_SSH_KEY }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc,i686-pc-windows-msvc
@@ -74,7 +73,7 @@ jobs:
         with:
           repository: m-a-prod/DUOTUN
           path: DUOTUN
-          token: ${{ secrets.DUOTUN_TOKEN || github.token }}
+          ssh-key: ${{ secrets.DUOTUN_SSH_KEY }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with: { tool: cargo-zigbuild }
@@ -145,7 +144,7 @@ jobs:
         with:
           repository: m-a-prod/DUOTUN
           path: DUOTUN
-          token: ${{ secrets.DUOTUN_TOKEN || github.token }}
+          ssh-key: ${{ secrets.DUOTUN_SSH_KEY }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.arch }}-apple-darwin
