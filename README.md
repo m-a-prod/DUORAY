@@ -1,8 +1,14 @@
 # DUORAY
 
+> **Учебный эксперимент, AI-assisted.** Проект делается в учебных целях как
+> эксперимент: большая часть кода написана с помощью ИИ-ассистента
+> ([Claude Code](https://claude.com/claude-code)) под руководством автора, который
+> ставит задачи, проверяет результат и принимает решения. Используйте на свой
+> риск; ошибки и замечания — в Issues.
+
 Десктопный VPN-клиент на [xray-core](https://github.com/XTLS/Xray-core) для macOS,
 Windows и Linux. Без Electron и webview: интерфейс на [Slint](https://slint.dev),
-всё остальное — Rust. Туннель (TUN) — собственный, [Duotun](../Duotun), без утечек DNS.
+всё остальное — Rust. Туннель (TUN) — собственный, [Duotun](https://github.com/m-a-prod/DUOTUN), без утечек DNS.
 
 ## Возможности
 
@@ -54,7 +60,7 @@ GUI (Slint, от пользователя)
 
 ## Сборка
 
-Нужен Rust (stable) и [Duotun](../Duotun) рядом с этим репозиторием:
+Нужен Rust (stable) и [Duotun](https://github.com/m-a-prod/DUOTUN) рядом с этим репозиторием:
 
 ```sh
 git clone <url>/Duotun
@@ -153,8 +159,18 @@ packaging/windows/build.sh x64   # или x86
 Базы лежат в каталоге данных (`geo/`); пока они не скачаны, работают
 встроенные снимки и `geoip.dat` из комплекта xray.
 
-## Лицензии
+## Разработчик
 
-Код — MIT. Снимки списков — см. `crates/duoray-core/assets/routing/NOTICE.md`. Флаги — [Twemoji](https://github.com/jdecked/twemoji), CC-BY 4.0
-(см. `crates/duoray-gui/assets/NOTICE.md`). xray-core (MPL-2.0) и Wintun
-поставляются в установщике со своими лицензиями.
+**DUALIZM** — Telegram-канал [@dualizm_vpn](https://t.me/dualizm_vpn).
+
+## Лицензия
+
+DUORAY — свободная программа под [GNU GPL v3](LICENSE). Её можно использовать,
+изучать, менять и распространять. Изменённые версии тоже должны оставаться
+открытыми под GPL-3.0. Гарантий нет.
+
+[Дополнительное разрешение](LICENSE-EXCEPTION.md) позволяет поставлять DUORAY с
+драйвером Wintun для Windows. Сторонние компоненты (xray-core, Wintun, Slint,
+иконки, флаги, списки маршрутизации) перечислены в
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), лицензии Rust-крейтов — в
+[THIRD-PARTY-CRATES.txt](THIRD-PARTY-CRATES.txt).

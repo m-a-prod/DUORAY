@@ -490,6 +490,7 @@ fn main() -> anyhow::Result<()> {
             render(&ui, &st);
         }
     });
+    ui.on_open_link(|url| open_url(&url));
     ui.on_ping_current({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || start_ping(&ui_weak.unwrap(), &app)

@@ -695,6 +695,7 @@ component SettingsPage inherits Rectangle {
     callback uninstall-helper();
     callback report-problem();
     callback check-update();
+    callback open-link(string);
 
     ScrollView {
         content-width: max(self.visible-width, settings-content.min-width);
@@ -1130,6 +1131,69 @@ component SettingsPage inherits Rectangle {
                             clicked => {
                                 root.report-problem();
                             }
+                        }
+                    }
+                }
+            }
+
+            // ── About (GPL "Appropriate Legal Notices") ──
+            SectionLabel {
+                text: "О ПРОГРАММЕ";
+            }
+            SettingsCard {
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "DUORAY " + root.duoray-version;
+                            font-size: Theme.fs-title;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "Разработчик — DUALIZM. Новости и поддержка — в Telegram-канале @dualizm_vpn.";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "@dualizm_vpn";
+                            clicked => {
+                                root.open-link("https://t.me/dualizm_vpn");
+                            }
+                        }
+                    }
+                }
+                Divider { }
+                Text {
+                    text: "© 2026 DUALIZM. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Учебный эксперимент, код написан с помощью ИИ-ассистента.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: "Исходный код";
+                        clicked => {
+                            root.open-link("https://github.com/m-a-prod/DUORAY");
+                        }
+                    }
+                    Button {
+                        text: "Лицензия";
+                        clicked => {
+                            root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/LICENSE");
+                        }
+                    }
+                    Button {
+                        text: "Сторонние компоненты";
+                        clicked => {
+                            root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/THIRD-PARTY-NOTICES.md");
                         }
                     }
                 }
@@ -2192,6 +2256,7 @@ export component AppWindow inherits Window {
     in-out property <string> duoray-version <=> settings-page.duoray-version;
     in-out property <string> update-info <=> settings-page.update-info;
     callback report-problem <=> settings-page.report-problem;
+    callback open-link <=> settings-page.open-link;
     callback check-update <=> settings-page.check-update;
     // First start: ask about error reports.
     in-out property <bool> consent-open;

@@ -3,7 +3,7 @@ name = "duoray-gui"
 version = "0.3.0"
 edition = "2024"
 description = "DUORAY desktop VPN client (Slint GUI over xray-core)"
-license = "MIT"
+license = "GPL-3.0-only"
 
 [[bin]]
 name = "duoray"

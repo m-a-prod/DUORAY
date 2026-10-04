@@ -1,0 +1,15 @@
+Third-party Rust crates built into DUORAY
+=========================================
+
+DUORAY itself is licensed under the GNU GPL v3 (see LICENSE). The crates
+below are compiled into its binaries; each is listed with its license.
+{{#each licenses}}
+
+------------------------------------------------------------------------
+{{{name}}} ({{id}})
+Used by:
+{{#each used_by}}  - {{crate.name}} {{crate.version}}{{#if crate.repository}} <{{crate.repository}}>{{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

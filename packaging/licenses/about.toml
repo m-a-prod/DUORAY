@@ -1,0 +1,31 @@
+# cargo-about config: the license texts of every Rust crate in DUORAY's
+# binaries, for all platforms we ship (packaging/licenses/generate.sh).
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "i686-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+# In order of preference: where a crate offers a choice, the first one wins.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSD-1-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "GPL-3.0-only",
+]

@@ -41,6 +41,7 @@ python3 -c "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv
 install -m 755 "$CACHE/xray/xray" "$APPDIR/usr/bin/xray"
 install -m 644 "$CACHE/xray/geoip.dat" "$CACHE/xray/geosite.dat" "$APPDIR/usr/bin/"
 install -m 644 "$CACHE/xray/LICENSE" "$APPDIR/usr/bin/LICENSE-xray.txt"
+install -Dm644 -t "$APPDIR/usr/share/doc/duoray" LICENSE LICENSE-EXCEPTION.md THIRD-PARTY-NOTICES.md THIRD-PARTY-CRATES.txt
 
 install -m 644 packaging/linux/duoray.desktop "$APPDIR/duoray.desktop"
 install -m 644 packaging/linux/duoray.desktop "$APPDIR/usr/share/applications/duoray.desktop"
