@@ -58,6 +58,8 @@ pub enum Install {
 /// A newer version for this platform.
 #[derive(Debug, Clone)]
 pub struct Found {
+    /// The hub that served the manifest; downloads try it first.
+    pub hub: String,
     pub version: String,
     pub notes: String,
     pub page: String,
@@ -93,14 +95,28 @@ fn get(url: &str) -> Result<Vec<u8>> {
     Ok(body.with_config().limit(1024 * 1024).read_to_vec()?)
 }
 
-/// Asks the hub for a newer version. `Ok(None)`: up to date.
+/// Asks the hubs for a newer version, mirrors in turn. `Ok(None)`: up to date.
 pub fn check() -> Result<Option<Found>> {
-    let base = format!("{}/v1/update", crate::diag::hub_url());
+    let mut last = anyhow::anyhow!("нет серверов обновлений");
+    for hub in crate::diag::hubs() {
+        match check_at(&hub) {
+            Ok(m) => {
+                crate::diag::hub_ok(&hub);
+                return Ok(select(m, env!("CARGO_PKG_VERSION"), platform()).map(|f| Found { hub, ..f }));
+            }
+            // A mirror with a bad signature is skipped like a dead one.
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+fn check_at(hub: &str) -> Result<Manifest> {
+    let base = format!("{hub}/v1/update");
     let manifest = get(&format!("{base}/manifest.json"))?;
     let sig = get(&format!("{base}/manifest.sig"))?;
     verify(&manifest, &String::from_utf8_lossy(&sig), &PUBLIC_KEY)?;
-    let m: Manifest = serde_json::from_slice(&manifest).context("манифест обновления")?;
-    Ok(select(m, env!("CARGO_PKG_VERSION"), platform()))
+    serde_json::from_slice(&manifest).context("манифест обновления")
 }
 
 fn select(m: Manifest, current: &str, (key, install): (String, Install)) -> Option<Found> {
@@ -109,7 +125,7 @@ fn select(m: Manifest, current: &str, (key, install): (String, Install)) -> Opti
     }
     let asset = m.assets.get(&key).cloned();
     let install = if asset.is_some() { install } else { Install::Notify };
-    Some(Found { version: m.version, notes: m.notes, page: m.page, asset, install })
+    Some(Found { hub: String::new(), version: m.version, notes: m.notes, page: m.page, asset, install })
 }
 
 fn verify(data: &[u8], sig_hex: &str, key: &[u8; 32]) -> Result<()> {
@@ -141,9 +157,22 @@ pub fn newer(a: &str, b: &str) -> bool {
     }
 }
 
-/// Downloads `asset` into `dir` (reusing a verified earlier download).
-/// `progress(done, total)` is called as data arrives.
-pub fn download(asset: &Asset, dir: &Path, progress: impl Fn(u64, u64)) -> Result<PathBuf> {
+/// Downloads `asset` into `dir` (reusing a verified earlier download), from
+/// `hub` first and then the mirrors. `progress(done, total)` reports bytes.
+pub fn download(asset: &Asset, hub: &str, dir: &Path, progress: impl Fn(u64, u64)) -> Result<PathBuf> {
+    let mut order = vec![hub.to_string()];
+    order.extend(crate::diag::hubs().into_iter().filter(|h| h != hub));
+    let mut last = anyhow::anyhow!("нет серверов обновлений");
+    for h in order.iter().filter(|h| !h.is_empty()) {
+        match download_from(asset, h, dir, &progress) {
+            Ok(path) => return Ok(path),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u64)) -> Result<PathBuf> {
     if asset.file.is_empty() || !asset.file.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
         bail!("неверное имя файла в манифесте");
     }
@@ -152,7 +181,7 @@ pub fn download(asset: &Asset, dir: &Path, progress: impl Fn(u64, u64)) -> Resul
     if sha256_file(&target).is_ok_and(|h| h.eq_ignore_ascii_case(&asset.sha256)) {
         return Ok(target);
     }
-    let url = format!("{}/v1/update/files/{}", crate::diag::hub_url(), asset.file);
+    let url = format!("{hub}/v1/update/files/{}", asset.file);
     let mut body = agent(Duration::from_secs(30 * 60))
         .get(&url)
         .header("User-Agent", USER_AGENT)
@@ -312,6 +341,6 @@ mod tests {
     #[test]
     fn download_checks_name() {
         let a = Asset { file: "../x".into(), sha256: String::new(), size: 0 };
-        assert!(download(&a, Path::new("/nonexistent"), |_, _| {}).is_err());
+        assert!(download(&a, "https://h", Path::new("/nonexistent"), |_, _| {}).is_err());
     }
 }

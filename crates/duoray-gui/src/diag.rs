@@ -20,10 +20,28 @@ use anyhow::{Context, Result, bail};
 use regex::Regex;
 use serde_json::{Value, json};
 
-/// The hub that receives reports and serves updates. `DUORAY_HUB_URL`
-/// overrides it for testing (updates stay signature-checked either way).
-pub fn hub_url() -> String {
-    std::env::var("DUORAY_HUB_URL").unwrap_or_else(|_| "https://duoray.dualizm.space".into())
+/// Hubs that receive reports and serve updates, main first. The others are
+/// mirrors for when a domain is blocked or down; updates are signature-
+/// checked whichever one answers.
+const HUBS: &[&str] = &["https://duoray.dualizm.space", "https://duoray.it-dualizm.space", "https://api.duoray.pro"];
+
+/// The hub that answered last; tried first next time.
+static PREFERRED: AtomicUsize = AtomicUsize::new(0);
+
+/// Hubs in the order to try them. `DUORAY_HUB_URL` replaces the list (tests).
+pub fn hubs() -> Vec<String> {
+    if let Ok(url) = std::env::var("DUORAY_HUB_URL") {
+        return vec![url];
+    }
+    let first = PREFERRED.load(Ordering::Relaxed) % HUBS.len();
+    (0..HUBS.len()).map(|i| HUBS[(first + i) % HUBS.len()].to_string()).collect()
+}
+
+/// Remembers a hub that worked.
+pub fn hub_ok(url: &str) {
+    if let Some(i) = HUBS.iter().position(|h| *h == url) {
+        PREFERRED.store(i, Ordering::Relaxed);
+    }
 }
 
 const LOG_LINES: usize = 300;
@@ -187,14 +205,30 @@ impl From<PostError> for anyhow::Error {
     }
 }
 
+/// Sends to the first hub that takes it; a refusal (bad report) is final.
 fn post(report: &Value) -> Result<String, PostError> {
+    let mut last = PostError::Later(anyhow::anyhow!("нет серверов"));
+    for hub in hubs() {
+        match post_to(&hub, report) {
+            Ok(id) => {
+                hub_ok(&hub);
+                return Ok(id);
+            }
+            Err(PostError::Rejected) => return Err(PostError::Rejected),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+fn post_to(hub: &str, report: &Value) -> Result<String, PostError> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(20)))
         .http_status_as_error(false)
         .build()
         .into();
     let mut resp = agent
-        .post(format!("{}/v1/report", hub_url()))
+        .post(format!("{hub}/v1/report"))
         .header("User-Agent", crate::update::USER_AGENT)
         .send_json(report)
         .map_err(|e| PostError::Later(e.into()))?;
@@ -329,6 +363,16 @@ mod tests {
         // Ordinary diagnostics survive.
         let keep = "12:00:01 xray остановился (exit status: 1). geoip.dat не найден, flow xtls-rprx-vision";
         assert_eq!(sanitize(keep), keep);
+    }
+
+    #[test]
+    fn mirrors_rotate_to_the_last_good_hub() {
+        assert_eq!(hubs()[0], HUBS[0]);
+        hub_ok(HUBS[2]);
+        assert_eq!(hubs(), [HUBS[2], HUBS[0], HUBS[1]]);
+        hub_ok("https://unknown.example");
+        assert_eq!(hubs()[0], HUBS[2]);
+        hub_ok(HUBS[0]);
     }
 
     #[test]

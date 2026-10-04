@@ -184,7 +184,7 @@ fn check(ui: &AppWindow, app: &Shared, manual: bool) {
         let Ok(Some(found)) = found else { return };
         let Some(asset) = found.asset.clone().filter(|_| found.install != Install::Notify) else { return };
         let last = std::sync::atomic::AtomicU64::new(0);
-        let result = update::download(&asset, &dir, |done, total| {
+        let result = update::download(&asset, &found.hub, &dir, |done, total| {
             // A few progress updates, not one per chunk.
             let pct = done * 100 / total.max(1);
             if pct >= last.load(std::sync::atomic::Ordering::Relaxed) + 5 {

@@ -59,6 +59,17 @@ DUORAY проверяет обновления через 30 секунд пос
 Сервер — `server/duoray-hub/`: Python без зависимостей + SQLite, systemd-юнит
 с `DynamicUser`. Он работает за haproxy на `duoray.dualizm.space`.
 
+Приложение пробует хабы по очереди: `duoray.dualizm.space`, затем зеркала
+`duoray.it-dualizm.space` и `api.duoray.pro`. Ответивший хаб запоминается до
+конца запуска. Чтобы включить зеркало, хватит настройки на сервере:
+
+- A-запись домена на хаб;
+- сертификат (`certbot certonly --standalone --http-01-port 8080 -d <домен>`)
+  и его PEM в `bind` haproxy;
+- имя в `acl host_duoray`.
+
+Обновлять приложение для этого не нужно.
+
 ```sh
 ssh user@hub.example duoray-reports list            # последние отчёты
 ssh user@hub.example duoray-reports show DR-7K3QX9  # отчёт с журналом
