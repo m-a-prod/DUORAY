@@ -160,7 +160,9 @@ fn check(ui: &AppWindow, app: &Shared, manual: bool) {
                 match &shown {
                     Ok(None) => {
                         st.update = UpdateState::Idle;
-                        ui.set_update_info(format!("Установлена последняя версия ({}).", env!("CARGO_PKG_VERSION")).into());
+                        ui.set_update_info(
+                            format!("Установлена последняя версия ({}, {}).", env!("CARGO_PKG_VERSION"), update::BUILD).into(),
+                        );
                     }
                     Ok(Some(f)) if f.install == Install::Notify || f.asset.is_none() => {
                         diag::log(format!("update {} available (no build for this install)", f.version));

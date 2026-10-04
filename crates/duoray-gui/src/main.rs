@@ -367,7 +367,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_hysteria_minutes(st.store.settings.hysteria_restart_minutes.to_string().into());
             ui.set_telemetry_enabled(st.store.settings.telemetry == Some(true));
             ui.set_auto_update(st.store.settings.auto_update);
-            ui.set_duoray_version(env!("CARGO_PKG_VERSION").into());
+            ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
             let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
             ui.set_theme_choice(theme.into());

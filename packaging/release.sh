@@ -18,6 +18,12 @@ BUILD=1
 if [ "${1:-}" = "--no-build" ]; then BUILD=0; shift; fi
 NOTES=${1:-}
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/duoray-gui/Cargo.toml | head -1)
+BUILD_ID=$(git rev-parse --short=12 HEAD)
+# The build id in the binaries must be a real commit: updates compare it.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "uncommitted changes: commit first, the release build id is the commit" >&2
+    exit 1
+fi
 KEY=${DUORAY_SIGNING_KEY:-$HOME/.config/duoray-release/update-signing.pem}
 HUB=${DUORAY_HUB_SSH:-user@hub.example}
 REMOTE=/var/lib/private/duoray-hub/updates
@@ -31,9 +37,9 @@ fi
 
 OUT=dist/release-$VERSION
 rm -rf "$OUT" && mkdir -p "$OUT"
-python3 - "$VERSION" "$NOTES" "$OUT" <<'EOF'
+python3 - "$VERSION" "$NOTES" "$OUT" "$BUILD_ID" <<'EOF'
 import hashlib, json, os, shutil, sys, time
-version, notes, out = sys.argv[1:4]
+version, notes, out, build = sys.argv[1:5]
 names = {
     f"DUORAY-Setup-{version}-x64.exe": "windows-x86_64-setup",
     f"DUORAY-Setup-{version}-x86.exe": "windows-x86-setup",
@@ -57,6 +63,7 @@ if not assets:
     sys.exit(f"no builds of {version} in dist/")
 manifest = {
     "version": version,
+    "build": build,
     "notes": notes,
     "published": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     "page": os.environ.get("DUORAY_RELEASE_PAGE", ""),
@@ -84,4 +91,4 @@ done
 scp -q "$OUT/manifest.json" "$HUB:$REMOTE/manifest.json.new"
 scp -q "$OUT/manifest.sig" "$HUB:$REMOTE/manifest.sig.new"
 ssh "$HUB" "cd $REMOTE && chmod 644 files/* manifest.*.new && mv manifest.sig.new manifest.sig && mv manifest.json.new manifest.json"
-echo "published $VERSION"
+echo "published $VERSION ($BUILD_ID)"

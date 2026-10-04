@@ -251,6 +251,7 @@ fn build(kind: &str, message: &str, note: Option<&str>) -> Option<Value> {
         "message": message,
         "signature": signature(kind, &message),
         "version": env!("CARGO_PKG_VERSION"),
+        "build": crate::update::BUILD,
         "os": os_label(),
         "arch": std::env::consts::ARCH,
         "install_id": st.install_id,

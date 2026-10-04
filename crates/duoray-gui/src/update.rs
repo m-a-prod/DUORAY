@@ -21,6 +21,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 pub const USER_AGENT: &str = concat!("Duoray/", env!("CARGO_PKG_VERSION"));
+/// Git commit of this build (see build.rs).
+pub const BUILD: &str = env!("DUORAY_BUILD");
 
 /// Public half of ~/.config/duoray-release/update-signing.pem.
 const PUBLIC_KEY: [u8; 32] = hex32("e2d7d74a8fffaee8f4c3bb9f566f7bb2a533afd23755eb671bdc6fe280f478ab");
@@ -28,6 +30,9 @@ const PUBLIC_KEY: [u8; 32] = hex32("e2d7d74a8fffaee8f4c3bb9f566f7bb2a533afd23755
 #[derive(Debug, Clone, Deserialize)]
 pub struct Manifest {
     pub version: String,
+    /// Git commit the builds were made from.
+    #[serde(default)]
+    pub build: String,
     #[serde(default)]
     pub notes: String,
     /// Where to send users whose platform has no asset.
@@ -102,7 +107,7 @@ pub fn check() -> Result<Option<Found>> {
         match check_at(&hub) {
             Ok(m) => {
                 crate::diag::hub_ok(&hub);
-                return Ok(select(m, env!("CARGO_PKG_VERSION"), platform()).map(|f| Found { hub, ..f }));
+                return Ok(select(m, env!("CARGO_PKG_VERSION"), BUILD, platform()).map(|f| Found { hub, ..f }));
             }
             // A mirror with a bad signature is skipped like a dead one.
             Err(e) => last = e,
@@ -119,8 +124,13 @@ fn check_at(hub: &str) -> Result<Manifest> {
     serde_json::from_slice(&manifest).context("манифест обновления")
 }
 
-fn select(m: Manifest, current: &str, (key, install): (String, Install)) -> Option<Found> {
-    if !newer(&m.version, current) {
+/// Offered: a newer version, or the same version built from another commit
+/// (a fix shipped without a version bump). The same build re-uploaded, or
+/// anything older, is not.
+fn select(m: Manifest, current: &str, build: &str, (key, install): (String, Install)) -> Option<Found> {
+    let same_version = !newer(&m.version, current) && !newer(current, &m.version);
+    let rebuilt = same_version && !m.build.is_empty() && m.build != build;
+    if !newer(&m.version, current) && !rebuilt {
         return None;
     }
     let asset = m.assets.get(&key).cloned();
@@ -331,11 +341,19 @@ mod tests {
         assert!(verify(manifest, "zz", &public).is_err());
 
         let m: Manifest = serde_json::from_slice(manifest).unwrap();
-        let win = select(m.clone(), "0.3.0", ("windows-x86_64-setup".into(), Install::Setup)).unwrap();
-        assert_eq!((win.install, win.asset.unwrap().file.as_str()), (Install::Setup, "a.exe"));
-        let mac = select(m.clone(), "0.3.0", ("macos-aarch64-dmg".into(), Install::Open)).unwrap();
+        let win = ("windows-x86_64-setup".to_string(), Install::Setup);
+        let found = select(m.clone(), "0.3.0", "abc", win.clone()).unwrap();
+        assert_eq!((found.install, found.asset.unwrap().file.as_str()), (Install::Setup, "a.exe"));
+        let mac = select(m.clone(), "0.3.0", "abc", ("macos-aarch64-dmg".into(), Install::Open)).unwrap();
         assert_eq!((mac.install, mac.asset.is_none()), (Install::Notify, true));
-        assert!(select(m, "0.4.0", ("windows-x86_64-setup".into(), Install::Setup)).is_none());
+        assert!(select(m.clone(), "0.4.0", "abc", win.clone()).is_none(), "same version, manifest without build");
+        assert!(select(m.clone(), "0.5.0", "abc", win.clone()).is_none(), "older than installed");
+
+        // Same version: offered only when built from another commit.
+        let rebuilt = Manifest { build: "def".into(), ..m.clone() };
+        assert!(select(rebuilt.clone(), "0.4.0", "abc", win.clone()).is_some());
+        assert!(select(rebuilt.clone(), "0.4.0", "def", win.clone()).is_none(), "re-uploaded same build");
+        assert!(select(rebuilt, "0.5.0", "abc", win).is_none(), "never a downgrade");
     }
 
     #[test]
