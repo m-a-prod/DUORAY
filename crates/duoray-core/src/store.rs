@@ -110,6 +110,33 @@ pub struct Subscription {
     pub last_error: Option<String>,
     /// The user collapsed this subscription's announcement.
     pub announce_hidden: bool,
+    /// Servers the user edited. Re-applied after every update, so an edit
+    /// sticks until it is reset.
+    pub overrides: Vec<ServerOverride>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerOverride {
+    /// The server's name as the panel sends it plus its occurrence among
+    /// servers of that name; see [`override_key`].
+    pub key: String,
+    /// The panel's version, restored on reset (refreshed by every update).
+    pub original: Server,
+    pub edited: Server,
+}
+
+/// Identity of `servers[index]` across updates: its original name and how many
+/// servers before it share that name. Edited servers count by original name.
+fn override_key(sub: &Subscription, index: usize) -> String {
+    let original = |s: &Server| -> String {
+        s.override_key
+            .as_ref()
+            .and_then(|k| sub.overrides.iter().find(|o| &o.key == k))
+            .map_or_else(|| s.name.clone(), |o| o.original.name.clone())
+    };
+    let name = original(&sub.servers[index]);
+    let n = sub.servers[..index].iter().filter(|s| original(s) == name).count();
+    format!("{name}\u{1f}{n}")
 }
 
 /// Name of the group that holds servers added as plain share links.
@@ -237,6 +264,29 @@ impl Store {
         self.subscriptions.len() - 1
     }
 
+    /// Replaces `servers[index]` of subscription `id` with the user's edit.
+    pub fn edit_server(&mut self, id: &str, index: usize, mut edited: Server) -> bool {
+        let Some(sub) = self.subscriptions.iter_mut().find(|s| s.id == id) else { return false };
+        let Some(current) = sub.servers.get(index) else { return false };
+        let key = current.override_key.clone().unwrap_or_else(|| override_key(sub, index));
+        edited.override_key = Some(key.clone());
+        match sub.overrides.iter_mut().find(|o| o.key == key) {
+            Some(o) => o.edited = edited.clone(),
+            None => sub.overrides.push(ServerOverride { key, original: current.clone(), edited: edited.clone() }),
+        }
+        sub.servers[index] = edited;
+        true
+    }
+
+    /// Restores the panel's version of an edited server.
+    pub fn reset_server(&mut self, id: &str, index: usize) -> bool {
+        let Some(sub) = self.subscriptions.iter_mut().find(|s| s.id == id) else { return false };
+        let Some(key) = sub.servers.get(index).and_then(|s| s.override_key.clone()) else { return false };
+        let Some(pos) = sub.overrides.iter().position(|o| o.key == key) else { return false };
+        sub.servers[index] = sub.overrides.remove(pos).original;
+        true
+    }
+
     /// Never edit fetched subscriptions through the manual-server UI.
     pub fn remove_manual_server(&mut self, id: &str, index: usize) -> bool {
         let Some(group) = self.subscriptions.iter_mut().find(|s| s.id == id && s.is_manual()) else {
@@ -245,7 +295,9 @@ impl Store {
         if index >= group.servers.len() {
             return false;
         }
-        group.servers.remove(index);
+        if let Some(key) = group.servers.remove(index).override_key {
+            group.overrides.retain(|o| o.key != key);
+        }
         group.updated_at = Some(now());
         true
     }
@@ -264,6 +316,13 @@ impl Store {
                 }
                 sub.info = f.info;
                 sub.servers = f.servers;
+                // Put the user's edits back over the fresh list.
+                for i in 0..sub.servers.len() {
+                    let key = override_key(sub, i);
+                    if let Some(o) = sub.overrides.iter_mut().find(|o| o.key == key) {
+                        o.original = std::mem::replace(&mut sub.servers[i], o.edited.clone());
+                    }
+                }
                 sub.skipped = f.skipped.len();
                 sub.json = f.json;
                 sub.updated_at = Some(now());
@@ -319,6 +378,55 @@ mod tests {
         let path = dir.path().join("store.json");
         store.save(&path).unwrap();
         assert!(Store::load(&path).unwrap().get(&id).unwrap().servers.is_empty());
+    }
+
+    #[test]
+    fn edits_survive_updates_and_reset() {
+        let mut store = Store::default();
+        let id = store.add("https://p.example/sub/x", "").unwrap();
+        let fetched = |port: u16| Fetched {
+            info: SubInfo::default(),
+            servers: ["A", "B", "A"]
+                .iter()
+                .map(|n| Server::from_link(crate::link::parse(&format!("trojan://pw@h.example:{port}#{n}")).unwrap()))
+                .collect(),
+            skipped: vec![],
+            json: false,
+        };
+        store.apply(&id, Ok(fetched(443)));
+
+        // Edit the second "A" and rename it: its identity stays "A", occurrence 1.
+        let mut edited = store.get(&id).unwrap().servers[2].clone();
+        edited.name = "A-mine".into();
+        edited.port = 8443;
+        assert!(store.edit_server(&id, 2, edited));
+        let sub = store.get(&id).unwrap();
+        assert_eq!((sub.servers[2].name.as_str(), sub.servers[0].name.as_str()), ("A-mine", "A"));
+        assert!(sub.servers[0].override_key.is_none());
+
+        // Editing again keeps a single override and the panel's original.
+        let mut again = sub.servers[2].clone();
+        again.port = 9443;
+        assert!(store.edit_server(&id, 2, again));
+        assert_eq!(store.get(&id).unwrap().overrides.len(), 1);
+
+        // The panel changes ports: the edit stays, its original follows the panel.
+        store.apply(&id, Ok(fetched(2053)));
+        let sub = store.get(&id).unwrap();
+        assert_eq!((sub.servers[2].name.as_str(), sub.servers[2].port), ("A-mine", 9443));
+        assert_eq!((sub.servers[0].port, sub.servers[1].port), (2053, 2053));
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.json");
+        store.save(&path).unwrap();
+        let mut store = Store::load(&path).unwrap();
+        assert_eq!(store.get(&id).unwrap().servers[2].port, 9443);
+
+        assert!(!store.reset_server(&id, 0), "not edited");
+        assert!(store.reset_server(&id, 2));
+        let sub = store.get(&id).unwrap();
+        assert_eq!((sub.servers[2].name.as_str(), sub.servers[2].port), ("A", 2053));
+        assert!(sub.overrides.is_empty() && sub.servers[2].override_key.is_none());
     }
 
     #[test]

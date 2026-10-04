@@ -20,6 +20,10 @@ pub struct Server {
     /// Number of proxy outbounds; >1 means a balancer ("auto-select").
     pub proxies: usize,
     pub source: Source,
+    /// Set once the user edited this server; names its entry in
+    /// `Subscription::overrides`, which keeps the edit across updates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -105,6 +109,7 @@ impl Server {
             security,
             proxies: proxies.len(),
             source: Source::Json(config),
+            override_key: None,
         })
     }
 
@@ -119,7 +124,77 @@ impl Server {
             security: p.stream.security.clone(),
             proxies: 1,
             source: Source::Link(Box::new(p)),
+            override_key: None,
         }
+    }
+
+    /// The server's xray config as the user edits it: the subscription's own
+    /// JSON, or the one DUORAY generates for a share link.
+    pub fn config_json(&self) -> Value {
+        match &self.source {
+            Source::Json(v) => v.clone(),
+            Source::Link(p) => crate::xray::config_from_profile(p),
+        }
+    }
+
+    /// Parses an edited xray config. Errors carry the position for the editor.
+    pub fn from_json_text(text: &str) -> Result<Self, JsonError> {
+        let config: Value = serde_json::from_str(text).map_err(|e| JsonError {
+            message: json_message(&e),
+            line: e.line(),
+            column: e.column(),
+        })?;
+        if !config.is_object() {
+            return Err(JsonError::general("Конфиг должен быть объектом { … }"));
+        }
+        Self::from_xray_config(config).ok_or_else(|| {
+            JsonError::general("В outbounds нет прокси: нужен исходящий vless, vmess, trojan, shadowsocks, hysteria…")
+        })
+    }
+}
+
+/// A rejected edit. `line`/`column` are 1-based (column in bytes); 0 when the
+/// problem is not tied to a place in the text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonError {
+    pub message: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+impl JsonError {
+    fn general(message: &str) -> Self {
+        Self { message: message.into(), line: 0, column: 0 }
+    }
+
+    /// Byte offset of the error in `text`, for placing the cursor there.
+    pub fn offset_in(&self, text: &str) -> Option<usize> {
+        if self.line == 0 {
+            return None;
+        }
+        let start: usize = text.split_inclusive('\n').take(self.line - 1).map(str::len).sum();
+        let mut at = (start + self.column.saturating_sub(1)).min(text.len());
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        Some(at)
+    }
+}
+
+/// serde_json's message without its trailing " at line X column Y".
+fn json_message(e: &serde_json::Error) -> String {
+    let full = e.to_string();
+    let text = full.split(" at line ").next().unwrap_or(&full);
+    match e.classify() {
+        serde_json::error::Category::Eof => "Текст обрывается: не хватает закрывающей скобки или кавычки".into(),
+        _ if text.starts_with("trailing comma") => "Лишняя запятая перед закрывающей скобкой".into(),
+        _ if text.starts_with("expected `,` or `}`") => "Ожидается запятая или }".into(),
+        _ if text.starts_with("expected `,` or `]`") => "Ожидается запятая или ]".into(),
+        _ if text.starts_with("expected `:`") => "Ожидается двоеточие после ключа".into(),
+        _ if text.starts_with("key must be a string") => "Ключ должен быть в двойных кавычках".into(),
+        _ if text.starts_with("expected value") => "Ожидается значение".into(),
+        _ if text.starts_with("trailing characters") => "Лишний текст после конца конфига".into(),
+        _ => text.to_string(),
     }
 }
 
@@ -186,6 +261,23 @@ mod tests {
         let s = Server::from_xray_config(cfg).unwrap();
         assert_eq!((s.protocol.as_str(), s.port), ("Hysteria2", 45443));
         assert_eq!(s.description.as_deref(), Some("Безлимитный"));
+    }
+
+    #[test]
+    fn edited_json() {
+        let ok = r#"{"remarks": "A", "outbounds": [{"tag": "proxy", "protocol": "trojan",
+            "settings": {"servers": [{"address": "t.example", "port": 443, "password": "x"}]}}]}"#;
+        let s = Server::from_json_text(ok).unwrap();
+        assert_eq!((s.name.as_str(), s.address.as_str(), s.port), ("A", "t.example", 443));
+
+        let text = "{\n  \"a\": 1,\n  \"b\": 2,\n}";
+        let e = Server::from_json_text(text).unwrap_err();
+        assert_eq!((e.line, e.message.as_str()), (4, "Лишняя запятая перед закрывающей скобкой"));
+        assert_eq!(&text[e.offset_in(text).unwrap()..], "}");
+
+        let e = Server::from_json_text(r#"{"outbounds": [{"protocol": "freedom"}]}"#).unwrap_err();
+        assert_eq!((e.line, e.offset_in("x")), (0, None));
+        assert!(Server::from_json_text("[1]").is_err());
     }
 
     #[test]

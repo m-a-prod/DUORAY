@@ -23,6 +23,37 @@ export struct ServerRow {
     ping-text: string,
     // 0 none, 1 fast, 2 medium, 3 slow, 4 failed, 5 pending
     ping-level: int,
+    // The user changed this server (kept across subscription updates).
+    edited: bool,
+    // Edited as JSON (else as a form of share-link fields).
+    is-json: bool,
+}
+
+// One field of the share-link form; `index` is what field-changed reports.
+export struct EditField {
+    index: int,
+    label: string,
+    value: string,
+    // Non-empty: a drop-down instead of a text field.
+    options: [string],
+    placeholder: string,
+    error: string,
+}
+
+export struct EditSection {
+    title: string,
+    fields: [EditField],
+}
+
+// A colored run in the JSON editor; `col` counts characters from the line start.
+export struct CodeSpan {
+    col: int,
+    text: string,
+    kind: int,
+}
+
+export struct CodeLine {
+    spans: [CodeSpan],
 }
 
 export global Theme {
@@ -46,6 +77,12 @@ export global Theme {
     out property <brush> muted: Palette.foreground.with-alpha(0.62);
     out property <brush> ok: light ? #218358 : #30a46c;
     out property <brush> warn: light ? #ab6400 : #f5a524;
+    // JSON editor syntax colors.
+    out property <color> code-key: light ? #0550ae : #8ab4f8;
+    out property <color> code-string: light ? #116329 : #a3d9a5;
+    out property <color> code-number: light ? #953800 : #f2b47a;
+    out property <color> code-accent: light ? #8250df : #d0a8ff;
+    out property <color> code-tag: light ? #0e7490 : #6fd8ea;
     // Popup and dialog shadows: soft and lower on light backgrounds.
     out property <color> shadow: light ? #0000002e : #00000080;
     // Type scale.
@@ -156,20 +193,25 @@ component EmptyState inherits VerticalLayout {
 }
 
 
-// Material Design icons (Apache 2.0), 24×24 viewBox.
+// Material Design icons (Apache 2.0), 24×24 viewBox, as SVG images: Slint
+// rasterizes SVGs exactly (resvg), while FemtoVG fills vector paths up to a
+// pixel too wide, which makes small icons look bold (slint-ui/slint#13173).
 global Icons {
-    out property <string> refresh: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
-    out property <string> more: "M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z";
-    out property <string> info: "M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z";
-    out property <string> send: "M2.01 21 23 12 2.01 3 2 10l15 2-15 2z";
-    out property <string> expand-more: "M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z";
-    out property <string> expand-less: "m12 8-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z";
-    out property <string> sort: "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z";
-    out property <string> add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z";
-    out property <string> arrow-up: "M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z";
-    out property <string> arrow-down: "M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z";
-    out property <string> delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
-    out property <string> speed: "m20.38 8.57-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z";
+    out property <image> refresh: @image-url("icons/refresh.svg");
+    out property <image> more: @image-url("icons/more.svg");
+    out property <image> info: @image-url("icons/info.svg");
+    out property <image> send: @image-url("icons/send.svg");
+    out property <image> expand-more: @image-url("icons/expand-more.svg");
+    out property <image> expand-less: @image-url("icons/expand-less.svg");
+    out property <image> sort: @image-url("icons/sort.svg");
+    out property <image> add: @image-url("icons/add.svg");
+    out property <image> arrow-up: @image-url("icons/arrow-up.svg");
+    out property <image> arrow-down: @image-url("icons/arrow-down.svg");
+    out property <image> delete: @image-url("icons/delete.svg");
+    out property <image> speed: @image-url("icons/speed.svg");
+    // The spinning refresh icon stays a path: rotating a colorized image
+    // renders incorrectly on some GPUs (seen on Windows).
+    out property <string> refresh-path: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
 }
 
 // ── Controls ───────────────────────────────────────────────────
@@ -290,7 +332,7 @@ component ComboBox inherits Rectangle {
     border-radius: 8px;
     border-width: 1px;
     border-color: touch.has-hover && root.enabled ? Palette.foreground.with-alpha(0.55) : Palette.border;
-    background: Theme.card;
+    background: Palette.foreground.with-alpha(0.04);
     opacity: root.enabled ? 1 : 0.38;
     animate border-color { duration: 120ms; easing: ease-out; }
     accessible-role: combobox;
@@ -340,14 +382,12 @@ component ComboBox inherits Rectangle {
             overflow: elide;
             accessible-role: none;
         }
-        Path {
-            commands: Icons.expand-more;
-            viewbox-width: 24;
-            viewbox-height: 24;
+        Image {
+            source: Icons.expand-more;
             width: 20px;
             height: 20px;
             y: (parent.height - self.height) / 2;
-            fill: Theme.muted;
+            colorize: Theme.muted;
         }
     }
     touch := TouchArea {
@@ -407,7 +447,7 @@ component ComboBox inherits Rectangle {
 }
 
 component IconButton inherits Rectangle {
-    in property <string> icon;
+    in property <image> icon;
     in property <brush> tint: Palette.foreground;
     in property <bool> enabled: true;
     callback clicked();
@@ -421,15 +461,11 @@ component IconButton inherits Rectangle {
     transform-scale: touch.pressed && root.enabled ? 0.92 : 1;
     animate background, opacity { duration: 120ms; easing: ease-out; }
     animate transform-scale { duration: 100ms; easing: ease-out; }
-    Path {
-        commands: root.icon;
-        viewbox-width: 24;
-        viewbox-height: 24;
+    Image {
+        source: root.icon;
         width: 20px;
         height: 20px;
-        fill: root.tint;
-        // Rings with holes (ⓘ) must not depend on the renderer's default rule.
-        fill-rule: evenodd;
+        colorize: root.tint;
     }
     touch := TouchArea {
         enabled: root.enabled;
@@ -452,15 +488,21 @@ component RefreshButton inherits Rectangle {
     transform-scale: touch.pressed && !root.spinning ? 0.92 : 1;
     animate background { duration: 120ms; easing: ease-out; }
     animate transform-scale { duration: 100ms; easing: ease-out; }
+    if !root.spinning: Image {
+        source: Icons.refresh;
+        width: 20px;
+        height: 20px;
+        colorize: Palette.foreground;
+    }
     // A vector path in a rotating box: rotating a colorized image renders
     // incorrectly on some GPUs (seen on Windows).
-    Rectangle {
+    if root.spinning: Rectangle {
         width: 20px;
         height: 20px;
         // One turn per second, only while spinning (so no redraws when idle).
-        transform-rotation: root.spinning ? mod(animation-tick() / 1ms, 1000) * 0.36deg : 0deg;
+        transform-rotation: mod(animation-tick() / 1ms, 1000) * 0.36deg;
         Path {
-            commands: Icons.refresh;
+            commands: Icons.refresh-path;
             viewbox-width: 24;
             viewbox-height: 24;
             width: parent.width;
@@ -481,10 +523,13 @@ component RefreshButton inherits Rectangle {
 component MenuItem inherits Rectangle {
     in property <string> text;
     in property <bool> danger;
+    in property <bool> enabled: true;
     callback clicked();
     height: 34px;
     border-radius: 7px;
-    background: touch.pressed ? Palette.foreground.with-alpha(0.14)
+    opacity: root.enabled ? 1 : 0.4;
+    background: !root.enabled ? transparent
+        : touch.pressed ? Palette.foreground.with-alpha(0.14)
         : touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
     animate background { duration: 100ms; easing: ease-out; }
     Text {
@@ -496,6 +541,7 @@ component MenuItem inherits Rectangle {
         height: parent.height;
     }
     touch := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
@@ -511,12 +557,14 @@ component TextField inherits Rectangle {
     in property <string> placeholder;
     callback edited();
     callback accepted();
+    callback key-pressed(KeyEvent) -> EventResult;
     forward-focus: input;
     height: 36px;
     border-radius: 8px;
     border-width: 1px;
     border-color: input.has-focus ? Theme.accent : Palette.border;
-    background: Theme.tonal;
+    // Same quiet fill as ComboBox, so text and choice fields read as one set.
+    background: Palette.foreground.with-alpha(0.04);
     animate border-color { duration: 120ms; easing: ease-out; }
     input := TextInput {
         x: 12px;
@@ -531,6 +579,9 @@ component TextField inherits Rectangle {
         }
         accepted => {
             root.accepted();
+        }
+        key-pressed(e) => {
+            root.key-pressed(e)
         }
     }
     if root.text == "" && !input.has-focus: Text {
@@ -1554,6 +1605,411 @@ component RoutingPage inherits Rectangle {
     }
 }
 
+// ── Server editor ──────────────────────────────────────────────
+// JSON servers: the config as text, checked on every keystroke.
+// Share-link servers: a form; "Как JSON" turns the server into a JSON one.
+
+component ServerEditor inherits Rectangle {
+    background: Palette.background;
+
+    // 0 JSON text, 1 share-link form
+    in property <int> mode;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> note;
+    in-out property <string> json;
+    // "1\n2\n…" for the line-number gutter.
+    in property <string> lines;
+    in property <string> mono;
+    in property <string> status;
+    in property <bool> valid: true;
+    // Byte offset of the JSON error, -1 if there is none to point at.
+    in property <int> error-offset: -1;
+    // 1-based line of the JSON error, 0 for none.
+    in property <int> error-line;
+    // Highlighted lines (see server_edit::highlight); only changed lines are
+    // replaced in this model, so a keystroke re-lays out a single line.
+    in property <[CodeLine]> code;
+    // Too big to highlight: show the text itself in one color.
+    in property <bool> plain;
+    in property <[EditSection]> sections;
+    in property <bool> edited;
+    in property <bool> live;
+
+    callback json-changed(string);
+    callback format();
+    callback save();
+    callback cancel();
+    callback field-changed(int, string);
+
+    property <bool> highlighted: !root.plain;
+    property <length> caret-x;
+    property <length> caret-y;
+    property <bool> caret-on: true;
+    // Height of one text line in the editor font, measured over 64 lines:
+    // preferred heights are whole pixels, a 2-line probe would drift.
+    property <length> line-h: (probe2.preferred-height - probe1.preferred-height) / 63;
+    probe1 := Text {
+        visible: false;
+        text: "0";
+        font-family: root.mono;
+        font-size: Theme.fs-body;
+    }
+    probe2 := Text {
+        visible: false;
+        text: "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0";
+        font-family: root.mono;
+        font-size: Theme.fs-body;
+    }
+    // Advance of one character in the editor font.
+    property <length> char-w: probe10.preferred-width / 10;
+    probe10 := Text {
+        visible: false;
+        text: "0000000000";
+        font-family: root.mono;
+        font-size: Theme.fs-body;
+    }
+    callback as-json();
+    callback reset();
+
+    // Colors of the syntax layers, by layer index.
+    pure function layer-color(i: int) -> color {
+        if i == 1 {
+            return Theme.code-key;
+        }
+        if i == 2 {
+            return Theme.code-string;
+        }
+        if i == 3 {
+            return Theme.code-number;
+        }
+        if i == 4 {
+            return Theme.code-accent;
+        }
+        if i == 5 {
+            return Theme.code-tag;
+        }
+        if i == 6 {
+            return Theme.danger;
+        }
+        return Palette.foreground.with-alpha(0.55);
+    }
+
+    function shortcut(e: KeyEvent) -> EventResult {
+        if (e.modifiers.control || e.modifiers.meta) && (e.text == "s" || e.text == "S" || e.text == "ы" || e.text == "Ы") {
+            root.save();
+            return accept;
+        }
+        if e.text == Key.Escape {
+            root.cancel();
+            return accept;
+        }
+        return reject;
+    }
+
+    FocusScope {
+        key-pressed(e) => {
+            return root.shortcut(e);
+        }
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+                    Text {
+                        text: root.title;
+                        font-size: Theme.fs-display;
+                        font-weight: 800;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.subtitle;
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        overflow: elide;
+                    }
+                }
+                if root.mode == 0: VerticalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Форматировать";
+                        clicked => {
+                            root.format();
+                        }
+                    }
+                }
+                if root.mode == 1: VerticalLayout {
+                    alignment: center;
+                    Button {
+                        text: "Как JSON";
+                        clicked => {
+                            root.as-json();
+                        }
+                    }
+                }
+            }
+
+            if root.note != "": Text {
+                text: root.note;
+                font-size: Theme.fs-small;
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+
+            if root.mode == 0: VerticalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: Theme.radius;
+                    background: Theme.card;
+                    border-width: 1px;
+                    border-color: !root.valid ? Theme.danger.with-alpha(0.7)
+                        : input.has-focus ? Theme.accent.with-alpha(0.6) : Palette.border.with-alpha(0.4);
+                    animate border-color { duration: 150ms; easing: ease-out; }
+                    clip: true;
+                    // Line numbers follow the text's vertical scroll.
+                    Rectangle {
+                        x: 0;
+                        width: 52px;
+                        background: Palette.foreground.with-alpha(0.035);
+                        clip: true;
+                        Text {
+                            x: 0;
+                            y: 12px + sv.content-y;
+                            width: parent.width - 12px;
+                            text: root.lines;
+                            font-family: root.mono;
+                            font-size: Theme.fs-body;
+                            color: Theme.muted.with-alpha(0.55);
+                            horizontal-alignment: right;
+                            accessible-role: none;
+                        }
+                    }
+                    sv := ScrollView {
+                        x: 52px;
+                        width: parent.width - 52px;
+                        content-width: max(self.visible-width, input.preferred-width + 24px);
+                        content-height: max(self.visible-height, input.preferred-height + 24px);
+                        // The line with the JSON error, behind the text.
+                        if root.error-line > 0: Rectangle {
+                            x: 0;
+                            y: input.y + (root.error-line - 1) * root.line-h;
+                            width: sv.content-width;
+                            height: root.line-h;
+                            background: Theme.danger.with-alpha(0.14);
+                        }
+                        // The text itself is invisible when highlighted: the
+                        // colored spans below are drawn over it, glyph for glyph.
+                        input := TextInput {
+                            x: 12px;
+                            y: 12px;
+                            width: max(sv.visible-width - 24px, self.preferred-width);
+                            height: max(sv.visible-height - 24px, self.preferred-height);
+                            single-line: false;
+                            wrap: no-wrap;
+                            text <=> root.json;
+                            font-family: root.mono;
+                            font-size: Theme.fs-body;
+                            // Background-colored, not transparent: a transparent
+                            // TextInput is skipped entirely, selection included.
+                            color: root.highlighted ? Theme.card : Palette.foreground;
+                            selection-background-color: Theme.selection;
+                            selection-foreground-color: root.highlighted ? transparent : Palette.foreground;
+                            page-height: sv.visible-height;
+                            edited => {
+                                root.json-changed(self.text);
+                            }
+                            key-pressed(e) => {
+                                return root.shortcut(e);
+                            }
+                            // Keep the cursor in view while typing or moving with the keys.
+                            cursor-position-changed(cpos) => {
+                                root.caret-x = cpos.x;
+                                root.caret-y = cpos.y;
+                                root.caret-on = true;
+                                if (cpos.x + self.x + sv.content-x < 0px) {
+                                    sv.content-x = min(0px, -cpos.x);
+                                } else if (cpos.x + self.x + sv.content-x > sv.visible-width - 16px) {
+                                    sv.content-x = max(sv.visible-width - sv.content-width, sv.visible-width - 16px - cpos.x - self.x);
+                                }
+                                if (cpos.y + self.y + sv.content-y < 0px) {
+                                    sv.content-y = min(0px, -cpos.y);
+                                } else if (cpos.y + self.y + sv.content-y > sv.visible-height - Theme.fs-body * 2) {
+                                    sv.content-y = max(sv.visible-height - sv.content-height, sv.visible-height - Theme.fs-body * 2 - cpos.y - self.y);
+                                }
+                            }
+                        }
+                        if root.highlighted: Rectangle {
+                            x: input.x;
+                            y: input.y;
+                            width: input.width;
+                            height: input.height;
+                            for line[n] in root.code: Rectangle {
+                                y: n * root.line-h;
+                                height: root.line-h;
+                                for span in line.spans: Text {
+                                    x: span.col * root.char-w;
+                                    text: span.text;
+                                    font-family: root.mono;
+                                    font-size: Theme.fs-body;
+                                    color: root.layer-color(span.kind);
+                                    vertical-alignment: top;
+                                    accessible-role: none;
+                                }
+                            }
+                        }
+                        // Own caret: with transparent text the system one would be
+                        // invisible (macOS draws it in the selection color instead).
+                        if root.highlighted && Platform.os != OperatingSystemType.macos: Rectangle {
+                            x: input.x + root.caret-x;
+                            y: input.y + root.caret-y;
+                            width: 1.5px;
+                            height: root.line-h;
+                            background: Palette.foreground;
+                            visible: input.has-focus && root.caret-on;
+                        }
+                        Timer {
+                            interval: 530ms;
+                            running: input.has-focus && root.highlighted;
+                            triggered => {
+                                root.caret-on = !root.caret-on;
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 4px;
+                        background: root.valid ? Theme.ok : Theme.danger;
+                        animate background { duration: 150ms; easing: ease-out; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.status;
+                        font-size: Theme.fs-small;
+                        color: root.valid ? Theme.muted : Theme.danger;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    if !root.valid && root.error-offset >= 0: Button {
+                        text: "Показать";
+                        clicked => {
+                            input.set-selection-offsets(root.error-offset, root.error-offset);
+                            input.focus();
+                        }
+                    }
+                }
+            }
+
+            if root.mode == 1: ScrollView {
+                vertical-stretch: 1;
+                content-width: max(self.visible-width, form.min-width);
+                content-height: max(self.visible-height, form.preferred-height);
+                form := VerticalLayout {
+                    alignment: start;
+                    spacing: 12px;
+                    for sec in root.sections: VerticalLayout {
+                        spacing: 12px;
+                        SectionLabel {
+                            text: sec.title;
+                        }
+                        SettingsCard {
+                            for f in sec.fields: VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    FieldLabel {
+                                        text: f.label;
+                                        color: f.error != "" ? Theme.danger : Theme.muted;
+                                    }
+                                    if f.options.length == 0: TextField {
+                                        text: f.value;
+                                        placeholder: f.placeholder;
+                                        edited => {
+                                            root.field-changed(f.index, self.text);
+                                        }
+                                        accepted => {
+                                            root.save();
+                                        }
+                                        key-pressed(e) => {
+                                            return root.shortcut(e);
+                                        }
+                                    }
+                                    if f.options.length > 0: ComboBox {
+                                        by-value: true;
+                                        height: 36px;
+                                        model: f.options;
+                                        current-value: f.value;
+                                        selected(v) => {
+                                            root.field-changed(f.index, v);
+                                        }
+                                    }
+                                }
+                                if f.error != "": Text {
+                                    x: 162px;
+                                    text: f.error;
+                                    font-size: Theme.fs-small;
+                                    color: Theme.danger;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.mode == 1 && root.status != "": Text {
+                text: root.status;
+                font-size: Theme.fs-small;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                if root.edited: Button {
+                    text: "Вернуть версию подписки";
+                    clicked => {
+                        root.reset();
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Ctrl+S — сохранить · Esc — отмена";
+                    font-size: Theme.fs-caption;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+                Button {
+                    text: "Отмена";
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                Button {
+                    text: root.live ? "Сохранить и переподключить" : "Сохранить";
+                    primary: true;
+                    enabled: root.mode == 1 || root.valid;
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "DUORAY";
     icon: @image-url("assets/duoray-icon.svg");
@@ -1709,6 +2165,35 @@ export component AppWindow inherits Window {
     callback toggle-connection();
     callback install-helper();
 
+    // Server context menu and editor.
+    callback ping-server(int);
+    callback edit-server(int);
+    callback reset-server(int);
+    in-out property <bool> editor-open;
+    in property <int> editor-mode;
+    in property <string> editor-title;
+    in property <string> editor-subtitle;
+    in property <string> editor-note;
+    in-out property <string> editor-json;
+    in property <string> editor-lines;
+    in property <string> editor-mono;
+    in property <string> editor-status;
+    in property <bool> editor-valid: true;
+    in property <int> editor-error-offset: -1;
+    in property <int> editor-error-line;
+    in property <[CodeLine]> editor-code;
+    in property <bool> editor-plain;
+    in property <[EditSection]> editor-sections;
+    in property <bool> editor-edited;
+    in property <bool> editor-live;
+    callback editor-json-changed(string);
+    callback editor-format();
+    callback editor-save();
+    callback editor-cancel();
+    callback editor-field-changed(int, string);
+    callback editor-as-json();
+    callback editor-reset();
+
     HorizontalLayout {
         // ── Sidebar ─────────────────────────────────────────────
         Rectangle {
@@ -1761,6 +2246,7 @@ export component AppWindow inherits Window {
                         clicked => {
                             root.settings-open = false;
                             root.routing-open = false;
+                            root.editor-open = false;
                             root.select-manual();
                         }
                     }
@@ -1790,6 +2276,7 @@ export component AppWindow inherits Window {
                         clicked => {
                             root.settings-open = false;
                             root.routing-open = false;
+                            root.editor-open = false;
                             root.select-manual();
                             root.add-error = "";
                             root.adding = true;
@@ -1833,6 +2320,7 @@ export component AppWindow inherits Window {
                                             add-menu.close();
                                             root.settings-open = false;
                                             root.routing-open = false;
+                            root.editor-open = false;
                                             root.add-from-clipboard();
                                         }
                                     }
@@ -1842,6 +2330,7 @@ export component AppWindow inherits Window {
                                             add-menu.close();
                                             root.settings-open = false;
                                             root.routing-open = false;
+                            root.editor-open = false;
                                             root.add-error = "";
                                             root.adding = true;
                                         }
@@ -1880,6 +2369,7 @@ export component AppWindow inherits Window {
                                     // Picking a subscription always shows its servers.
                                     root.settings-open = false;
                                     root.routing-open = false;
+                            root.editor-open = false;
                                     root.select-sub(sub.index);
                                 }
                             }
@@ -1994,14 +2484,12 @@ export component AppWindow inherits Window {
                             font-weight: 800;
                             vertical-alignment: center;
                         }
-                        Path {
-                            commands: Icons.send;
-                            viewbox-width: 24;
-                            viewbox-height: 24;
+                        Image {
+                            source: Icons.send;
                             width: 16px;
                             height: 16px;
                             y: (parent.height - self.height) / 2;
-                            fill: Theme.on-accent;
+                            colorize: Theme.on-accent;
                         }
                     }
                     buy-touch := TouchArea {
@@ -2100,6 +2588,7 @@ export component AppWindow inherits Window {
                         primary: root.routing-open;
                         clicked => {
                             root.settings-open = false;
+                            root.editor-open = false;
                             root.routing-open = !root.routing-open;
                         }
                     }
@@ -2112,6 +2601,7 @@ export component AppWindow inherits Window {
                                 root.open-settings();
                             }
                             root.routing-open = false;
+                            root.editor-open = false;
                             root.settings-open = !root.settings-open;
                         }
                     }
@@ -2129,17 +2619,57 @@ export component AppWindow inherits Window {
         Rectangle {
         horizontal-stretch: 74;
         routing-page := RoutingPage {
-            visible: root.routing-open;
+            visible: root.routing-open && !root.editor-open;
         }
         settings-page := SettingsPage {
-            visible: root.settings-open;
+            visible: root.settings-open && !root.editor-open;
             back => {
                 root.settings-open = false;
                 root.routing-open = false;
+                            root.editor-open = false;
+            }
+        }
+        if root.editor-open: ServerEditor {
+            mode: root.editor-mode;
+            title: root.editor-title;
+            subtitle: root.editor-subtitle;
+            note: root.editor-note;
+            json <=> root.editor-json;
+            lines: root.editor-lines;
+            mono: root.editor-mono;
+            status: root.editor-status;
+            valid: root.editor-valid;
+            error-offset: root.editor-error-offset;
+            error-line: root.editor-error-line;
+            code: root.editor-code;
+            plain: root.editor-plain;
+            sections: root.editor-sections;
+            edited: root.editor-edited;
+            live: root.editor-live;
+            json-changed(t) => {
+                root.editor-json-changed(t);
+            }
+            format => {
+                root.editor-format();
+            }
+            save => {
+                root.editor-save();
+            }
+            cancel => {
+                root.editor-cancel();
+            }
+            field-changed(i, v) => {
+                root.editor-field-changed(i, v);
+            }
+            as-json => {
+                root.editor-as-json();
+            }
+            reset => {
+                root.editor-reset();
             }
         }
         VerticalLayout {
-            visible: !root.settings-open && !root.routing-open;
+            visible: !root.settings-open && !root.routing-open && !root.editor-open;
             padding: 22px;
             spacing: 14px;
 
@@ -2370,7 +2900,10 @@ export component AppWindow inherits Window {
                 vertical-stretch: 1;
                 for srv[i] in root.servers: Rectangle {
                     height: 66px;
-                    Rectangle {
+                    srv-row := Rectangle {
+                        // Where the context menu opens (the right-click point).
+                        property <length> menu-x;
+                        property <length> menu-y;
                         // Leave a gutter for the scrollbar so rows never run under it.
                         x: 0;
                         width: parent.width - (servers-list.content-height > servers-list.visible-height ? 16px : 0px);
@@ -2384,6 +2917,57 @@ export component AppWindow inherits Window {
                             mouse-cursor: pointer;
                             clicked => {
                                 root.select-server(i);
+                            }
+                            pointer-event(e) => {
+                                // On release, as Windows does: opened on press, the release
+                                // could count as a click outside and close the popup at once.
+                                if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                                    srv-row.menu-x = self.mouse-x;
+                                    srv-row.menu-y = self.mouse-y;
+                                    row-menu.show();
+                                }
+                            }
+                        }
+                        row-menu := PopupWindow {
+                            x: srv-row.menu-x;
+                            y: srv-row.menu-y;
+                            width: 230px;
+                            close-policy: close-on-click-outside;
+                            Rectangle {
+                                background: Palette.background;
+                                border-radius: 10px;
+                                border-width: 1px;
+                                border-color: Palette.border;
+                                drop-shadow-blur: 20px;
+                                drop-shadow-offset-y: 6px;
+                                drop-shadow-color: Theme.shadow;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 2px;
+                                    MenuItem {
+                                        text: "Пропинговать";
+                                        enabled: !root.pinging;
+                                        clicked => {
+                                            row-menu.close();
+                                            root.ping-server(i);
+                                        }
+                                    }
+                                    MenuItem {
+                                        text: srv.is-json ? "Изменить JSON" : "Изменить параметры";
+                                        clicked => {
+                                            row-menu.close();
+                                            root.edit-server(i);
+                                        }
+                                    }
+                                    if srv.edited: MenuItem {
+                                        text: "Вернуть версию подписки";
+                                        danger: true;
+                                        clicked => {
+                                            row-menu.close();
+                                            root.reset-server(i);
+                                        }
+                                    }
+                                }
                             }
                         }
                         HorizontalLayout {
@@ -2429,6 +3013,13 @@ export component AppWindow inherits Window {
                                 PingChip {
                                     text: srv.ping-text;
                                     level: srv.ping-level;
+                                }
+                            }
+                            if srv.edited: VerticalLayout {
+                                alignment: center;
+                                Chip {
+                                    text: "изменён";
+                                    accent: true;
                                 }
                             }
                             if srv.proxies > 1: VerticalLayout {

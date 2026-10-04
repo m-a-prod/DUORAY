@@ -15,9 +15,11 @@ use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 slint::include_modules!();
 
 mod connection;
+mod editor_ui;
 mod helper;
 mod ping;
 mod routing_ui;
+mod server_edit;
 #[cfg(windows)]
 mod windows_helper;
 
@@ -91,6 +93,8 @@ struct App {
     /// When the current xray was started (for the periodic Hysteria restart).
     xray_started: Option<std::time::Instant>,
     xray_restarting: bool,
+    /// The server editor's state while it is open.
+    editor: Option<editor_ui::Editor>,
 }
 
 enum ConnState {
@@ -126,6 +130,16 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {}
     }
+    // The software renderer on Linux and Windows: it needs no OpenGL, so broken
+    // or old GPU drivers cannot leave unpainted, see-through parts of the
+    // window (seen with FemtoVG on Windows), and VMs work. It is fast enough:
+    // a full repaint of a 2483×1394 window, editor included, runs above 130
+    // fps. Icons are SVG images, crisp with any renderer. SLINT_BACKEND
+    // still overrides it (e.g. winit-femtovg).
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        slint::BackendSelector::new().backend_name("winit".into()).renderer_name("software".into()).select()?;
+    }
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
     let path = Store::default_path()?;
@@ -151,6 +165,7 @@ fn main() -> anyhow::Result<()> {
         status_gen: 0,
         xray_started: None,
         xray_restarting: false,
+        editor: None,
     }));
     let device = Arc::new(Device::detect());
 
@@ -160,6 +175,7 @@ fn main() -> anyhow::Result<()> {
         std::iter::once(SYSTEM_FONT).chain(FONTS.iter().copied()).map(slint::SharedString::from).collect::<Vec<_>>(),
     )));
     routing_ui::install(&ui, &app);
+    editor_ui::install(&ui, &app);
     {
         let st = app.lock().unwrap();
         apply_appearance(&ui, &st.store.settings);
@@ -618,8 +634,39 @@ fn main() -> anyhow::Result<()> {
                     ui.invoke_routing_add_rule();
                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                     slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
-                        snapshot(ui_weak.unwrap().window(), &prefix.with_extension("routing-advanced.png"));
-                        let _ = slint::quit_event_loop();
+                        let ui = ui_weak.unwrap();
+                        snapshot(ui.window(), &prefix.with_extension("routing-advanced.png"));
+                        // Server editor: the first server's config, then a broken edit of it.
+                        ui.set_routing_open(false);
+                        ui.invoke_edit_server(0);
+                        let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                        slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                            let ui = ui_weak.unwrap();
+                            snapshot(ui.window(), &prefix.with_extension("editor.png"));
+                            let broken = ui.get_editor_json().replacen('"', "", 1);
+                            ui.set_editor_json(broken.as_str().into());
+                            ui.invoke_editor_json_changed(broken.into());
+                            let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                            slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                                let ui = ui_weak.unwrap();
+                                snapshot(ui.window(), &prefix.with_extension("editor-error.png"));
+                                ui.invoke_editor_cancel();
+                                ui.invoke_edit_server(1);
+                                let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                                slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                                    let ui = ui_weak.unwrap();
+                                    snapshot(ui.window(), &prefix.with_extension("editor-form.png"));
+                                    // Save a changed port: the row gets the "изменён" chip.
+                                    ui.invoke_editor_field_changed(2, "9443".into());
+                                    ui.invoke_editor_save();
+                                    let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                                    slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                                        snapshot(ui_weak.unwrap().window(), &prefix.with_extension("edited.png"));
+                                        let _ = slint::quit_event_loop();
+                                    });
+                                });
+                            });
+                        });
                     });
                 });
             });
@@ -1050,6 +1097,8 @@ fn render(ui: &AppWindow, st: &App) {
                 proxies: s.proxies as i32,
                 ping_text: ping.0.into(),
                 ping_level: ping.1,
+                edited: s.override_key.is_some(),
+                is_json: matches!(s.source, duoray_core::server::Source::Json(_)),
             }
         })
         .collect();
@@ -1399,14 +1448,21 @@ fn add_input(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &str, nam
 }
 
 fn start_ping(ui: &AppWindow, app: &Shared) {
-    let mut st = app.lock().unwrap();
-    if st.ping_progress.is_some() {
-        return;
-    }
+    let st = app.lock().unwrap();
     let Some(sub) = current(ui, &st) else { return };
-    let jobs: Vec<(String, duoray_core::server::Server)> =
-        sub.servers.iter().map(|s| (key_of(sub, s), s.clone())).collect();
-    if jobs.is_empty() {
+    let jobs = sub.servers.iter().map(|s| (key_of(sub, s), s.clone())).collect();
+    ping_jobs(ui, app, st, jobs);
+}
+
+/// Pings `jobs` (key, server) unless a run is already active: runs share the
+/// per-worker xray config files.
+fn ping_jobs(
+    ui: &AppWindow,
+    app: &Shared,
+    mut st: std::sync::MutexGuard<App>,
+    jobs: Vec<(String, duoray_core::server::Server)>,
+) {
+    if st.ping_progress.is_some() || jobs.is_empty() {
         return;
     }
     for (key, _) in &jobs {
