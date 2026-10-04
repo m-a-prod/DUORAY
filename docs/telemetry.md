@@ -76,8 +76,16 @@ ssh user@hub.example duoray-reports show DR-7K3QX9  # отчёт с журнал
 ssh user@hub.example duoray-reports stats           # частые ошибки
 ```
 
-Чтобы выпустить релиз, поднимите версию в `Cargo.toml` и запустите
-`packaging/release.sh "Что нового"`. Скрипт:
+Релиз всех платформ собирается в GitHub Actions (`.github/workflows/release.yml`):
+
+1. Поднимите версию в `Cargo.toml` и закоммитьте.
+2. `git tag v<версия> && git push --tags`. Actions соберёт Windows, Linux
+   (AppImage, rpm, deb, tar.gz) и macOS и выложит их в GitHub Release.
+3. Опубликуйте на хабе: `git checkout v<версия> && packaging/release.sh --from-github v<версия> "Что нового"`.
+4. Обновите AUR: `packaging/aur/update.sh --push`.
+
+Без CI `packaging/release.sh "Что нового"` собирает здесь то, что может:
+Windows, Linux x86_64. Дальше скрипт:
 
 - собирает Windows и AppImage;
 - берёт из `dist/` сборки этой версии, сделанные на других машинах (macOS, aarch64);

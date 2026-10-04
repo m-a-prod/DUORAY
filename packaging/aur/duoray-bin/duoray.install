@@ -1,0 +1,12 @@
+# The app installs its helper service on first connect (polkit asks once);
+# removal takes it down, an upgrade restarts it on the new binary.
+
+post_upgrade() {
+    if [ -d /run/systemd/system ]; then
+        systemctl try-restart duoray-helper.service >/dev/null 2>&1 || true
+    fi
+}
+
+pre_remove() {
+    /usr/lib/duoray/duoray --uninstall-helper >/dev/null 2>&1 || true
+}

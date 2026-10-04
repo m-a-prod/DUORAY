@@ -1,0 +1,56 @@
+# nfpm config for the rpm and deb packages (packaging/linux/packages.sh).
+# ${VERSION}, ${PKG_ARCH} and ${ROOT} come from the environment.
+name: duoray
+arch: ${PKG_ARCH}
+platform: linux
+version: ${VERSION}
+release: 1
+section: net
+priority: optional
+maintainer: DUALIZM <https://t.me/dualizm_vpn>
+vendor: DUALIZM
+homepage: https://github.com/m-a-prod/DUORAY
+license: GPL-3.0-only
+description: |
+  Desktop VPN client on xray-core.
+  Subscriptions as their panel meant them (full xray JSON configs), TUN tunnel
+  without DNS leaks, split routing for Russian sites, games and apps.
+
+# Loaded at runtime: windowing, fonts, and polkit to install the helper.
+depends: []
+recommends:
+  - polkit
+overrides:
+  rpm:
+    recommends:
+      - polkit
+      - libxkbcommon
+      - fontconfig
+  deb:
+    recommends:
+      - pkexec | policykit-1
+      - libxkbcommon0
+      - libxkbcommon-x11-0
+      - libfontconfig1
+
+contents:
+  - src: ${ROOT}/usr/lib/duoray/
+    dst: /usr/lib/duoray/
+    type: tree
+  - src: ${ROOT}/usr/libexec/duoray/duoray-helper
+    dst: /usr/libexec/duoray/duoray-helper
+    file_info: { mode: 0755 }
+  - src: /usr/lib/duoray/duoray
+    dst: /usr/bin/duoray
+    type: symlink
+  - src: ${ROOT}/usr/share/applications/duoray.desktop
+    dst: /usr/share/applications/duoray.desktop
+  - src: ${ROOT}/usr/share/icons/hicolor/256x256/apps/duoray.png
+    dst: /usr/share/icons/hicolor/256x256/apps/duoray.png
+  - src: ${ROOT}/usr/share/licenses/duoray/
+    dst: /usr/share/licenses/duoray/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/pkg/postinstall.sh
+  preremove: packaging/linux/pkg/preremove.sh

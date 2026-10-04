@@ -1,7 +1,10 @@
 #!/bin/sh
 # Publishes a DUORAY release to the update hub.
 #
-#   packaging/release.sh [--no-build] ["Что нового: ..."]
+#   packaging/release.sh [--no-build | --from-github <tag>] ["Что нового: ..."]
+#
+# --from-github takes the builds from that GitHub release (made by
+# .github/workflows/release.yml, all platforms) instead of building here.
 #
 # Builds what this machine can build (Windows x64/x86, Linux x86_64 AppImage),
 # then publishes every build of this version found in dist/, including ones
@@ -15,7 +18,9 @@ set -eu
 cd "$(dirname "$0")/.."
 
 BUILD=1
+FROM_TAG=
 if [ "${1:-}" = "--no-build" ]; then BUILD=0; shift; fi
+if [ "${1:-}" = "--from-github" ]; then BUILD=0; FROM_TAG=${2:?tag}; shift 2; fi
 NOTES=${1:-}
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/duoray-gui/Cargo.toml | head -1)
 BUILD_ID=$(git rev-parse --short=12 HEAD)
@@ -29,10 +34,18 @@ HUB=${DUORAY_HUB_SSH:-user@hub.example}
 REMOTE=/var/lib/private/duoray-hub/updates
 [ -f "$KEY" ] || { echo "signing key not found: $KEY" >&2; exit 1; }
 
+if [ -n "$FROM_TAG" ]; then
+    [ "$FROM_TAG" = "v$VERSION" ] || { echo "tag $FROM_TAG does not match version $VERSION" >&2; exit 1; }
+    [ "$(git rev-parse --short=12 "$FROM_TAG^{commit}")" = "$BUILD_ID" ] || {
+        echo "check out $FROM_TAG first: the manifest names the commit the builds came from" >&2; exit 1; }
+    mkdir -p dist
+    gh release download "$FROM_TAG" -R m-a-prod/DUORAY -D dist --clobber
+fi
 if [ "$BUILD" = 1 ]; then
     packaging/windows/build.sh x64
     packaging/windows/build.sh x86
     packaging/linux/appimage.sh
+    packaging/linux/packages.sh
 fi
 
 OUT=dist/release-$VERSION
@@ -73,6 +86,12 @@ with open(os.path.join(out, "manifest.json"), "w") as f:
     json.dump(manifest, f, ensure_ascii=False, indent=2)
 for key, a in assets.items():
     print(f"  {key:<24} {a['file']}  {a['size'] // 1024 // 1024} MB")
+# Packages for package managers: plain downloads (AUR uses the tarballs),
+# not in the manifest - those installs update through their package manager.
+for name in sorted(os.listdir("dist")):
+    if version in name and name.endswith((".rpm", ".deb", ".tar.gz")):
+        shutil.copy(os.path.join("dist", name), os.path.join(out, name))
+        print(f"  {'(download)':<24} {name}")
 EOF
 
 openssl pkeyutl -sign -inkey "$KEY" -rawin -in "$OUT/manifest.json" | xxd -p | tr -d '\n' > "$OUT/manifest.sig"
@@ -85,8 +104,8 @@ rm -f "$OUT/.sig.bin" "$OUT/.pub.pem"
 # Files first, the manifest last: clients never see a manifest whose files
 # are still uploading.
 ssh "$HUB" "mkdir -p $REMOTE/files"
-for f in "$OUT"/DUORAY-*; do
-    scp -q "$f" "$HUB:$REMOTE/files/"
+for f in "$OUT"/DUORAY-* "$OUT"/duoray*; do
+    [ -f "$f" ] && scp -q "$f" "$HUB:$REMOTE/files/"
 done
 scp -q "$OUT/manifest.json" "$HUB:$REMOTE/manifest.json.new"
 scp -q "$OUT/manifest.sig" "$HUB:$REMOTE/manifest.sig.new"

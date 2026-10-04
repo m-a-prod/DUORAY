@@ -1,0 +1,182 @@
+# Builds every DUORAY package and attaches them to a GitHub release.
+#
+# Push a tag v<version> (matching Cargo.toml) to run it, or start it by hand
+# (Actions → release → Run workflow) to only build. Publishing to the update
+# hub stays on the release machine: `packaging/release.sh --from-github <tag>`
+# signs the manifest with a key that is never given to CI.
+#
+# Duotun is checked out next to DUORAY (crates/duoray-helper uses it by path).
+# If that repository is private, add a DUOTUN_TOKEN secret: a fine-grained
+# token with read access to m-a-prod/DUOTUN.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: windows ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: DUORAY }
+      - uses: actions/checkout@v4
+        with:
+          repository: m-a-prod/DUOTUN
+          path: DUOTUN
+          token: ${{ secrets.DUOTUN_TOKEN || github.token }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,i686-pc-windows-msvc
+      - uses: taiki-e/install-action@v2
+        with: { tool: cargo-xwin }
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y nsis clang lld llvm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: DUORAY
+          key: windows-${{ matrix.arch} }
+      - name: Build installer
+        working-directory: DUORAY
+        run: packaging/windows/build.sh ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: DUORAY/dist/DUORAY-Setup-*.exe
+          if-no-files-found: error
+
+  linux:
+    name: linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04, deb: amd64 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, deb: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: DUORAY }
+      - uses: actions/checkout@v4
+        with:
+          repository: m-a-prod/DUOTUN
+          path: DUOTUN
+          token: ${{ secrets.DUOTUN_TOKEN || github.token }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with: { tool: cargo-zigbuild }
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev python3-pip file
+          # zig for cargo-zigbuild (builds against glibc 2.28 for old distros).
+          pip install --user --break-system-packages ziglang
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: DUORAY
+          key: linux-${{ matrix.arch} }
+      - name: Packages (rpm, deb, tar.gz)
+        working-directory: DUORAY
+        run: packaging/linux/packages.sh ${{ matrix.arch }}
+      - name: AppImage
+        working-directory: DUORAY
+        run: packaging/linux/appimage.sh ${{ matrix.arch }}
+      - name: Test the deb (install, files, remove)
+        working-directory: DUORAY
+        run: |
+          sudo apt-get install -y ./dist/duoray_*_${{ matrix.deb }}.deb
+          test -x /usr/lib/duoray/duoray -a -x /usr/lib/duoray/xray -a -x /usr/libexec/duoray/duoray-helper
+          test -L /usr/bin/duoray -a -f /usr/share/applications/duoray.desktop
+          file /usr/lib/duoray/duoray
+          sudo apt-get remove -y duoray
+          test ! -e /usr/bin/duoray
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            DUORAY/dist/*.AppImage
+            DUORAY/dist/*.rpm
+            DUORAY/dist/*.deb
+            DUORAY/dist/DUORAY-*-linux-*.tar.gz
+          if-no-files-found: error
+
+  rpm-test:
+    name: test rpm on fedora
+    needs: linux
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: linux-x86_64, path: pkgs }
+      - name: Install, check, remove
+        run: |
+          dnf install -y pkgs/duoray-*.x86_64.rpm
+          rpm -ql duoray
+          test -x /usr/lib/duoray/duoray -a -L /usr/bin/duoray
+          dnf remove -y duoray
+          test ! -e /usr/bin/duoray
+
+  macos:
+    name: macos ${{ matrix.arch }}
+    # Apple silicon; the Intel build is cross-compiled on it.
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: DUORAY }
+      - uses: actions/checkout@v4
+        with:
+          repository: m-a-prod/DUOTUN
+          path: DUOTUN
+          token: ${{ secrets.DUOTUN_TOKEN || github.token }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch }}-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: DUORAY
+          key: macos-${{ matrix.arch} }
+      - name: Build app and disk image
+        working-directory: DUORAY
+        run: packaging/macos/build.sh ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: DUORAY/dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    name: github release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, rpm-test, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

@@ -58,6 +58,22 @@ GUI (Slint, от пользователя)
 | `crates/duoray-gui` | приложение (бинарь `duoray`) |
 | `crates/duoray-helper` | помощник: LaunchDaemon (macOS), systemd (Linux), служба (Windows) |
 
+## Установка
+
+Готовые сборки лежат в [Releases](https://github.com/m-a-prod/DUORAY/releases).
+
+| Система | Файл |
+|---|---|
+| Windows x64 / x86 | `DUORAY-Setup-<версия>-x64.exe` / `-x86.exe` |
+| macOS (Apple Silicon / Intel) | `DUORAY-<версия>-macos-aarch64.dmg` / `-x86_64.dmg` — при первом запуске правый клик → «Открыть» (сборка без нотаризации Apple) |
+| Linux, любой дистрибутив | `DUORAY-<версия>-x86_64.AppImage` / `-aarch64.AppImage` |
+| Fedora, openSUSE, RHEL | `sudo dnf install ./duoray-<версия>-1.x86_64.rpm` |
+| Debian, Ubuntu, Mint | `sudo apt install ./duoray_<версия>-1_amd64.deb` |
+| Arch, CachyOS, Manjaro | `yay -S duoray-bin` (AUR) |
+
+Windows, macOS и AppImage обновляются сами. Пакеты rpm, deb и AUR обновляются
+через менеджер пакетов.
+
 ## Сборка
 
 Нужен Rust (stable) и [Duotun](https://github.com/m-a-prod/DUOTUN) рядом с этим репозиторием:

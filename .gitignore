@@ -6,5 +6,9 @@
 .vscode/
 *.swp
 packaging/windows/stage-*/
-packaging/linux/AppDir/
+packaging/linux/AppDir*/
 packaging/linux/cache/
+packaging/linux/root-*/
+packaging/macos/work-*/
+packaging/aur/build/
+packaging/aur/repo/
