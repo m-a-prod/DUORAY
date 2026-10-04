@@ -29,8 +29,11 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     echo "uncommitted changes: commit first, the release build id is the commit" >&2
     exit 1
 fi
+# Local settings, kept out of the repository: DUORAY_HUB_SSH=<user@host of the hub>.
+CONF=$HOME/.config/duoray-release/env
+[ -f "$CONF" ] && . "$CONF"
 KEY=${DUORAY_SIGNING_KEY:-$HOME/.config/duoray-release/update-signing.pem}
-HUB=${DUORAY_HUB_SSH:-user@hub.example}
+HUB=${DUORAY_HUB_SSH:?set DUORAY_HUB_SSH (user@host of the update hub) in $CONF}
 REMOTE=/var/lib/private/duoray-hub/updates
 [ -f "$KEY" ] || { echo "signing key not found: $KEY" >&2; exit 1; }
 

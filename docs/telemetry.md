@@ -71,9 +71,9 @@ DUORAY проверяет обновления через 30 секунд пос
 Обновлять приложение для этого не нужно.
 
 ```sh
-ssh user@hub.example duoray-reports list            # последние отчёты
-ssh user@hub.example duoray-reports show DR-7K3QX9  # отчёт с журналом
-ssh user@hub.example duoray-reports stats           # частые ошибки
+ssh "$DUORAY_HUB_SSH" duoray-reports list            # последние отчёты
+ssh "$DUORAY_HUB_SSH" duoray-reports show DR-7K3QX9  # отчёт с журналом
+ssh "$DUORAY_HUB_SSH" duoray-reports stats           # частые ошибки
 ```
 
 Релиз всех платформ собирается в GitHub Actions (`.github/workflows/release.yml`):
@@ -89,7 +89,7 @@ Windows, Linux x86_64. Дальше скрипт:
 
 - собирает Windows и AppImage;
 - берёт из `dist/` сборки этой версии, сделанные на других машинах (macOS, aarch64);
-- подписывает манифест ключом `~/.config/duoray-release/update-signing.pem`;
+- подписывает манифест ключом `~/.config/duoray-release/update-signing.pem` (адрес хаба для выкладки — `DUORAY_HUB_SSH` в `~/.config/duoray-release/env`);
 - выкладывает всё на хаб, манифест последним.
 
 Ключ нельзя терять и нельзя никуда выкладывать: без него обновления не выпустить,
