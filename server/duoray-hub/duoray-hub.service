@@ -1,0 +1,23 @@
+[Unit]
+Description=DUORAY hub (error reports, updates)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/duoray-hub/hub.py
+Environment=HUB_LISTEN=127.0.0.1:5090
+Restart=always
+RestartSec=3
+DynamicUser=yes
+StateDirectory=duoray-hub
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

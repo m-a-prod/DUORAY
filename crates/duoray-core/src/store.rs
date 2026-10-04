@@ -38,6 +38,13 @@ pub struct Settings {
     /// Hysteria (it can stall after a while; a fresh xray revives it).
     pub hysteria_restart: bool,
     pub hysteria_restart_minutes: u32,
+    /// Error reports: `None` until the user answered the first-start question.
+    pub telemetry: Option<bool>,
+    /// Random id sent with reports (not the HWID), so reports from one
+    /// install can be grouped. Created on consent, cleared on opt-out.
+    pub install_id: String,
+    /// Look for, download and offer DUORAY updates.
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -53,6 +60,9 @@ impl Default for Settings {
             routing: Default::default(),
             hysteria_restart: false,
             hysteria_restart_minutes: 5,
+            telemetry: None,
+            install_id: String::new(),
+            auto_update: true,
         }
     }
 }

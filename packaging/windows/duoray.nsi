@@ -11,7 +11,7 @@ SetCompressor /SOLID lzma
 
 !define APP "DUORAY"
 !ifndef VERSION
-  !define VERSION "0.2.0"
+  !define VERSION "0.3.0"
 !endif
 ; x64 (default) or x86. Wintun must match the OS bitness, so each build
 ; only installs on its own architecture.
@@ -30,6 +30,8 @@ OutFile "..\..\dist\DUORAY-Setup-${VERSION}-${ARCH}.exe"
   InstallDir "$PROGRAMFILES\DUORAY"
 !endif
 RequestExecutionLevel admin
+; Upgrades (also the silent ones the app starts) go where DUORAY already is.
+InstallDirRegKey HKLM "${UNINST_KEY}" "InstallLocation"
 BrandingText "DUORAY ${VERSION}"
 
 VIProductVersion "${VERSION}.0"
@@ -123,6 +125,11 @@ Section "DUORAY" SecMain
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
   WriteRegDWORD HKLM "${UNINST_KEY}" "EstimatedSize" 92000
+
+  ; A silent run is the in-app update: start the new version again. Through
+  ; explorer.exe it runs as the user, not elevated like this installer.
+  IfSilent 0 +2
+    Exec '"$WINDIR\explorer.exe" "$INSTDIR\duoray.exe"'
 SectionEnd
 
 Function un.onInit

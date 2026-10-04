@@ -7,7 +7,7 @@ description = "DUORAY privileged helper that brings the TUN up for the GUI"
 
 [dependencies]
 anyhow = "1.0.104"
-duoray-core = { version = "0.2.0", path = "../duoray-core" }
+duoray-core = { path = "../duoray-core" }
 duotun = { version = "0.1.0", path = "../../../DUOTUN" }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["full"] }

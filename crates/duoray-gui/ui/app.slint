@@ -680,6 +680,10 @@ component SettingsPage inherits Rectangle {
     in property <[string]> font-choices: ["Системный"];
     in-out property <bool> hysteria-restart;
     in-out property <string> hysteria-minutes: "5";
+    in-out property <bool> telemetry-enabled;
+    in-out property <bool> auto-update: true;
+    in property <string> duoray-version;
+    in property <string> update-info;
 
     // Fired on every edit; the app saves (debounced), no Save button.
     callback changed();
@@ -689,6 +693,8 @@ component SettingsPage inherits Rectangle {
     callback reset();
     callback reinstall-helper();
     callback uninstall-helper();
+    callback report-problem();
+    callback check-update();
 
     ScrollView {
         content-width: max(self.visible-width, settings-content.min-width);
@@ -1051,6 +1057,78 @@ component SettingsPage inherits Rectangle {
                                 clicked => {
                                     root.uninstall-helper();
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Reports and updates ──
+            SectionLabel {
+                text: "ОТЧЁТЫ И ОБНОВЛЕНИЯ";
+            }
+            SettingsCard {
+                ToggleRow {
+                    title: "Отправлять отчёты об ошибках";
+                    description: "Версия, ОС, текст ошибки и журнал последних действий — чтобы мы могли найти и исправить проблему. Ссылки подписок, адреса и названия серверов, ключи и UUID вырезаются и не отправляются.";
+                    checked <=> root.telemetry-enabled;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
+                ToggleRow {
+                    title: "Проверять обновления";
+                    description: "Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию.";
+                    checked <=> root.auto-update;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.update-info != "" ? root.update-info : "Установлена версия " + root.duoray-version + ".";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Проверить";
+                            clicked => {
+                                root.check-update();
+                            }
+                        }
+                    }
+                }
+                Divider { }
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text {
+                            text: "Сообщить о проблеме";
+                            font-size: Theme.fs-title;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку.";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Написать";
+                            clicked => {
+                                root.report-problem();
                             }
                         }
                     }
@@ -2109,6 +2187,29 @@ export component AppWindow inherits Window {
     in-out property <string> theme-choice <=> settings-page.theme-choice;
     in-out property <bool> hysteria-restart <=> settings-page.hysteria-restart;
     in-out property <string> hysteria-minutes <=> settings-page.hysteria-minutes;
+    in-out property <bool> telemetry-enabled <=> settings-page.telemetry-enabled;
+    in-out property <bool> auto-update <=> settings-page.auto-update;
+    in-out property <string> duoray-version <=> settings-page.duoray-version;
+    in-out property <string> update-info <=> settings-page.update-info;
+    callback report-problem <=> settings-page.report-problem;
+    callback check-update <=> settings-page.check-update;
+    // First start: ask about error reports.
+    in-out property <bool> consent-open;
+    callback consent(bool);
+    // "Сообщить о проблеме" dialog.
+    in-out property <bool> report-open;
+    in-out property <string> report-note;
+    in property <string> report-preview;
+    in property <bool> report-busy;
+    in property <string> report-code;
+    in property <string> report-error;
+    callback report-preview-requested();
+    callback report-send();
+    callback report-copy-code();
+    // Update banner in the sidebar ("" hides it).
+    in property <string> update-banner;
+    in property <string> update-button;
+    callback update-clicked();
     // 0 = follow the system, 1 = dark, 2 = light.
     in property <int> theme-mode: 1;
     changed theme-mode => {
@@ -2496,6 +2597,32 @@ export component AppWindow inherits Window {
                         mouse-cursor: pointer;
                         clicked => {
                             root.buy();
+                        }
+                    }
+                }
+
+                if root.update-banner != "": Rectangle {
+                    border-radius: Theme.radius;
+                    background: Theme.tonal;
+                    height: upd-layout.preferred-height;
+                    upd-layout := HorizontalLayout {
+                        padding: 12px;
+                        padding-left: 14px;
+                        spacing: 10px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.update-banner;
+                            color: Theme.on-tonal;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                        if root.update-button != "": Button {
+                            text: root.update-button;
+                            primary: true;
+                            clicked => {
+                                root.update-clicked();
+                            }
                         }
                     }
                 }
@@ -3196,6 +3323,199 @@ export component AppWindow inherits Window {
                         primary: true;
                         clicked => {
                             root.add-subscription(url-edit.text, name-edit.text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Error reports: first-start question ────────────────────
+    if root.consent-open: Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(560px, parent.width - 40px);
+            height: consent-layout.preferred-height;
+            border-radius: 16px;
+            background: Palette.background;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            consent-layout := VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                Text {
+                    text: "Отчёты об ошибках";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                Text {
+                    text: "Если что-то сломается, DUORAY может отправить нам отчёт, чтобы мы быстрее нашли и исправили ошибку. Отправлять или нет — решаете вы.";
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "В отчёте: версия DUORAY и ОС, текст ошибки, журнал последних действий, тип протокола и ваши настройки маршрутизации.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Никогда не отправляются: ссылки подписок, адреса и названия серверов, ключи и UUID. Ваш IP-адрес с отчётом не сохраняется. Отчёты хранятся 90 дней.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Передумать можно в любой момент: Настройки → Отчёты и обновления.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: "Не отправлять";
+                        clicked => {
+                            root.consent(false);
+                        }
+                    }
+                    Button {
+                        text: "Разрешить отправку";
+                        clicked => {
+                            root.consent(true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── "Сообщить о проблеме" ──────────────────────────────────
+    if root.report-open: Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        Rectangle {
+            width: min(620px, parent.width - 40px);
+            height: min(report-layout.preferred-height, parent.height - 40px);
+            border-radius: 16px;
+            background: Palette.background;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            report-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Сообщить о проблеме";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                if root.report-code == "": VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "Что случилось и что вы делали перед этим? Вместе с описанием уйдёт журнал последних действий — без ссылок, адресов серверов и ключей.";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                    TextField {
+                        text <=> root.report-note;
+                        placeholder: "Например: не подключается к Нидерландам после обновления";
+                        accepted => {
+                            root.report-send();
+                        }
+                    }
+                    if root.report-preview != "": Rectangle {
+                        height: 220px;
+                        border-radius: 8px;
+                        background: Theme.card;
+                        ScrollView {
+                            x: 10px;
+                            y: 8px;
+                            width: parent.width - 20px;
+                            height: parent.height - 16px;
+                            content-width: max(self.visible-width, preview.preferred-width);
+                            content-height: preview.preferred-height;
+                            preview := Text {
+                                text: root.report-preview;
+                                font-family: root.editor-mono;
+                                font-size: Theme.fs-caption;
+                                color: Theme.muted;
+                            }
+                        }
+                    }
+                    if root.report-error != "": Text {
+                        text: root.report-error;
+                        color: Theme.danger;
+                        font-size: Theme.fs-small;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: root.report-preview == "" ? "Что отправится?" : "Обновить";
+                            clicked => {
+                                root.report-preview-requested();
+                            }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        if root.report-busy: VerticalLayout {
+                            alignment: center;
+                            Spinner {
+                                indeterminate: true;
+                                width: 20px;
+                                height: 20px;
+                            }
+                        }
+                        Button {
+                            text: "Отмена";
+                            enabled: !root.report-busy;
+                            clicked => {
+                                root.report-open = false;
+                            }
+                        }
+                        Button {
+                            text: "Отправить";
+                            primary: true;
+                            enabled: !root.report-busy;
+                            clicked => {
+                                root.report-send();
+                            }
+                        }
+                    }
+                }
+                if root.report-code != "": VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "Отчёт отправлен. Код отчёта — передайте его в поддержку:";
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.report-code;
+                        font-size: Theme.fs-display;
+                        font-weight: 800;
+                        font-family: root.editor-mono;
+                        color: Theme.accent;
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Button {
+                            text: "Скопировать код";
+                            clicked => {
+                                root.report-copy-code();
+                            }
+                        }
+                        Button {
+                            text: "Готово";
+                            primary: true;
+                            clicked => {
+                                root.report-open = false;
+                            }
                         }
                     }
                 }

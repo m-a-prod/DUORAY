@@ -15,11 +15,14 @@ use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 slint::include_modules!();
 
 mod connection;
+mod diag;
 mod editor_ui;
 mod helper;
 mod ping;
 mod routing_ui;
 mod server_edit;
+mod support_ui;
+mod update;
 #[cfg(windows)]
 mod windows_helper;
 
@@ -95,6 +98,7 @@ struct App {
     xray_restarting: bool,
     /// The server editor's state while it is open.
     editor: Option<editor_ui::Editor>,
+    update: support_ui::UpdateState,
 }
 
 enum ConnState {
@@ -143,6 +147,8 @@ fn main() -> anyhow::Result<()> {
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
     let path = Store::default_path()?;
+    diag::init(path.parent().unwrap_or(std::path::Path::new(".")));
+    diag::log(format!("start {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH));
     let (store, status) = match Store::load(&path) {
         Ok(s) => (s, String::new()),
         Err(e) => (Store::default(), format!("Не удалось прочитать данные: {e:#}")),
@@ -166,6 +172,7 @@ fn main() -> anyhow::Result<()> {
         xray_started: None,
         xray_restarting: false,
         editor: None,
+        update: Default::default(),
     }));
     let device = Arc::new(Device::detect());
 
@@ -176,6 +183,7 @@ fn main() -> anyhow::Result<()> {
     )));
     routing_ui::install(&ui, &app);
     editor_ui::install(&ui, &app);
+    support_ui::install(&ui, &app);
     {
         let st = app.lock().unwrap();
         apply_appearance(&ui, &st.store.settings);
@@ -286,7 +294,10 @@ fn main() -> anyhow::Result<()> {
                                 start_connect(&ui, &app);
                             }
                         }
-                        Err(e) => ui.set_helper_error(format!("{e:#}").into()),
+                        Err(e) => {
+                            diag::auto("helper_install", &format!("{e:#}"));
+                            ui.set_helper_error(format!("{e:#}").into());
+                        }
                     }
                 });
             });
@@ -354,6 +365,9 @@ fn main() -> anyhow::Result<()> {
             ui.set_send_device_info(st.store.settings.send_device_info);
             ui.set_hysteria_restart(st.store.settings.hysteria_restart);
             ui.set_hysteria_minutes(st.store.settings.hysteria_restart_minutes.to_string().into());
+            ui.set_telemetry_enabled(st.store.settings.telemetry == Some(true));
+            ui.set_auto_update(st.store.settings.auto_update);
+            ui.set_duoray_version(env!("CARGO_PKG_VERSION").into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
             let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
             ui.set_theme_choice(theme.into());
@@ -683,6 +697,45 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What reports say about the setup: switches and the kind of server in use,
+/// never its address, name, keys or the subscription link.
+fn diag_context(ui: &AppWindow, st: &App) -> serde_json::Value {
+    let s = &st.store.settings;
+    let server = selected_server(ui, st).map(|v| {
+        serde_json::json!({
+            "protocol": v.protocol, "network": v.network, "security": v.security, "proxies": v.proxies,
+            "json": matches!(v.source, duoray_core::server::Source::Json(_)), "edited": v.override_key.is_some(),
+        })
+    });
+    let conn = match &st.conn_state {
+        ConnState::Idle => "idle",
+        ConnState::Connecting { .. } => "connecting",
+        ConnState::Connected { .. } => "connected",
+        ConnState::Switching { .. } => "switching",
+        ConnState::Disconnecting => "disconnecting",
+        ConnState::Failed(_) => "failed",
+    };
+    serde_json::json!({
+        "connection": conn,
+        "server": server,
+        "subscriptions": st.store.subscriptions.iter().filter(|x| !x.is_manual()).count(),
+        "renderer": std::env::var("SLINT_BACKEND")
+            .unwrap_or_else(|_| if cfg!(any(target_os = "linux", windows)) { "software" } else { "default" }.into()),
+        "settings": {
+            "ping": format!("{:?}/{}", s.ping.mode, s.ping.threads),
+            "routing_advanced": s.routing.advanced,
+            "ru_direct": s.routing.simple.ru_direct,
+            "whitelist_direct": s.routing.simple.whitelist_direct,
+            "lan_direct": s.routing.simple.lan_direct,
+            "games_direct": s.routing.simple.games.len(),
+            "apps_mode": format!("{:?}", s.routing.apps.mode),
+            "hysteria_restart": s.hysteria_restart,
+            "send_device_info": s.send_device_info,
+            "happ_spoof": s.happ.enabled,
+        },
+    })
+}
+
 /// Indices into `sub.servers` in the order the list shows them. Row numbers in
 /// the UI always refer to this order.
 fn display_order(st: &App, sub: &Subscription) -> Vec<usize> {
@@ -777,6 +830,7 @@ fn toggle_connection(ui: &AppWindow, app: &Shared) {
     match st.conn_state {
         ConnState::Connected { .. } => {
             let conn = st.conn.take();
+            diag::log("disconnect");
             st.conn_state = ConnState::Disconnecting;
             render(ui, &st);
             let (ui_weak, app) = (ui.as_weak(), app.clone());
@@ -807,6 +861,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
         return;
     };
     let name = display_name(&server.name).1;
+    diag::log(format!("connect: {} {}/{}, {} outbound(s)", server.protocol, server.network, server.security, server.proxies));
     st.conn_gen += 1;
     let generation = st.conn_gen;
     st.conn_state = ConnState::Connecting { name: name.clone() };
@@ -854,6 +909,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                         }
                         .into(),
                     );
+                    diag::log(format!("connected via {}", conn.tun));
                     st.conn_state = ConnState::Connected { name, tun: conn.tun.clone(), key };
                     st.conn = Some(conn);
                     st.xray_started = Some(std::time::Instant::now());
@@ -865,6 +921,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     std::thread::spawn(move || conn.disconnect());
                 }
                 Err(ConnectError::HelperMissing) => {
+                    diag::log("helper missing");
                     st.conn_state = ConnState::Idle;
                     st.connect_after_install = true;
                     ui.set_helper_error("".into());
@@ -876,6 +933,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     ui.set_helper_dialog(true);
                 }
                 Err(ConnectError::HelperOutdated(v)) => {
+                    diag::log(format!("helper outdated: {v}"));
                     st.conn_state = ConnState::Idle;
                     st.connect_after_install = true;
                     ui.set_helper_error("".into());
@@ -885,7 +943,10 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     );
                     ui.set_helper_dialog(true);
                 }
-                Err(ConnectError::Other(e)) => st.conn_state = ConnState::Failed(humanize(&format!("{e:#}"))),
+                Err(ConnectError::Other(e)) => {
+                    diag::auto("connect_failed", &format!("{e:#}"));
+                    st.conn_state = ConnState::Failed(humanize(&format!("{e:#}")));
+                }
             }
             render(&ui, &st);
             drop(st);
@@ -901,6 +962,7 @@ fn connection_failed(ui: &AppWindow, app: &Shared, generation: u64, msg: String)
         return;
     }
     let conn = st.conn.take();
+    diag::auto("tunnel_stopped", if msg.is_empty() { "helper disconnected" } else { &msg });
     st.conn_state = ConnState::Failed(if msg.is_empty() { "Помощник отключился".into() } else { msg });
     render(ui, &st);
     if let Some(c) = conn {
@@ -980,6 +1042,10 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             st.refreshing.remove(&id);
+            match &result {
+                Ok(f) => diag::log(format!("subscription updated: {} servers, {} skipped", f.servers.len(), f.skipped.len())),
+                Err(e) => diag::auto("subscription", e),
+            }
             st.store.apply(&id, result);
             save(&mut st);
             // The list may have been reordered: find the selected server again.
@@ -993,6 +1059,7 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
 }
 
 fn render(ui: &AppWindow, st: &App) {
+    diag::set_context(diag_context(ui, st));
     let manual = st.store.subscriptions.iter().find(|s| s.is_manual());
     ui.set_manual_meta(manual.map_or_else(|| "Нет серверов".to_string(), sub_meta).into());
     ui.set_manual_selected(current(ui, st).is_some_and(Subscription::is_manual));
@@ -1183,6 +1250,16 @@ fn usage_line(s: &Subscription) -> (String, f32) {
 }
 
 /// Opens a web or Telegram link in the system handler.
+/// Opens a local file with its default app (a downloaded .dmg, say).
+fn open_path(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("/usr/bin/open").arg(path).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+    #[cfg(windows)]
+    let _ = connection::hidden(std::process::Command::new("explorer").arg(path)).spawn();
+}
+
 fn open_url(url: &str) {
     if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("tg://")) {
         return;
@@ -1300,6 +1377,11 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.send_device_info = ui.get_send_device_info();
     st.store.settings.hysteria_restart = ui.get_hysteria_restart();
     st.store.settings.hysteria_restart_minutes = ui.get_hysteria_minutes().parse().unwrap_or(5);
+    st.store.settings.auto_update = ui.get_auto_update();
+    let reports = ui.get_telemetry_enabled();
+    if st.store.settings.telemetry.is_some_and(|t| t != reports) {
+        support_ui::set_consent(&mut st.store.settings, reports);
+    }
     let theme = ui.get_theme_choice();
     st.store.settings.theme = THEMES.iter().find(|t| t.1 == theme.as_str()).map_or("dark", |t| t.0).to_string();
     st.store.settings.text_scale = ui.get_text_scale_choice().trim_end_matches('%').parse().unwrap_or(100);

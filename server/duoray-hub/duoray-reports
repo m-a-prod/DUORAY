@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Reads DUORAY error reports on the hub server (run as root over SSH).
+
+  duoray-reports list [-n 30] [--kind K] [--version V]
+  duoray-reports show DR-XXXXXX
+  duoray-reports stats [--days 14]
+"""
+
+import argparse
+import json
+import os
+import sqlite3
+import time
+
+DB = os.environ.get("DUORAY_REPORTS_DB") or next(
+    (p for p in ("/var/lib/private/duoray-hub/reports.db", "/var/lib/duoray-hub/reports.db") if os.path.exists(p)),
+    "/var/lib/private/duoray-hub/reports.db",
+)
+
+
+def when(ts):
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="duoray-reports")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    ls = sub.add_parser("list")
+    ls.add_argument("-n", type=int, default=30)
+    ls.add_argument("--kind")
+    ls.add_argument("--version")
+    show = sub.add_parser("show")
+    show.add_argument("id")
+    st = sub.add_parser("stats")
+    st.add_argument("--days", type=int, default=14)
+    a = ap.parse_args()
+
+    conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    if a.cmd == "list":
+        q, args = "SELECT id, received, version, os, kind, message FROM reports WHERE 1=1", []
+        if a.kind:
+            q, args = q + " AND kind=?", args + [a.kind]
+        if a.version:
+            q, args = q + " AND version=?", args + [a.version]
+        for rid, ts, ver, os_, kind, msg in conn.execute(q + " ORDER BY received DESC LIMIT ?", args + [a.n]):
+            first = (msg or "").splitlines()[0][:90] if msg else ""
+            print(f"{rid}  {when(ts)}  {ver:<8} {kind:<16} {os_[:24]:<24} {first}")
+    elif a.cmd == "show":
+        row = conn.execute("SELECT received, payload FROM reports WHERE id=?", (a.id.upper(),)).fetchone()
+        if not row:
+            raise SystemExit(f"{a.id}: no such report")
+        report = json.loads(row[1])
+        log = report.pop("log", None)
+        xray = report.pop("xray_log", None)
+        print(f"received {when(row[0])}")
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        for title, text in (("app log", log), ("xray log", xray)):
+            if text:
+                print(f"\n--- {title} ---\n{text}")
+    else:
+        since = int(time.time()) - a.days * 86400
+        print(f"last {a.days} days: {conn.execute('SELECT COUNT(*) FROM reports WHERE received>=?', (since,)).fetchone()[0]} reports\n")
+        q = (
+            "SELECT signature, kind, COUNT(*), COUNT(DISTINCT install_id), MAX(version), MIN(message) "
+            "FROM reports WHERE received>=? GROUP BY signature ORDER BY COUNT(*) DESC LIMIT 25"
+        )
+        for sig, kind, n, users, ver, msg in conn.execute(q, (since,)):
+            first = (msg or "").splitlines()[0][:70] if msg else ""
+            print(f"{n:>5}× {users:>4} users  {kind:<16} {ver:<8} {sig}  {first}")
+
+
+if __name__ == "__main__":
+    main()
