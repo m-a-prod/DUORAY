@@ -30,9 +30,9 @@ jobs:
       matrix:
         arch: [x64, x86]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { path: DUORAY }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: m-a-prod/DUOTUN
           path: DUOTUN
@@ -51,7 +51,7 @@ jobs:
       - name: Build installer
         working-directory: DUORAY
         run: packaging/windows/build.sh ${{ matrix.arch }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.arch }}
           path: DUORAY/dist/DUORAY-Setup-*.exe
@@ -67,9 +67,9 @@ jobs:
           - { arch: x86_64, runner: ubuntu-24.04, deb: amd64 }
           - { arch: aarch64, runner: ubuntu-24.04-arm, deb: arm64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { path: DUORAY }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: m-a-prod/DUOTUN
           path: DUOTUN
@@ -103,7 +103,7 @@ jobs:
           file /usr/lib/duoray/duoray
           sudo apt-get remove -y duoray
           test ! -e /usr/bin/duoray
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
           path: |
@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-24.04
     container: fedora:latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: linux-x86_64, path: pkgs }
       - name: Install, check, remove
         run: |
@@ -138,9 +138,9 @@ jobs:
       matrix:
         arch: [aarch64, x86_64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { path: DUORAY }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: m-a-prod/DUOTUN
           path: DUOTUN
@@ -155,7 +155,7 @@ jobs:
       - name: Build app and disk image
         working-directory: DUORAY
         run: packaging/macos/build.sh ${{ matrix.arch }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
           path: DUORAY/dist/*.dmg
@@ -169,12 +169,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { path: artifacts, merge-multiple: true }
       - name: Checksums
         working-directory: artifacts
         run: sha256sum * > SHA256SUMS && cat SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           fail_on_unmatched_files: true
