@@ -47,7 +47,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: DUORAY
-          key: windows-${{ matrix.arch} }
+          key: windows-${{ matrix.arch }}
       - name: Build installer
         working-directory: DUORAY
         run: packaging/windows/build.sh ${{ matrix.arch }}
@@ -87,7 +87,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: DUORAY
-          key: linux-${{ matrix.arch} }
+          key: linux-${{ matrix.arch }}
       - name: Packages (rpm, deb, tar.gz)
         working-directory: DUORAY
         run: packaging/linux/packages.sh ${{ matrix.arch }}
@@ -151,7 +151,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: DUORAY
-          key: macos-${{ matrix.arch} }
+          key: macos-${{ matrix.arch }}
       - name: Build app and disk image
         working-directory: DUORAY
         run: packaging/macos/build.sh ${{ matrix.arch }}
