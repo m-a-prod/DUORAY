@@ -24,6 +24,7 @@ env:
 jobs:
   windows:
     name: windows ${{ matrix.arch }}
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -59,6 +60,7 @@ jobs:
 
   linux:
     name: linux ${{ matrix.arch }}
+    timeout-minutes: 60
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -110,11 +112,13 @@ jobs:
             DUORAY/dist/*.AppImage
             DUORAY/dist/*.rpm
             DUORAY/dist/*.deb
+            DUORAY/dist/*.pkg.tar.zst
             DUORAY/dist/DUORAY-*-linux-*.tar.gz
           if-no-files-found: error
 
   rpm-test:
     name: test rpm on fedora
+    timeout-minutes: 20
     needs: linux
     runs-on: ubuntu-24.04
     container: fedora:latest
@@ -129,8 +133,27 @@ jobs:
           dnf remove -y duoray
           test ! -e /usr/bin/duoray
 
+  arch-test:
+    name: test pacman package on arch
+    needs: linux
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { name: linux-x86_64, path: pkgs }
+      - name: Install, check, remove
+        run: |
+          pacman -Sy --noconfirm
+          pacman -U --noconfirm pkgs/duoray-*-x86_64.pkg.tar.zst
+          pacman -Qi duoray
+          test -x /usr/lib/duoray/duoray -a -x /usr/libexec/duoray/duoray-helper -a -L /usr/bin/duoray
+          pacman -R --noconfirm duoray
+          test ! -e /usr/bin/duoray
+
   macos:
     name: macos ${{ matrix.arch }}
+    timeout-minutes: 60
     # Apple silicon; the Intel build is cross-compiled on it.
     runs-on: macos-latest
     strategy:
@@ -164,7 +187,7 @@ jobs:
   release:
     name: github release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, linux, rpm-test, macos]
+    needs: [windows, linux, rpm-test, arch-test, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

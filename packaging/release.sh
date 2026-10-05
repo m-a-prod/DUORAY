@@ -110,7 +110,9 @@ ssh "$HUB" "mkdir -p $REMOTE/files"
 for f in "$OUT"/DUORAY-* "$OUT"/duoray*; do
     [ -f "$f" ] && scp -q "$f" "$HUB:$REMOTE/files/"
 done
+# The pacman repository, if this version has Arch packages in dist/.
+packaging/linux/arch-repo.sh "$VERSION"
 scp -q "$OUT/manifest.json" "$HUB:$REMOTE/manifest.json.new"
 scp -q "$OUT/manifest.sig" "$HUB:$REMOTE/manifest.sig.new"
-ssh "$HUB" "cd $REMOTE && chmod 644 files/* manifest.*.new && mv manifest.sig.new manifest.sig && mv manifest.json.new manifest.json"
+ssh "$HUB" "cd $REMOTE && chmod -R a+rX files arch 2>/dev/null; chmod 644 manifest.*.new && mv manifest.sig.new manifest.sig && mv manifest.json.new manifest.json"
 echo "published $VERSION ($BUILD_ID)"

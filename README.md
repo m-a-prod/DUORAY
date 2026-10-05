@@ -69,10 +69,21 @@ GUI (Slint)
 | Linux, любой дистрибутив | `DUORAY-<версия>-x86_64.AppImage` / `-aarch64.AppImage` |
 | Fedora, openSUSE, RHEL | `sudo dnf install ./duoray-<версия>-1.x86_64.rpm` |
 | Debian, Ubuntu, Mint | `sudo apt install ./duoray_<версия>-1_amd64.deb` |
-| Arch, CachyOS, Manjaro | `yay -S duoray-bin` (AUR) |
+| Arch, CachyOS, Manjaro | репозиторий pacman, см. ниже |
 
-Windows, macOS и AppImage обновляются сами. Пакеты rpm, deb и AUR обновляются
+Windows, macOS и AppImage обновляются сами. Пакеты rpm, deb и pacman обновляются
 через менеджер пакетов.
+
+**Arch Linux и производные.** Один раз подключите подписанный репозиторий:
+
+```sh
+curl -fsSL https://duoray.dualizm.space/arch/duoray.asc | sudo pacman-key --add -
+sudo pacman-key --lsign-key 13F077054DB026DC11D58144254C5F497BDAC7B9
+printf '\n[duoray]\nServer = https://duoray.dualizm.space/arch/$arch\n' | sudo tee -a /etc/pacman.conf
+sudo pacman -Sy duoray
+```
+
+Дальше DUORAY обновляется вместе с системой (`pacman -Syu`).
 
 ## Сборка
 

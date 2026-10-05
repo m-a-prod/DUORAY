@@ -10,6 +10,7 @@ limiting only).
   GET  /v1/update/manifest.json    update manifest (signed, see manifest.sig)
   GET  /v1/update/manifest.sig
   GET  /v1/update/files/<name>     installers / AppImages
+  GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
   GET  /health
 """
 
@@ -58,6 +59,11 @@ def init_db():
         )
         c.execute("CREATE INDEX IF NOT EXISTS reports_received ON reports(received)")
         c.execute("CREATE INDEX IF NOT EXISTS reports_signature ON reports(signature)")
+
+
+def safe_name(name):
+    """A plain file name: no paths, no hidden files."""
+    return bool(name) and all(c.isalnum() or c in "._-+" for c in name) and not name.startswith(".")
 
 
 def clip(value, limit):
@@ -181,12 +187,19 @@ class Handler(BaseHTTPRequestHandler):
         prefix = "/v1/update/files/"
         if self.path.startswith(prefix):
             name = self.path[len(prefix):]
-            if name and all(c.isalnum() or c in "._-" for c in name) and not name.startswith("."):
+            if safe_name(name):
                 return self.send_file(
                     os.path.join(UPDATES, "files", name),
                     "application/octet-stream",
                     {"Content-Disposition": f'attachment; filename="{name}"'},
                 )
+        # pacman repository: Server = https://<hub>/arch/$arch
+        if self.path.startswith("/arch/"):
+            arch, _, name = self.path[len("/arch/"):].partition("/")
+            if arch in ("x86_64", "aarch64", "any") and safe_name(name):
+                return self.send_file(os.path.join(UPDATES, "arch", arch, name), "application/octet-stream", {})
+            if arch == "duoray.asc":
+                return self.send_file(os.path.join(UPDATES, "arch", "duoray.asc"), "text/plain", {})
         self.reply_json(404, {"error": "not found"})
 
     do_HEAD = do_GET

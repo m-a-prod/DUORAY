@@ -52,7 +52,7 @@ if [ ! -x "$LIB/xray" ] || ! "$LIB/xray" version 2>/dev/null | grep -q "Xray ${X
         tmp=$(mktemp -d)
         trap 'rm -rf "$tmp"' EXIT
         echo "Скачиваю xray $XRAY_VERSION…"
-        curl -fsSL -o "$tmp/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$ZIP"
+        curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$tmp/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$ZIP"
         echo "$SHA  $tmp/xray.zip" | sha256sum -c - >/dev/null
         if command -v unzip >/dev/null 2>&1; then
             unzip -o -q "$tmp/xray.zip" xray geoip.dat geosite.dat LICENSE -d "$tmp/x"

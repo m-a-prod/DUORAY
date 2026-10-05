@@ -28,7 +28,7 @@ stage=packaging/windows/stage-$ARCH
 mkdir -p "$stage" dist
 if [ ! -f "$stage/xray.exe" ]; then
     tmp=$(mktemp -d)
-    curl -sSL -o "$tmp/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$tmp/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
     echo "$XRAY_SHA256  $tmp/xray.zip" | shasum -a 256 -c -
     unzip -o -q "$tmp/xray.zip" xray.exe geoip.dat geosite.dat wintun.dll LICENSE LICENSE-wintun.txt -d "$stage"
     mv "$stage/LICENSE" "$stage/LICENSE-xray.txt"

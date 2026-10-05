@@ -23,7 +23,7 @@ ROOT=packaging/linux/root-$ARCH
 HOST=$(uname -m)
 TOOL=$CACHE/appimagetool-$HOST.AppImage
 if [ ! -x "$TOOL" ]; then
-    curl -fsSL -o "$TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$HOST.AppImage"
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$HOST.AppImage"
     chmod +x "$TOOL"
 fi
 

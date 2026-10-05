@@ -82,7 +82,11 @@ ssh "$DUORAY_HUB_SSH" duoray-reports stats           # частые ошибки
 2. `git tag v<версия> && git push --tags`. Actions соберёт Windows, Linux
    (AppImage, rpm, deb, tar.gz) и macOS и выложит их в GitHub Release.
 3. Опубликуйте на хабе: `git checkout v<версия> && packaging/release.sh --from-github v<версия> "Что нового"`.
-4. Обновите AUR: `packaging/aur/update.sh --push`.
+4. Репозиторий pacman (`https://duoray.dualizm.space/arch/$arch`) `release.sh`
+   обновляет сам: он вызывает `packaging/linux/arch-repo.sh`, если в релизе есть
+   пакеты Arch. Пакеты подписаны ключом `13F077054DB026DC11D58144254C5F497BDAC7B9`,
+   брелок лежит в `~/.config/duoray-release/gnupg`.
+5. AUR (когда будет аккаунт): `packaging/aur/update.sh --push`.
 
 Без CI `packaging/release.sh "Что нового"` собирает здесь то, что может:
 Windows, Linux x86_64. Дальше скрипт:

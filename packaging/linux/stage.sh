@@ -26,7 +26,7 @@ BIN=target/$TARGET/release
 
 mkdir -p "$CACHE"
 if [ ! -f "$CACHE/$XRAY_ZIP" ] || ! echo "$XRAY_SHA256  $CACHE/$XRAY_ZIP" | sha256sum -c - >/dev/null 2>&1; then
-    curl -fsSL -o "$CACHE/$XRAY_ZIP" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$CACHE/$XRAY_ZIP" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
     echo "$XRAY_SHA256  $CACHE/$XRAY_ZIP" | sha256sum -c -
 fi
 rm -rf "$CACHE/xray-$ARCH"

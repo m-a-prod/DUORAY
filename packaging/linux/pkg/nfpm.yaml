@@ -32,6 +32,15 @@ overrides:
       - libxkbcommon0
       - libxkbcommon-x11-0
       - libfontconfig1
+  archlinux:
+    depends:
+      - glibc
+      - gcc-libs
+      - fontconfig
+      - libxkbcommon
+    recommends: []
+    scripts:
+      preremove: packaging/linux/pkg/arch-preremove.sh
 
 contents:
   - src: ${ROOT}/usr/lib/duoray/
@@ -54,3 +63,9 @@ contents:
 scripts:
   postinstall: packaging/linux/pkg/postinstall.sh
   preremove: packaging/linux/pkg/preremove.sh
+
+archlinux:
+  packager: DUALIZM <https://t.me/dualizm_vpn>
+  scripts:
+    # An upgrade restarts the helper on the new binary, like postinstall does.
+    postupgrade: packaging/linux/pkg/postinstall.sh

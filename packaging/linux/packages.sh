@@ -1,11 +1,14 @@
 #!/bin/sh
 # Builds the Linux packages for one architecture into dist/:
-#   duoray-<v>-1.<arch>.rpm, duoray_<v>-1_<debarch>.deb,
+#   duoray-<v>-1.<arch>.rpm, duoray_<v>-1_<debarch>.deb, duoray-<v>-1-<arch>.pkg.tar.zst,
 #   DUORAY-<v>-linux-<arch>.tar.gz (the installed tree; the AUR package uses it).
-# Usage: packaging/linux/packages.sh [x86_64|aarch64]
+# Usage: packaging/linux/packages.sh [--from-tarball <DUORAY-…-linux-<arch>.tar.gz>] [x86_64|aarch64]
+# --from-tarball packs an existing build (e.g. a CI release) instead of building.
 set -eu
 cd "$(dirname "$0")/../.."
 
+TARBALL=
+if [ "${1:-}" = "--from-tarball" ]; then TARBALL=$(realpath "$2"); shift 2; fi
 ARCH=${1:-$(uname -m)}
 [ "$ARCH" = arm64 ] && ARCH=aarch64
 case "$ARCH" in
@@ -16,8 +19,12 @@ esac
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/duoray-gui/Cargo.toml | head -1)
 CACHE=packaging/linux/cache
 
-packaging/linux/stage.sh "$ARCH"
 ROOT=$(pwd)/packaging/linux/root-$ARCH
+if [ -n "$TARBALL" ]; then
+    rm -rf "$ROOT" && mkdir -p "$ROOT" && tar -xzf "$TARBALL" -C "$ROOT"
+else
+    packaging/linux/stage.sh "$ARCH"
+fi
 
 # nfpm: pinned release, checked against its published SHA-256.
 NFPM_VERSION=2.47.0
@@ -28,7 +35,7 @@ esac
 NFPM=$CACHE/nfpm-$NFPM_VERSION/nfpm
 if [ ! -x "$NFPM" ]; then
     mkdir -p "$CACHE/nfpm-$NFPM_VERSION"
-    curl -fsSL -o "$CACHE/$NFPM_TAR" "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/$NFPM_TAR"
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$CACHE/$NFPM_TAR" "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/$NFPM_TAR"
     echo "$NFPM_SHA  $CACHE/$NFPM_TAR" | sha256sum -c -
     tar -xzf "$CACHE/$NFPM_TAR" -C "$CACHE/nfpm-$NFPM_VERSION" nfpm
 fi
@@ -38,8 +45,8 @@ mkdir -p dist
 CONFIG=$CACHE/nfpm-$ARCH.yaml
 sed -e "s|\${ROOT}|$ROOT|g" -e "s|\${VERSION}|$VERSION|g" -e "s|\${PKG_ARCH}|$PKG_ARCH|g" \
     packaging/linux/pkg/nfpm.yaml > "$CONFIG"
-for fmt in rpm deb; do
+for fmt in rpm deb archlinux; do
     "$NFPM" package --config "$CONFIG" --packager "$fmt" --target dist/
 done
-tar -C "$ROOT" --owner=0 --group=0 -czf "dist/DUORAY-$VERSION-linux-$ARCH.tar.gz" usr
-ls -la dist/ | grep -E "\.rpm|\.deb|linux-$ARCH\.tar\.gz"
+[ -n "$TARBALL" ] || tar -C "$ROOT" --owner=0 --group=0 -czf "dist/DUORAY-$VERSION-linux-$ARCH.tar.gz" usr
+ls -la dist/ | grep -E "\.rpm|\.deb|\.pkg\.tar\.zst|linux-$ARCH\.tar\.gz"

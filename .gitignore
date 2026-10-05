@@ -12,3 +12,4 @@ packaging/linux/root-*/
 packaging/macos/work-*/
 packaging/aur/build/
 packaging/aur/repo/
+__pycache__/

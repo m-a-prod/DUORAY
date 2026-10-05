@@ -29,7 +29,7 @@ BIN=target/$TARGET/release
 
 rm -rf "$WORK"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" dist
-curl -fsSL -o "$WORK/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
+curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$WORK/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
 echo "$XRAY_SHA256  $WORK/xray.zip" | shasum -a 256 -c -
 unzip -q "$WORK/xray.zip" -d "$WORK/xray"
 
