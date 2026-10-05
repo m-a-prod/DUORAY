@@ -7,8 +7,8 @@
 > риск; ошибки и замечания — в Issues.
 
 Десктопный VPN-клиент на [xray-core](https://github.com/XTLS/Xray-core) для macOS,
-Windows и Linux. Без Electron и webview: интерфейс на [Slint](https://slint.dev),
-всё остальное — Rust. Туннель (TUN) — собственный, [Duotun](https://github.com/m-a-prod/DUOTUN), без утечек DNS.
+Windows и Linux. Интерфейс на [Slint](https://slint.dev),
+всё остальное — Rust. Туннель (TUN) — собственный, [Duotun](https://github.com/m-a-prod/DUOTUN)
 
 ## Возможности
 
