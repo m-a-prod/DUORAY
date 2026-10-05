@@ -11,7 +11,7 @@ SetCompressor /SOLID lzma
 
 !define APP "DUORAY"
 !ifndef VERSION
-  !define VERSION "0.3.0"
+  !define VERSION "0.3.1"
 !endif
 ; x64 (default) or x86. Wintun must match the OS bitness, so each build
 ; only installs on its own architecture.
