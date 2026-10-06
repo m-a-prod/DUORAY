@@ -91,6 +91,10 @@ struct App {
     live_ping_busy: bool,
     /// (done, total) while a ping run is active.
     ping_progress: Option<(usize, usize)>,
+    /// Stops the active ping run.
+    ping_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// A render is already scheduled for incoming ping results.
+    ping_render_pending: bool,
     /// Bumped per transient status message, so an old timer never clears a newer one.
     status_gen: u64,
     /// When the current xray was started (for the periodic Hysteria restart).
@@ -179,6 +183,8 @@ fn main() -> anyhow::Result<()> {
         live_ping: None,
         live_ping_busy: false,
         ping_progress: None,
+        ping_cancel: None,
+        ping_render_pending: false,
         status_gen: 0,
         xray_started: None,
         xray_restarting: false,
@@ -194,6 +200,7 @@ fn main() -> anyhow::Result<()> {
     )));
     routing_ui::install(&ui, &app);
     editor_ui::install(&ui, &app);
+    full_repaint_on_return(&ui);
     support_ui::install(&ui, &app);
     {
         let st = app.lock().unwrap();
@@ -506,6 +513,14 @@ fn main() -> anyhow::Result<()> {
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || start_ping(&ui_weak.unwrap(), &app)
     });
+    ui.on_cancel_ping({
+        let app = app.clone();
+        move || {
+            if let Some(c) = &app.lock().unwrap().ping_cancel {
+                c.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    });
     ui.on_add_from_clipboard({
         let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
         move || {
@@ -811,6 +826,32 @@ fn follow_selection(ui: &AppWindow, app: &Shared) {
 /// Restarts the active connection (e.g. the routing changed).
 fn reconnect(ui: &AppWindow, app: &Shared) {
     switch_connection(ui, app, true);
+}
+
+/// After the window was minimized, covered or unfocused, repaint it whole:
+/// the software renderer otherwise presents only what changed, and Windows
+/// may have dropped the rest (parts of the window stayed blank). Registered
+/// once the winit window exists.
+fn full_repaint_on_return(ui: &AppWindow) {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        use slint::winit_030::{EventResult, WinitWindowAccessor, winit::event::WindowEvent};
+        let ui_weak = ui.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_millis(300), move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let ui_weak = ui.as_weak();
+            ui.window().on_winit_window_event(move |_, event| {
+                if matches!(event, WindowEvent::Focused(true) | WindowEvent::Occluded(false) | WindowEvent::Resized(_))
+                    && let Some(ui) = ui_weak.upgrade()
+                {
+                    ui.set_repaint_all(!ui.get_repaint_all());
+                }
+                EventResult::Propagate
+            });
+        });
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let _ = ui;
 }
 
 /// Routing changed while connected: restart xray with the new rules and keep
@@ -1610,6 +1651,8 @@ fn ping_jobs(
         st.ping_results.insert(key.clone(), ("…".into(), 5, u128::MAX - 1));
     }
     st.ping_progress = Some((0, jobs.len()));
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    st.ping_cancel = Some(cancel.clone());
     let settings = st.store.settings.ping.clone();
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
     ui.set_pinging(true);
@@ -1634,7 +1677,17 @@ fn ping_jobs(
                 if let Some((done, _)) = st.ping_progress.as_mut() {
                     *done += 1;
                 }
-                render(&ui, &st);
+                // Hundreds of results: one list rebuild per 150 ms, not per result.
+                if !st.ping_render_pending {
+                    st.ping_render_pending = true;
+                    let (ui_weak, app) = (ui.as_weak(), app.clone());
+                    slint::Timer::single_shot(std::time::Duration::from_millis(150), move || {
+                        let Some(ui) = ui_weak.upgrade() else { return };
+                        let mut st = app.lock().unwrap();
+                        st.ping_render_pending = false;
+                        render(&ui, &st);
+                    });
+                }
             });
         }
     };
@@ -1644,12 +1697,15 @@ fn ping_jobs(
             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                 let mut st = app.lock().unwrap();
                 st.ping_progress = None;
+                st.ping_cancel = None;
+                // Cancelled: servers never checked lose their "…".
+                st.ping_results.retain(|_, r| r.1 != 5);
                 ui.set_pinging(false);
                 render(&ui, &st);
             });
         }
     };
-    ping::run_all(jobs, settings, run_dir, on_result, on_done);
+    ping::run_all(jobs, settings, run_dir, cancel, on_result, on_done);
 }
 
 #[cfg(test)]

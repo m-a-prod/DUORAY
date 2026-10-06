@@ -2317,6 +2317,7 @@ export component AppWindow inherits Window {
     callback open-support();
     callback copy-sub-link();
     callback ping-current();
+    callback cancel-ping();
     callback toggle-sort();
     callback toggle-announce();
     callback add-from-clipboard();
@@ -2359,6 +2360,15 @@ export component AppWindow inherits Window {
     callback editor-field-changed(int, string);
     callback editor-as-json();
     callback editor-reset();
+
+    // Flipped by the app when the window comes back (restored, focused,
+    // uncovered): this window-sized, practically invisible fill changes, so
+    // the next frame repaints and presents the whole window, not only what
+    // changed. Windows does not keep the content of a minimized window.
+    in property <bool> repaint-all;
+    Rectangle {
+        background: root.repaint-all ? #00000001 : #00000000;
+    }
 
     // Keys no field took: Ctrl+V (Cmd+V) adds a link from the clipboard.
     forward-focus: shortcuts;
@@ -2811,11 +2821,38 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    Text {
-                        text: root.status;
-                        font-size: Theme.fs-caption;
-                        color: Theme.muted;
-                        wrap: word-wrap;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.status;
+                            font-size: Theme.fs-caption;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                        // Stops a running ping.
+                        if root.pinging: Rectangle {
+                            width: cancel-text.preferred-width + 16px;
+                            height: 22px;
+                            border-radius: 11px;
+                            background: cancel-touch.has-hover ? Theme.danger.with-alpha(0.22) : Palette.foreground.with-alpha(0.08);
+                            animate background { duration: 120ms; easing: ease-out; }
+                            cancel-text := Text {
+                                text: "Отмена";
+                                font-size: Theme.fs-caption;
+                                font-weight: 600;
+                                color: cancel-touch.has-hover ? Theme.danger : Palette.foreground;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            cancel-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.cancel-ping();
+                                }
+                            }
+                        }
                     }
                 }
             }

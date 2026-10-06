@@ -17,27 +17,33 @@ use duoray_core::store::{PingMode, PingSettings};
 use crate::connection;
 
 /// Pings `jobs` with `settings.threads` workers; `on_result` is called from
-/// worker threads as results arrive, `on_done` once at the end.
+/// worker threads as results arrive, `on_done` once at the end. Setting
+/// `cancel` stops taking new jobs (running checks still finish).
 pub fn run_all(
     jobs: Vec<(String, Server)>,
     settings: PingSettings,
     run_dir: PathBuf,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
     on_result: impl Fn(String, Result<Duration, String>) + Send + Sync + 'static,
     on_done: impl FnOnce() + Send + 'static,
 ) {
-    let iface = connection::uplink_interface();
     let threads = settings.threads.clamp(1, 32) as usize;
     let queue = Arc::new(Mutex::new(VecDeque::from(jobs)));
     let on_result = Arc::new(on_result);
     let settings = Arc::new(settings);
 
     std::thread::spawn(move || {
+        // Off the UI thread: on Windows this runs PowerShell (seconds).
+        let iface = connection::uplink_interface();
         let workers: Vec<_> = (0..threads)
             .map(|n| {
-                let (queue, on_result, settings, iface, run_dir) =
-                    (queue.clone(), on_result.clone(), settings.clone(), iface.clone(), run_dir.clone());
+                let (queue, on_result, settings, iface, run_dir, cancel) =
+                    (queue.clone(), on_result.clone(), settings.clone(), iface.clone(), run_dir.clone(), cancel.clone());
                 std::thread::spawn(move || {
                     loop {
+                        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
                         let Some((key, server)) = queue.lock().unwrap().pop_front() else { return };
                         let result = ping(&server, &settings, iface.as_deref(), &run_dir, n).map_err(|e| format!("{e:#}"));
                         on_result(key, result);
