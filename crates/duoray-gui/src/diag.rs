@@ -262,7 +262,52 @@ fn build(kind: &str, message: &str, note: Option<&str>) -> Option<Value> {
     if let Some(note) = note {
         report["note"] = json!(sanitize(note));
     }
+    // Where the tunnel and xray say what went wrong; only for those errors.
+    if WITH_LOGS.contains(&kind) {
+        let data = st.queue.as_deref().and_then(Path::parent);
+        if let Some(text) = data.and_then(|d| tail_file(&d.join("run").join("xray.log"), 40)) {
+            report["xray_log"] = json!(sanitize(&text));
+        }
+        if let Some(text) = helper_log(150) {
+            report["helper_log"] = json!(sanitize(&text));
+        }
+    }
     Some(report)
+}
+
+/// Reports that carry the xray and helper logs.
+const WITH_LOGS: &[&str] = &["user_report", "connect_failed", "tunnel_stopped", "helper_install"];
+
+fn tail_file(path: &Path, lines: usize) -> Option<String> {
+    let text = std::fs::read(path).ok()?;
+    // Big logs: only the end matters.
+    let text = String::from_utf8_lossy(&text[text.len().saturating_sub(256 * 1024)..]).into_owned();
+    tail(&text, lines)
+}
+
+fn tail(text: &str, lines: usize) -> Option<String> {
+    let all: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let tail = all[all.len().saturating_sub(lines)..].join("\n");
+    (!tail.is_empty()).then_some(tail)
+}
+
+/// The end of the TUN helper's log: per-app decisions, tunnel errors.
+fn helper_log(lines: usize) -> Option<String> {
+    if cfg!(windows) {
+        let dir = PathBuf::from(std::env::var_os("ProgramData")?).join("DUORAY");
+        tail_file(&dir.join("helper.log"), lines)
+    } else if cfg!(target_os = "macos") {
+        tail_file(Path::new("/var/log/duoray-helper.log"), lines)
+    } else {
+        // Readable for users in the systemd-journal / adm group only; else nothing.
+        let out = std::process::Command::new("journalctl")
+            .args(["-u", "duoray-helper", "-n", &lines.to_string(), "-o", "short-iso", "--no-pager"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        tail(&String::from_utf8_lossy(&out.stdout), lines).filter(|t| !t.starts_with("-- No entries"))
+    }
 }
 
 fn os_label() -> String {

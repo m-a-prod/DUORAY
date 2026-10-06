@@ -134,15 +134,26 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {}
     }
-    // The software renderer on Linux and Windows: it needs no OpenGL, so broken
-    // or old GPU drivers cannot leave unpainted, see-through parts of the
-    // window (seen with FemtoVG on Windows), and VMs work. It is fast enough:
-    // a full repaint of a 2483×1394 window, editor included, runs above 130
-    // fps. Icons are SVG images, crisp with any renderer. SLINT_BACKEND
-    // still overrides it (e.g. winit-femtovg).
+    // Linux and Windows: an opaque window and the software renderer.
+    //
+    // Opaque: winit creates windows transparent there by default, so any pixel
+    // a renderer leaves undrawn shows the desktop through the window (seen with
+    // FemtoVG on some Windows GPUs and with partial software repaints). Our
+    // background is solid, and popups are drawn inside the window.
+    //
+    // Software: it needs no OpenGL, so old or broken GPU drivers and VMs work,
+    // and it is fast enough (a full repaint of a 2483×1394 window, editor
+    // included, runs above 130 fps). Icons are SVG images, crisp with any
+    // renderer. SLINT_BACKEND still picks another one (e.g. winit-femtovg).
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if std::env::var_os("SLINT_BACKEND").is_none() {
-        slint::BackendSelector::new().backend_name("winit".into()).renderer_name("software".into()).select()?;
+    {
+        let selector = slint::BackendSelector::new().with_winit_window_attributes_hook(|a| a.with_transparent(false));
+        let selector = if std::env::var_os("SLINT_BACKEND").is_none() {
+            selector.backend_name("winit".into()).renderer_name("software".into())
+        } else {
+            selector
+        };
+        selector.select()?;
     }
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
@@ -800,6 +811,53 @@ fn follow_selection(ui: &AppWindow, app: &Shared) {
 /// Restarts the active connection (e.g. the routing changed).
 fn reconnect(ui: &AppWindow, app: &Shared) {
     switch_connection(ui, app, true);
+}
+
+/// Routing changed while connected: restart xray with the new rules and keep
+/// the tunnel, or reconnect when the tunnel itself has to change.
+fn apply_routing(ui: &AppWindow, app: &Shared) {
+    let geo = routing_ui::geo_dir(app);
+    let mut st = app.lock().unwrap();
+    let (ConnState::Connected { .. }, Some(conn), false) = (&st.conn_state, &st.conn, st.xray_restarting) else {
+        return;
+    };
+    let Some(job) = conn.rerouter(&st.store.settings.routing, &geo) else {
+        drop(st);
+        diag::log("routing: apps changed, reconnecting");
+        return reconnect(ui, app);
+    };
+    let generation = st.conn_gen;
+    st.xray_restarting = true;
+    drop(st);
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    std::thread::spawn(move || {
+        let result = job();
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            let mut st = app.lock().unwrap();
+            st.xray_restarting = false;
+            if st.conn_gen != generation {
+                return;
+            }
+            match result {
+                Ok(Some(warnings)) => {
+                    st.xray_started = Some(std::time::Instant::now());
+                    diag::log("routing applied without reconnecting");
+                    ui.set_routing_warnings(
+                        if warnings.is_empty() { String::new() } else { format!("Предупреждения:\n{}", warnings.join("\n")) }.into(),
+                    );
+                    flash_status(&ui, &app, &mut st, "Маршрутизация применена".into());
+                    render(&ui, &st);
+                }
+                other => {
+                    if let Err(e) = &other {
+                        diag::log(format!("routing: in-place apply failed ({}), reconnecting", first_line(&format!("{e:#}"))));
+                    }
+                    drop(st);
+                    reconnect(&ui, &app);
+                }
+            }
+        });
+    });
 }
 
 fn switch_connection(ui: &AppWindow, app: &Shared, force: bool) {

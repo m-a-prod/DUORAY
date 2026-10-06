@@ -2360,886 +2360,900 @@ export component AppWindow inherits Window {
     callback editor-as-json();
     callback editor-reset();
 
-    HorizontalLayout {
-        // ── Sidebar ─────────────────────────────────────────────
-        Rectangle {
-            // Grows with the window (about a quarter), within sane bounds.
-            min-width: 260px;
-            max-width: 380px;
-            horizontal-stretch: 26;
-            background: Theme.card;
-            VerticalLayout {
-                padding: 18px;
-                spacing: 14px;
-
-                Rectangle {
-                    height: brand-symbol.height + 12px;
-                    background: transparent;
-                    brand-symbol := Image {
-                        source: @image-url("assets/logo.svg");
-                        colorize: Palette.foreground;
-                        height: 26px * Theme.text-scale;
-                        width: self.height * 198 / 161;
-                        x: 0;
-                        y: 4px;
-                        image-fit: contain;
-                    }
-                    brand-wordmark := Text {
-                        x: brand-symbol.width + 12px;
-                        y: brand-symbol.y + brand-symbol.height / 2
-                            - (self.font-metrics.ascent - self.font-metrics.cap-height / 2);
-                        width: parent.width - self.x;
-                        height: self.preferred-height;
-                        text: "DUORAY";
-                        font-size: 19px * Theme.text-scale;
-                        font-weight: 700;
-                        letter-spacing: 0.8px;
-                        color: Palette.foreground;
-                        vertical-alignment: top;
-                        overflow: elide;
-                    }
+    // Keys no field took: Ctrl+V (Cmd+V) adds a link from the clipboard.
+    forward-focus: shortcuts;
+    shortcuts := FocusScope {
+        key-pressed(e) => {
+            if (e.modifiers.control || e.modifiers.meta) && !e.modifiers.alt
+                && (e.text == "v" || e.text == "V" || e.text == "м" || e.text == "М") {
+                if !root.adding && !root.consent-open && !root.report-open && !root.editor-open {
+                    root.add-from-clipboard();
                 }
-
-                // A permanent section for share links, above fetched subscriptions.
-                Rectangle {
-                    height: manual-layout.preferred-height;
-                    border-radius: Theme.radius;
-                    background: root.manual-selected ? Theme.selection
-                        : manual-touch.has-hover ? Theme.tonal : transparent;
-                    animate background { duration: 140ms; easing: ease-out; }
-                    manual-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.settings-open = false;
-                            root.routing-open = false;
-                            root.editor-open = false;
-                            root.select-manual();
-                        }
-                    }
-                    manual-layout := VerticalLayout {
-                        padding: 12px;
-                        padding-right: 48px;
-                        spacing: 5px;
-                        Text {
-                            text: "Мои серверы";
-                            font-size: Theme.fs-title;
-                            font-weight: 700;
-                            color: root.manual-selected ? Palette.selection-foreground : Palette.foreground;
-                            overflow: elide;
-                        }
-                        Text {
-                            text: root.manual-meta;
-                            font-size: Theme.fs-caption;
-                            color: root.manual-selected ? Palette.selection-foreground : Theme.muted;
-                            overflow: elide;
-                        }
-                    }
-                    IconButton {
-                        x: parent.width - self.width - 8px;
-                        y: (parent.height - self.height) / 2;
-                        icon: Icons.add;
-                        tint: root.manual-selected ? Palette.selection-foreground : Theme.accent;
-                        clicked => {
-                            root.settings-open = false;
-                            root.routing-open = false;
-                            root.editor-open = false;
-                            root.select-manual();
-                            root.add-error = "";
-                            root.adding = true;
-                        }
-                    }
-                }
-
-                HorizontalLayout {
-                    SectionLabel {
-                        text: "ПОДПИСКИ";
-                        horizontal-stretch: 1;
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        IconButton {
-                            icon: Icons.add;
-                            tint: Theme.accent;
-                            clicked => {
-                                add-menu.show();
-                            }
-                        }
-                        add-menu := PopupWindow {
-                            x: -180px;
-                            y: 36px;
-                            width: 212px;
-                            close-policy: close-on-click-outside;
-                            Rectangle {
-                                background: Palette.background;
-                                border-radius: 10px;
-                                border-width: 1px;
-                                border-color: Palette.border;
-                                drop-shadow-blur: 20px;
-                                drop-shadow-offset-y: 6px;
-                                drop-shadow-color: Theme.shadow;
-                                VerticalLayout {
-                                    padding: 6px;
-                                    spacing: 2px;
-                                    MenuItem {
-                                        text: "Из буфера обмена";
-                                        clicked => {
-                                            add-menu.close();
-                                            root.settings-open = false;
-                                            root.routing-open = false;
-                            root.editor-open = false;
-                                            root.add-from-clipboard();
-                                        }
-                                    }
-                                    MenuItem {
-                                        text: "Ввести вручную";
-                                        clicked => {
-                                            add-menu.close();
-                                            root.settings-open = false;
-                                            root.routing-open = false;
-                            root.editor-open = false;
-                                            root.add-error = "";
-                                            root.adding = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if root.subs.length == 0: Text {
-                    text: "Пока пусто. Добавьте ссылку на подписку.";
-                    color: Theme.muted;
-                    wrap: word-wrap;
-                    font-size: Theme.fs-small;
-                }
-
-                subs-list := ListView {
-                    vertical-stretch: 1;
-                    for sub in root.subs: Rectangle {
-                        height: sub-layout.preferred-height + 6px;
-                        Rectangle {
+                return accept;
+            }
+            return reject;
+        }
+        HorizontalLayout {
+            // ── Sidebar ─────────────────────────────────────────────
+            Rectangle {
+                // Grows with the window (about a quarter), within sane bounds.
+                min-width: 260px;
+                max-width: 380px;
+                horizontal-stretch: 26;
+                background: Theme.card;
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 14px;
+    
+                    Rectangle {
+                        height: brand-symbol.height + 12px;
+                        background: transparent;
+                        brand-symbol := Image {
+                            source: @image-url("assets/logo.svg");
+                            colorize: Palette.foreground;
+                            height: 26px * Theme.text-scale;
+                            width: self.height * 198 / 161;
                             x: 0;
-                            // Gutter only when a scrollbar is actually shown.
-                            width: parent.width;
-                            y: 3px;
-                            height: parent.height - 6px;
-                            border-radius: Theme.radius;
-                            background: sub.index == root.current-sub ? Theme.selection
-                                : sub-touch.has-hover ? Theme.tonal : transparent;
-                            animate background { duration: 140ms; easing: ease-out; }
-                            sub-touch := TouchArea {
-                                mouse-cursor: pointer;
+                            y: 4px;
+                            image-fit: contain;
+                        }
+                        brand-wordmark := Text {
+                            x: brand-symbol.width + 12px;
+                            y: brand-symbol.y + brand-symbol.height / 2
+                                - (self.font-metrics.ascent - self.font-metrics.cap-height / 2);
+                            width: parent.width - self.x;
+                            height: self.preferred-height;
+                            text: "DUORAY";
+                            font-size: 19px * Theme.text-scale;
+                            font-weight: 700;
+                            letter-spacing: 0.8px;
+                            color: Palette.foreground;
+                            vertical-alignment: top;
+                            overflow: elide;
+                        }
+                    }
+    
+                    // A permanent section for share links, above fetched subscriptions.
+                    Rectangle {
+                        height: manual-layout.preferred-height;
+                        border-radius: Theme.radius;
+                        background: root.manual-selected ? Theme.selection
+                            : manual-touch.has-hover ? Theme.tonal : transparent;
+                        animate background { duration: 140ms; easing: ease-out; }
+                        manual-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.settings-open = false;
+                                root.routing-open = false;
+                                root.editor-open = false;
+                                root.select-manual();
+                            }
+                        }
+                        manual-layout := VerticalLayout {
+                            padding: 12px;
+                            padding-right: 48px;
+                            spacing: 5px;
+                            Text {
+                                text: "Мои серверы";
+                                font-size: Theme.fs-title;
+                                font-weight: 700;
+                                color: root.manual-selected ? Palette.selection-foreground : Palette.foreground;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.manual-meta;
+                                font-size: Theme.fs-caption;
+                                color: root.manual-selected ? Palette.selection-foreground : Theme.muted;
+                                overflow: elide;
+                            }
+                        }
+                        IconButton {
+                            x: parent.width - self.width - 8px;
+                            y: (parent.height - self.height) / 2;
+                            icon: Icons.add;
+                            tint: root.manual-selected ? Palette.selection-foreground : Theme.accent;
+                            clicked => {
+                                root.settings-open = false;
+                                root.routing-open = false;
+                                root.editor-open = false;
+                                root.select-manual();
+                                root.add-error = "";
+                                root.adding = true;
+                            }
+                        }
+                    }
+    
+                    HorizontalLayout {
+                        SectionLabel {
+                            text: "ПОДПИСКИ";
+                            horizontal-stretch: 1;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.add;
+                                tint: Theme.accent;
                                 clicked => {
-                                    root.confirm-remove-index = -1;
-                                    // Picking a subscription always shows its servers.
-                                    root.settings-open = false;
-                                    root.routing-open = false;
-                            root.editor-open = false;
-                                    root.select-sub(sub.index);
+                                    add-menu.show();
                                 }
                             }
-                            sub-layout := VerticalLayout {
-                                padding: 12px;
-                                padding-right: 48px;
-                                spacing: 5px;
-                                Text {
-                                    text: sub.name;
-                                    font-size: Theme.fs-title;
-                                    font-weight: 700;
-                                    overflow: elide;
-                                    color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
-                                }
-                                Text {
-                                    text: sub.meta;
-                                    font-size: Theme.fs-caption;
-                                    overflow: elide;
-                                    color: sub.index == root.current-sub ? Palette.selection-foreground : Theme.muted;
-                                }
-                                if sub.usage >= 0: Rectangle {
-                                    height: 4px;
-                                    border-radius: 2px;
-                                    background: Palette.border;
-                                    Rectangle {
-                                        x: 0;
-                                        width: parent.width * min(1, sub.usage);
-                                        border-radius: 2px;
-                                        animate width { duration: 300ms; easing: ease-out; }
-                                        background: sub.usage > 0.9 ? Theme.danger : Theme.accent;
+                            add-menu := PopupWindow {
+                                x: -180px;
+                                y: 36px;
+                                width: 212px;
+                                close-policy: close-on-click-outside;
+                                Rectangle {
+                                    background: Palette.background;
+                                    border-radius: 10px;
+                                    border-width: 1px;
+                                    border-color: Palette.border;
+                                    drop-shadow-blur: 20px;
+                                    drop-shadow-offset-y: 6px;
+                                    drop-shadow-color: Theme.shadow;
+                                    VerticalLayout {
+                                        padding: 6px;
+                                        spacing: 2px;
+                                        MenuItem {
+                                            text: "Из буфера обмена";
+                                            clicked => {
+                                                add-menu.close();
+                                                root.settings-open = false;
+                                                root.routing-open = false;
+                                root.editor-open = false;
+                                                root.add-from-clipboard();
+                                            }
+                                        }
+                                        MenuItem {
+                                            text: "Ввести вручную";
+                                            clicked => {
+                                                add-menu.close();
+                                                root.settings-open = false;
+                                                root.routing-open = false;
+                                root.editor-open = false;
+                                                root.add-error = "";
+                                                root.adding = true;
+                                            }
+                                        }
                                     }
                                 }
-                                if sub.error != "": Text {
-                                    text: sub.error;
-                                    font-size: Theme.fs-caption;
-                                    color: Theme.danger;
-                                    overflow: elide;
-                                }
                             }
-
-                            // Delete: fades in on hover, second click confirms.
-                            del := Rectangle {
-                                property <bool> confirming: root.confirm-remove-index == sub.index;
-                                x: parent.width - self.width - 10px;
-                                y: (parent.height - self.height) / 2;
-                                height: 28px;
-                                width: confirming ? 86px : 28px;
-                                border-radius: 14px;
-                                background: confirming ? Theme.danger
-                                    : del-touch.has-hover ? Theme.danger.with-alpha(0.25) : Palette.foreground.with-alpha(0.08);
-                                opacity: sub-touch.has-hover || del-touch.has-hover || confirming ? 1 : 0;
-                                animate opacity, width, background { duration: 150ms; easing: ease-out; }
-                                if !confirming: Path {
-                                    width: 10px;
-                                    height: 10px;
-                                    commands: "M 0 0 L 10 10 M 10 0 L 0 10";
-                                    stroke: del-touch.has-hover ? Theme.danger : Palette.foreground;
-                                    stroke-width: 1.6px;
-                                }
-                                if confirming: Text {
-                                    text: "Удалить?";
-                                    color: white;
-                                    font-size: Theme.fs-small;
-                                    font-weight: 700;
-                                }
-                                del-touch := TouchArea {
+                        }
+                    }
+    
+                    if root.subs.length == 0: Text {
+                        text: "Пока пусто. Добавьте ссылку на подписку.";
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                        font-size: Theme.fs-small;
+                    }
+    
+                    subs-list := ListView {
+                        vertical-stretch: 1;
+                        for sub in root.subs: Rectangle {
+                            height: sub-layout.preferred-height + 6px;
+                            Rectangle {
+                                x: 0;
+                                // Gutter only when a scrollbar is actually shown.
+                                width: parent.width;
+                                y: 3px;
+                                height: parent.height - 6px;
+                                border-radius: Theme.radius;
+                                background: sub.index == root.current-sub ? Theme.selection
+                                    : sub-touch.has-hover ? Theme.tonal : transparent;
+                                animate background { duration: 140ms; easing: ease-out; }
+                                sub-touch := TouchArea {
                                     mouse-cursor: pointer;
                                     clicked => {
-                                        if (del.confirming) {
-                                            root.confirm-remove-index = -1;
-                                            root.remove-sub(sub.index);
-                                        } else {
-                                            root.confirm-remove-index = sub.index;
-                                        }
-                                    }
-                                }
-                                Timer {
-                                    interval: 3s;
-                                    running: del.confirming;
-                                    triggered => {
                                         root.confirm-remove-index = -1;
+                                        // Picking a subscription always shows its servers.
+                                        root.settings-open = false;
+                                        root.routing-open = false;
+                                root.editor-open = false;
+                                        root.select-sub(sub.index);
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
-
-                if root.show-buy: Rectangle {
-                    height: 44px;
-                    border-radius: Theme.radius;
-                    background: buy-touch.pressed ? Theme.accent.darker(8%)
-                        : buy-touch.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
-                    transform-scale: buy-touch.pressed ? 0.98 : 1;
-                    animate background { duration: 120ms; easing: ease-out; }
-                    animate transform-scale { duration: 100ms; easing: ease-out; }
-                    HorizontalLayout {
-                        padding-left: 14px;
-                        padding-right: 14px;
-                        spacing: 6px;
-                        Text {
-                            text: "Нет VPN?";
-                            color: Theme.on-accent.with-alpha(0.75);
-                            font-size: Theme.fs-body;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            horizontal-stretch: 1;
-                            text: "Купить DUALIZM";
-                            color: Theme.on-accent;
-                            font-size: Theme.fs-body;
-                            font-weight: 800;
-                            vertical-alignment: center;
-                        }
-                        Image {
-                            source: Icons.send;
-                            width: 16px;
-                            height: 16px;
-                            y: (parent.height - self.height) / 2;
-                            colorize: Theme.on-accent;
-                        }
-                    }
-                    buy-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.buy();
-                        }
-                    }
-                }
-
-                if root.update-banner != "": Rectangle {
-                    border-radius: Theme.radius;
-                    background: Theme.tonal;
-                    height: upd-layout.preferred-height;
-                    upd-layout := HorizontalLayout {
-                        padding: 12px;
-                        padding-left: 14px;
-                        spacing: 10px;
-                        Text {
-                            horizontal-stretch: 1;
-                            text: root.update-banner;
-                            color: Theme.on-tonal;
-                            font-weight: 700;
-                            vertical-alignment: center;
-                            wrap: word-wrap;
-                        }
-                        if root.update-button != "": Button {
-                            text: root.update-button;
-                            primary: true;
-                            clicked => {
-                                root.update-clicked();
-                            }
-                        }
-                    }
-                }
-
-                // Connection card
-                Rectangle {
-                    border-radius: Theme.radius;
-                    background: Palette.background;
-                    VerticalLayout {
-                        padding: 14px;
-                        spacing: 10px;
-                        HorizontalLayout {
-                            spacing: 10px;
-                            VerticalLayout {
-                                alignment: center;
-                                Rectangle {
-                                    property <brush> tone: root.conn-state == "connected" ? Theme.ok
-                                        : root.conn-state == "failed" ? Theme.danger
-                                        : root.conn-state == "idle" ? Palette.border : Theme.warn;
-                                    property <bool> pulsing: root.conn-state == "connecting" || root.conn-state == "disconnecting";
-                                    width: 18px;
-                                    height: 18px;
-                                    // Soft halo: steady when connected, breathing while switching.
-                                    // The tick is only read while pulsing, so idle costs no redraws.
-                                    Rectangle {
-                                        width: parent.width;
-                                        height: parent.height;
-                                        border-radius: self.height / 2;
-                                        background: parent.tone.with-alpha(0.25);
-                                        opacity: parent.pulsing
-                                            ? 0.5 + 0.5 * sin(mod(animation-tick() / 1ms, 1400) / 1400 * 360deg)
-                                            : root.conn-state == "connected" ? 1 : 0;
-                                    }
-                                    Rectangle {
-                                        width: 10px;
-                                        height: 10px;
-                                        border-radius: 5px;
-                                        background: parent.tone;
-                                        animate background { duration: 200ms; easing: ease-out; }
-                                    }
-                                }
-                            }
-                            VerticalLayout {
-                                spacing: 2px;
-                                horizontal-stretch: 1;
-                                HorizontalLayout {
-                                    spacing: 8px;
+                                sub-layout := VerticalLayout {
+                                    padding: 12px;
+                                    padding-right: 48px;
+                                    spacing: 5px;
                                     Text {
-                                        text: root.conn-title;
+                                        text: sub.name;
                                         font-size: Theme.fs-title;
                                         font-weight: 700;
                                         overflow: elide;
-                                        vertical-alignment: center;
+                                        color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
                                     }
-                                    if root.conn-ping-level != 0: PingChip {
-                                        text: root.conn-ping-text;
-                                        level: root.conn-ping-level;
+                                    Text {
+                                        text: sub.meta;
+                                        font-size: Theme.fs-caption;
+                                        overflow: elide;
+                                        color: sub.index == root.current-sub ? Palette.selection-foreground : Theme.muted;
                                     }
+                                    if sub.usage >= 0: Rectangle {
+                                        height: 4px;
+                                        border-radius: 2px;
+                                        background: Palette.border;
+                                        Rectangle {
+                                            x: 0;
+                                            width: parent.width * min(1, sub.usage);
+                                            border-radius: 2px;
+                                            animate width { duration: 300ms; easing: ease-out; }
+                                            background: sub.usage > 0.9 ? Theme.danger : Theme.accent;
+                                        }
+                                    }
+                                    if sub.error != "": Text {
+                                        text: sub.error;
+                                        font-size: Theme.fs-caption;
+                                        color: Theme.danger;
+                                        overflow: elide;
+                                    }
+                                }
+    
+                                // Delete: fades in on hover, second click confirms.
+                                del := Rectangle {
+                                    property <bool> confirming: root.confirm-remove-index == sub.index;
+                                    x: parent.width - self.width - 10px;
+                                    y: (parent.height - self.height) / 2;
+                                    height: 28px;
+                                    width: confirming ? 86px : 28px;
+                                    border-radius: 14px;
+                                    background: confirming ? Theme.danger
+                                        : del-touch.has-hover ? Theme.danger.with-alpha(0.25) : Palette.foreground.with-alpha(0.08);
+                                    opacity: sub-touch.has-hover || del-touch.has-hover || confirming ? 1 : 0;
+                                    animate opacity, width, background { duration: 150ms; easing: ease-out; }
+                                    if !confirming: Path {
+                                        width: 10px;
+                                        height: 10px;
+                                        commands: "M 0 0 L 10 10 M 10 0 L 0 10";
+                                        stroke: del-touch.has-hover ? Theme.danger : Palette.foreground;
+                                        stroke-width: 1.6px;
+                                    }
+                                    if confirming: Text {
+                                        text: "Удалить?";
+                                        color: white;
+                                        font-size: Theme.fs-small;
+                                        font-weight: 700;
+                                    }
+                                    del-touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            if (del.confirming) {
+                                                root.confirm-remove-index = -1;
+                                                root.remove-sub(sub.index);
+                                            } else {
+                                                root.confirm-remove-index = sub.index;
+                                            }
+                                        }
+                                    }
+                                    Timer {
+                                        interval: 3s;
+                                        running: del.confirming;
+                                        triggered => {
+                                            root.confirm-remove-index = -1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+    
+                    if root.show-buy: Rectangle {
+                        height: 44px;
+                        border-radius: Theme.radius;
+                        background: buy-touch.pressed ? Theme.accent.darker(8%)
+                            : buy-touch.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
+                        transform-scale: buy-touch.pressed ? 0.98 : 1;
+                        animate background { duration: 120ms; easing: ease-out; }
+                        animate transform-scale { duration: 100ms; easing: ease-out; }
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 6px;
+                            Text {
+                                text: "Нет VPN?";
+                                color: Theme.on-accent.with-alpha(0.75);
+                                font-size: Theme.fs-body;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "Купить DUALIZM";
+                                color: Theme.on-accent;
+                                font-size: Theme.fs-body;
+                                font-weight: 800;
+                                vertical-alignment: center;
+                            }
+                            Image {
+                                source: Icons.send;
+                                width: 16px;
+                                height: 16px;
+                                y: (parent.height - self.height) / 2;
+                                colorize: Theme.on-accent;
+                            }
+                        }
+                        buy-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.buy();
+                            }
+                        }
+                    }
+    
+                    if root.update-banner != "": Rectangle {
+                        border-radius: Theme.radius;
+                        background: Theme.tonal;
+                        height: upd-layout.preferred-height;
+                        upd-layout := HorizontalLayout {
+                            padding: 12px;
+                            padding-left: 14px;
+                            spacing: 10px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: root.update-banner;
+                                color: Theme.on-tonal;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            if root.update-button != "": Button {
+                                text: root.update-button;
+                                primary: true;
+                                clicked => {
+                                    root.update-clicked();
+                                }
+                            }
+                        }
+                    }
+    
+                    // Connection card
+                    Rectangle {
+                        border-radius: Theme.radius;
+                        background: Palette.background;
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                VerticalLayout {
+                                    alignment: center;
                                     Rectangle {
-                                        horizontal-stretch: 1;
+                                        property <brush> tone: root.conn-state == "connected" ? Theme.ok
+                                            : root.conn-state == "failed" ? Theme.danger
+                                            : root.conn-state == "idle" ? Palette.border : Theme.warn;
+                                        property <bool> pulsing: root.conn-state == "connecting" || root.conn-state == "disconnecting";
+                                        width: 18px;
+                                        height: 18px;
+                                        // Soft halo: steady when connected, breathing while switching.
+                                        // The tick is only read while pulsing, so idle costs no redraws.
+                                        Rectangle {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            border-radius: self.height / 2;
+                                            background: parent.tone.with-alpha(0.25);
+                                            opacity: parent.pulsing
+                                                ? 0.5 + 0.5 * sin(mod(animation-tick() / 1ms, 1400) / 1400 * 360deg)
+                                                : root.conn-state == "connected" ? 1 : 0;
+                                        }
+                                        Rectangle {
+                                            width: 10px;
+                                            height: 10px;
+                                            border-radius: 5px;
+                                            background: parent.tone;
+                                            animate background { duration: 200ms; easing: ease-out; }
+                                        }
                                     }
                                 }
-                                if root.conn-detail != "": Text {
-                                    text: root.conn-detail;
-                                    font-size: Theme.fs-caption;
-                                    color: root.conn-state == "failed" ? Theme.danger : Theme.muted;
-                                    wrap: word-wrap;
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    horizontal-stretch: 1;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: root.conn-title;
+                                            font-size: Theme.fs-title;
+                                            font-weight: 700;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                        if root.conn-ping-level != 0: PingChip {
+                                            text: root.conn-ping-text;
+                                            level: root.conn-ping-level;
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    if root.conn-detail != "": Text {
+                                        text: root.conn-detail;
+                                        font-size: Theme.fs-caption;
+                                        color: root.conn-state == "failed" ? Theme.danger : Theme.muted;
+                                        wrap: word-wrap;
+                                    }
                                 }
+                            }
+                            Button {
+                                text: root.conn-state == "connected" ? "Отключиться"
+                                    : root.conn-state == "connecting" ? "Подключение…"
+                                    : root.conn-state == "disconnecting" ? "Отключение…"
+                                    : root.can-connect ? "Подключиться" : "Выберите сервер";
+                                primary: root.conn-state != "connected";
+                                enabled: root.conn-state == "connected" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
+                                clicked => {
+                                    root.toggle-connection();
+                                }
+                            }
+                        }
+                    }
+    
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            horizontal-stretch: 1;
+                            text: root.routing-open ? "← К серверам" : "Маршрутизация";
+                            primary: root.routing-open;
+                            clicked => {
+                                root.settings-open = false;
+                                root.editor-open = false;
+                                root.routing-open = !root.routing-open;
                             }
                         }
                         Button {
-                            text: root.conn-state == "connected" ? "Отключиться"
-                                : root.conn-state == "connecting" ? "Подключение…"
-                                : root.conn-state == "disconnecting" ? "Отключение…"
-                                : root.can-connect ? "Подключиться" : "Выберите сервер";
-                            primary: root.conn-state != "connected";
-                            enabled: root.conn-state == "connected" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
+                            horizontal-stretch: 1;
+                            text: root.settings-open ? "← К серверам" : "Настройки";
+                            primary: root.settings-open;
                             clicked => {
-                                root.toggle-connection();
+                                if (!root.settings-open) {
+                                    root.open-settings();
+                                }
+                                root.routing-open = false;
+                                root.editor-open = false;
+                                root.settings-open = !root.settings-open;
                             }
                         }
                     }
-                }
-
-                HorizontalLayout {
-                    spacing: 8px;
-                    Button {
-                        horizontal-stretch: 1;
-                        text: root.routing-open ? "← К серверам" : "Маршрутизация";
-                        primary: root.routing-open;
-                        clicked => {
-                            root.settings-open = false;
-                            root.editor-open = false;
-                            root.routing-open = !root.routing-open;
-                        }
-                    }
-                    Button {
-                        horizontal-stretch: 1;
-                        text: root.settings-open ? "← К серверам" : "Настройки";
-                        primary: root.settings-open;
-                        clicked => {
-                            if (!root.settings-open) {
-                                root.open-settings();
-                            }
-                            root.routing-open = false;
-                            root.editor-open = false;
-                            root.settings-open = !root.settings-open;
-                        }
-                    }
-                }
-                Text {
-                    text: root.status;
-                    font-size: Theme.fs-caption;
-                    color: Theme.muted;
-                    wrap: word-wrap;
-                }
-            }
-        }
-
-        // ── Main: servers or settings ───────────────────────────
-        Rectangle {
-        horizontal-stretch: 74;
-        routing-page := RoutingPage {
-            visible: root.routing-open && !root.editor-open;
-        }
-        settings-page := SettingsPage {
-            visible: root.settings-open && !root.editor-open;
-            back => {
-                root.settings-open = false;
-                root.routing-open = false;
-                            root.editor-open = false;
-            }
-        }
-        if root.editor-open: ServerEditor {
-            mode: root.editor-mode;
-            title: root.editor-title;
-            subtitle: root.editor-subtitle;
-            note: root.editor-note;
-            json <=> root.editor-json;
-            lines: root.editor-lines;
-            mono: root.editor-mono;
-            status: root.editor-status;
-            valid: root.editor-valid;
-            error-offset: root.editor-error-offset;
-            error-line: root.editor-error-line;
-            code: root.editor-code;
-            plain: root.editor-plain;
-            sections: root.editor-sections;
-            edited: root.editor-edited;
-            live: root.editor-live;
-            json-changed(t) => {
-                root.editor-json-changed(t);
-            }
-            format => {
-                root.editor-format();
-            }
-            save => {
-                root.editor-save();
-            }
-            cancel => {
-                root.editor-cancel();
-            }
-            field-changed(i, v) => {
-                root.editor-field-changed(i, v);
-            }
-            as-json => {
-                root.editor-as-json();
-            }
-            reset => {
-                root.editor-reset();
-            }
-        }
-        VerticalLayout {
-            visible: !root.settings-open && !root.routing-open && !root.editor-open;
-            padding: 22px;
-            spacing: 14px;
-
-            if root.current-sub < 0: EmptyState {
-                title: "Нет подписки";
-                hint: "Нажмите «Добавить» и вставьте ссылку на подписку.";
-            }
-
-            // Subscription header, laid out like Happ: title row, traffic row, announcement.
-            if root.current-sub >= 0: Rectangle {
-                background: Theme.card;
-                border-radius: Theme.radius;
-                VerticalLayout {
-                    padding: 14px;
-                    padding-bottom: root.announce != "" ? 14px : 12px;
-                    spacing: 10px;
-
-                    HorizontalLayout {
-                        spacing: 4px;
-                        // Collapse / expand the announcement, like Happ.
-                        if root.announce != "": VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: root.announce-hidden ? Icons.expand-more : Icons.expand-less;
-                                clicked => {
-                                    root.toggle-announce();
-                                }
-                            }
-                        }
-                        VerticalLayout {
-                            horizontal-stretch: 1;
-                            spacing: 2px;
-                            Text {
-                                text: root.header-title;
-                                font-size: Theme.fs-display;
-                                font-weight: 800;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: root.header-meta;
-                                font-size: Theme.fs-caption;
-                                color: Theme.muted;
-                                overflow: elide;
-                            }
-                        }
-                        if !root.manual-selected: VerticalLayout {
-                            alignment: center;
-                            RefreshButton {
-                                spinning: root.busy;
-                                clicked => {
-                                    root.refresh-current();
-                                }
-                            }
-                        }
-                        if root.has-ping-results: VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: Icons.sort;
-                                // Highlighted while the list is sorted by ping.
-                                tint: root.sort-by-ping ? Theme.accent : Palette.foreground;
-                                background: root.sort-by-ping ? Theme.accent.with-alpha(0.18) : transparent;
-                                clicked => {
-                                    root.toggle-sort();
-                                }
-                            }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: Icons.speed;
-                                enabled: !root.pinging;
-                                clicked => {
-                                    root.ping-current();
-                                }
-                            }
-                        }
-                        if !root.manual-selected: VerticalLayout {
-                            alignment: center;
-                            more-button := IconButton {
-                                icon: Icons.more;
-                                clicked => {
-                                    root.confirm-menu-delete = false;
-                                    sub-menu.show();
-                                }
-                            }
-                        }
-                    }
-
-                    if root.show-usage-row: HorizontalLayout {
-                        spacing: 10px;
-                        VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: Icons.info;
-                                tint: Theme.accent;
-                                enabled: root.has-web-page;
-                                clicked => {
-                                    root.open-web-page();
-                                }
-                            }
-                        }
-                        // Traffic used / limit.
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            height: 20px;
-                            y: (parent.height - self.height) / 2;
-                            border-radius: 10px;
-                            border-width: 1px;
-                            border-color: Palette.border;
-                            clip: true;
-                            if root.usage-fraction >= 0: Rectangle {
-                                x: 0;
-                                width: parent.width * min(1, root.usage-fraction);
-                                animate width { duration: 300ms; easing: ease-out; }
-                                background: root.usage-fraction > 0.9 ? Theme.danger.with-alpha(0.7) : Theme.accent.with-alpha(0.55);
-                            }
-                            Text {
-                                text: root.usage-text;
-                                font-size: Theme.fs-caption;
-                                font-weight: 700;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            IconButton {
-                                icon: Icons.send;
-                                tint: #2aabee;
-                                enabled: root.has-support;
-                                clicked => {
-                                    root.open-support();
-                                }
-                            }
-                        }
-                    }
-
-                    if root.announce != "" && !root.announce-hidden: Text {
-                        text: root.announce;
-                        font-size: Theme.fs-small;
+                    Text {
+                        text: root.status;
+                        font-size: Theme.fs-caption;
                         color: Theme.muted;
-                        horizontal-alignment: center;
                         wrap: word-wrap;
                     }
                 }
-
-                sub-menu := PopupWindow {
-                    x: parent.width - 230px;
-                    y: 48px;
-                    width: 220px;
-                    close-policy: close-on-click-outside;
-                    Rectangle {
-                        background: Palette.background;
-                        border-radius: 10px;
-                        border-width: 1px;
-                        border-color: Palette.border;
-                        drop-shadow-blur: 20px;
-                        drop-shadow-offset-y: 6px;
-                        drop-shadow-color: Theme.shadow;
-                        VerticalLayout {
-                            padding: 6px;
-                            spacing: 2px;
-                            MenuItem {
-                                text: "Скопировать ссылку";
-                                clicked => {
-                                    root.copy-sub-link();
-                                    sub-menu.close();
+            }
+    
+            // ── Main: servers or settings ───────────────────────────
+            Rectangle {
+            horizontal-stretch: 74;
+            routing-page := RoutingPage {
+                visible: root.routing-open && !root.editor-open;
+            }
+            settings-page := SettingsPage {
+                visible: root.settings-open && !root.editor-open;
+                back => {
+                    root.settings-open = false;
+                    root.routing-open = false;
+                                root.editor-open = false;
+                }
+            }
+            if root.editor-open: ServerEditor {
+                mode: root.editor-mode;
+                title: root.editor-title;
+                subtitle: root.editor-subtitle;
+                note: root.editor-note;
+                json <=> root.editor-json;
+                lines: root.editor-lines;
+                mono: root.editor-mono;
+                status: root.editor-status;
+                valid: root.editor-valid;
+                error-offset: root.editor-error-offset;
+                error-line: root.editor-error-line;
+                code: root.editor-code;
+                plain: root.editor-plain;
+                sections: root.editor-sections;
+                edited: root.editor-edited;
+                live: root.editor-live;
+                json-changed(t) => {
+                    root.editor-json-changed(t);
+                }
+                format => {
+                    root.editor-format();
+                }
+                save => {
+                    root.editor-save();
+                }
+                cancel => {
+                    root.editor-cancel();
+                }
+                field-changed(i, v) => {
+                    root.editor-field-changed(i, v);
+                }
+                as-json => {
+                    root.editor-as-json();
+                }
+                reset => {
+                    root.editor-reset();
+                }
+            }
+            VerticalLayout {
+                visible: !root.settings-open && !root.routing-open && !root.editor-open;
+                padding: 22px;
+                spacing: 14px;
+    
+                if root.current-sub < 0: EmptyState {
+                    title: "Нет подписки";
+                    hint: "Нажмите «Добавить» и вставьте ссылку на подписку.";
+                }
+    
+                // Subscription header, laid out like Happ: title row, traffic row, announcement.
+                if root.current-sub >= 0: Rectangle {
+                    background: Theme.card;
+                    border-radius: Theme.radius;
+                    VerticalLayout {
+                        padding: 14px;
+                        padding-bottom: root.announce != "" ? 14px : 12px;
+                        spacing: 10px;
+    
+                        HorizontalLayout {
+                            spacing: 4px;
+                            // Collapse / expand the announcement, like Happ.
+                            if root.announce != "": VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: root.announce-hidden ? Icons.expand-more : Icons.expand-less;
+                                    clicked => {
+                                        root.toggle-announce();
+                                    }
                                 }
                             }
-                            MenuItem {
-                                text: root.confirm-menu-delete ? "Точно удалить?" : "Удалить подписку";
-                                danger: true;
-                                clicked => {
-                                    if (root.confirm-menu-delete) {
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 2px;
+                                Text {
+                                    text: root.header-title;
+                                    font-size: Theme.fs-display;
+                                    font-weight: 800;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: root.header-meta;
+                                    font-size: Theme.fs-caption;
+                                    color: Theme.muted;
+                                    overflow: elide;
+                                }
+                            }
+                            if !root.manual-selected: VerticalLayout {
+                                alignment: center;
+                                RefreshButton {
+                                    spinning: root.busy;
+                                    clicked => {
+                                        root.refresh-current();
+                                    }
+                                }
+                            }
+                            if root.has-ping-results: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: Icons.sort;
+                                    // Highlighted while the list is sorted by ping.
+                                    tint: root.sort-by-ping ? Theme.accent : Palette.foreground;
+                                    background: root.sort-by-ping ? Theme.accent.with-alpha(0.18) : transparent;
+                                    clicked => {
+                                        root.toggle-sort();
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: Icons.speed;
+                                    enabled: !root.pinging;
+                                    clicked => {
+                                        root.ping-current();
+                                    }
+                                }
+                            }
+                            if !root.manual-selected: VerticalLayout {
+                                alignment: center;
+                                more-button := IconButton {
+                                    icon: Icons.more;
+                                    clicked => {
                                         root.confirm-menu-delete = false;
-                                        sub-menu.close();
-                                        root.remove-sub(root.current-sub);
-                                    } else {
-                                        root.confirm-menu-delete = true;
+                                        sub-menu.show();
                                     }
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            if root.current-sub >= 0 && root.sub-error != "": Rectangle {
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: Theme.danger;
-                VerticalLayout {
-                    padding: 12px;
-                    Text {
-                        text: root.sub-error;
-                        color: Theme.danger;
-                        font-size: Theme.fs-small;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-
-            // First run: make it obvious that a server has to be picked.
-            if root.current-sub >= 0 && root.current-server < 0 && root.servers.length > 0: Rectangle {
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: Theme.accent;
-                background: Theme.accent.with-alpha(0.12);
-                HorizontalLayout {
-                    padding: 12px;
-                    spacing: 10px;
-                    Text {
-                        text: "Выберите сервер из списка ниже, затем нажмите «Подключиться».";
-                        font-size: Theme.fs-body;
-                        font-weight: 600;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-
-            if root.manual-selected && root.servers.length == 0: EmptyState {
-                vertical-stretch: 1;
-                title: "Пока нет серверов";
-                hint: "Нажмите «+» рядом с «Мои серверы» и добавьте ссылку на сервер.";
-            }
-
-            if root.current-sub >= 0 && (!root.manual-selected || root.servers.length > 0): servers-list := ListView {
-                vertical-stretch: 1;
-                for srv[i] in root.servers: Rectangle {
-                    height: 66px;
-                    srv-row := Rectangle {
-                        // Where the context menu opens (the right-click point).
-                        property <length> menu-x;
-                        property <length> menu-y;
-                        // Leave a gutter for the scrollbar so rows never run under it.
-                        x: 0;
-                        width: parent.width - (servers-list.content-height > servers-list.visible-height ? 16px : 0px);
-                        y: 2px;
-                        height: parent.height - 4px;
-                        border-radius: Theme.radius;
-                        background: i == root.current-server ? Theme.selection
-                            : srv-touch.has-hover ? Theme.card : transparent;
-                        animate background { duration: 140ms; easing: ease-out; }
-                        srv-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.select-server(i);
-                            }
-                            pointer-event(e) => {
-                                // On release, as Windows does: opened on press, the release
-                                // could count as a click outside and close the popup at once.
-                                if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
-                                    srv-row.menu-x = self.mouse-x;
-                                    srv-row.menu-y = self.mouse-y;
-                                    row-menu.show();
+    
+                        if root.show-usage-row: HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: Icons.info;
+                                    tint: Theme.accent;
+                                    enabled: root.has-web-page;
+                                    clicked => {
+                                        root.open-web-page();
+                                    }
                                 }
                             }
-                        }
-                        row-menu := PopupWindow {
-                            x: srv-row.menu-x;
-                            y: srv-row.menu-y;
-                            width: 230px;
-                            close-policy: close-on-click-outside;
+                            // Traffic used / limit.
                             Rectangle {
-                                background: Palette.background;
+                                horizontal-stretch: 1;
+                                height: 20px;
+                                y: (parent.height - self.height) / 2;
                                 border-radius: 10px;
                                 border-width: 1px;
                                 border-color: Palette.border;
-                                drop-shadow-blur: 20px;
-                                drop-shadow-offset-y: 6px;
-                                drop-shadow-color: Theme.shadow;
-                                VerticalLayout {
-                                    padding: 6px;
-                                    spacing: 2px;
-                                    MenuItem {
-                                        text: "Пропинговать";
-                                        enabled: !root.pinging;
-                                        clicked => {
-                                            row-menu.close();
-                                            root.ping-server(i);
-                                        }
+                                clip: true;
+                                if root.usage-fraction >= 0: Rectangle {
+                                    x: 0;
+                                    width: parent.width * min(1, root.usage-fraction);
+                                    animate width { duration: 300ms; easing: ease-out; }
+                                    background: root.usage-fraction > 0.9 ? Theme.danger.with-alpha(0.7) : Theme.accent.with-alpha(0.55);
+                                }
+                                Text {
+                                    text: root.usage-text;
+                                    font-size: Theme.fs-caption;
+                                    font-weight: 700;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: Icons.send;
+                                    tint: #2aabee;
+                                    enabled: root.has-support;
+                                    clicked => {
+                                        root.open-support();
                                     }
-                                    MenuItem {
-                                        text: srv.is-json ? "Изменить JSON" : "Изменить параметры";
-                                        clicked => {
-                                            row-menu.close();
-                                            root.edit-server(i);
-                                        }
+                                }
+                            }
+                        }
+    
+                        if root.announce != "" && !root.announce-hidden: Text {
+                            text: root.announce;
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+    
+                    sub-menu := PopupWindow {
+                        x: parent.width - 230px;
+                        y: 48px;
+                        width: 220px;
+                        close-policy: close-on-click-outside;
+                        Rectangle {
+                            background: Palette.background;
+                            border-radius: 10px;
+                            border-width: 1px;
+                            border-color: Palette.border;
+                            drop-shadow-blur: 20px;
+                            drop-shadow-offset-y: 6px;
+                            drop-shadow-color: Theme.shadow;
+                            VerticalLayout {
+                                padding: 6px;
+                                spacing: 2px;
+                                MenuItem {
+                                    text: "Скопировать ссылку";
+                                    clicked => {
+                                        root.copy-sub-link();
+                                        sub-menu.close();
                                     }
-                                    if srv.edited: MenuItem {
-                                        text: "Вернуть версию подписки";
-                                        danger: true;
-                                        clicked => {
-                                            row-menu.close();
-                                            root.reset-server(i);
+                                }
+                                MenuItem {
+                                    text: root.confirm-menu-delete ? "Точно удалить?" : "Удалить подписку";
+                                    danger: true;
+                                    clicked => {
+                                        if (root.confirm-menu-delete) {
+                                            root.confirm-menu-delete = false;
+                                            sub-menu.close();
+                                            root.remove-sub(root.current-sub);
+                                        } else {
+                                            root.confirm-menu-delete = true;
                                         }
                                     }
                                 }
                             }
                         }
-                        HorizontalLayout {
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            spacing: 14px;
-                            VerticalLayout {
-                                alignment: center;
-                                if srv.has-flag-image: Image {
-                                    source: srv.flag-image;
-                                    width: 34px;
-                                    height: 34px;
-                                    image-fit: contain;
+                    }
+                }
+    
+                if root.current-sub >= 0 && root.sub-error != "": Rectangle {
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.danger;
+                    VerticalLayout {
+                        padding: 12px;
+                        Text {
+                            text: root.sub-error;
+                            color: Theme.danger;
+                            font-size: Theme.fs-small;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+    
+                // First run: make it obvious that a server has to be picked.
+                if root.current-sub >= 0 && root.current-server < 0 && root.servers.length > 0: Rectangle {
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+                    background: Theme.accent.with-alpha(0.12);
+                    HorizontalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        Text {
+                            text: "Выберите сервер из списка ниже, затем нажмите «Подключиться».";
+                            font-size: Theme.fs-body;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+    
+                if root.manual-selected && root.servers.length == 0: EmptyState {
+                    vertical-stretch: 1;
+                    title: "Пока нет серверов";
+                    hint: "Нажмите «+» рядом с «Мои серверы» и добавьте ссылку на сервер.";
+                }
+    
+                if root.current-sub >= 0 && (!root.manual-selected || root.servers.length > 0): servers-list := ListView {
+                    vertical-stretch: 1;
+                    for srv[i] in root.servers: Rectangle {
+                        height: 66px;
+                        srv-row := Rectangle {
+                            // Where the context menu opens (the right-click point).
+                            property <length> menu-x;
+                            property <length> menu-y;
+                            // Leave a gutter for the scrollbar so rows never run under it.
+                            x: 0;
+                            width: parent.width - (servers-list.content-height > servers-list.visible-height ? 16px : 0px);
+                            y: 2px;
+                            height: parent.height - 4px;
+                            border-radius: Theme.radius;
+                            background: i == root.current-server ? Theme.selection
+                                : srv-touch.has-hover ? Theme.card : transparent;
+                            animate background { duration: 140ms; easing: ease-out; }
+                            srv-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.select-server(i);
                                 }
-                                if !srv.has-flag-image: Badge {
-                                    text: srv.flag == "" ? "··" : srv.flag;
-                                }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 3px;
-                                horizontal-stretch: 1;
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Text {
-                                        text: srv.name;
-                                        font-size: Theme.fs-title;
-                                        font-weight: 600;
-                                        overflow: elide;
-                                        horizontal-stretch: 1;
-                                        color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
+                                pointer-event(e) => {
+                                    // On release, as Windows does: opened on press, the release
+                                    // could count as a click outside and close the popup at once.
+                                    if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                                        srv-row.menu-x = self.mouse-x;
+                                        srv-row.menu-y = self.mouse-y;
+                                        row-menu.show();
                                     }
                                 }
-                                Text {
-                                    text: srv.description != "" ? srv.description : srv.endpoint;
-                                    font-size: Theme.fs-caption;
-                                    overflow: elide;
-                                    color: i == root.current-server ? Palette.selection-foreground : Theme.muted;
+                            }
+                            row-menu := PopupWindow {
+                                x: srv-row.menu-x;
+                                y: srv-row.menu-y;
+                                width: 230px;
+                                close-policy: close-on-click-outside;
+                                Rectangle {
+                                    background: Palette.background;
+                                    border-radius: 10px;
+                                    border-width: 1px;
+                                    border-color: Palette.border;
+                                    drop-shadow-blur: 20px;
+                                    drop-shadow-offset-y: 6px;
+                                    drop-shadow-color: Theme.shadow;
+                                    VerticalLayout {
+                                        padding: 6px;
+                                        spacing: 2px;
+                                        MenuItem {
+                                            text: "Пропинговать";
+                                            enabled: !root.pinging;
+                                            clicked => {
+                                                row-menu.close();
+                                                root.ping-server(i);
+                                            }
+                                        }
+                                        MenuItem {
+                                            text: srv.is-json ? "Изменить JSON" : "Изменить параметры";
+                                            clicked => {
+                                                row-menu.close();
+                                                root.edit-server(i);
+                                            }
+                                        }
+                                        if srv.edited: MenuItem {
+                                            text: "Вернуть версию подписки";
+                                            danger: true;
+                                            clicked => {
+                                                row-menu.close();
+                                                root.reset-server(i);
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            if srv.ping-level != 0: VerticalLayout {
-                                alignment: center;
-                                PingChip {
-                                    text: srv.ping-text;
-                                    level: srv.ping-level;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 14px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    if srv.has-flag-image: Image {
+                                        source: srv.flag-image;
+                                        width: 34px;
+                                        height: 34px;
+                                        image-fit: contain;
+                                    }
+                                    if !srv.has-flag-image: Badge {
+                                        text: srv.flag == "" ? "··" : srv.flag;
+                                    }
                                 }
-                            }
-                            if srv.edited: VerticalLayout {
-                                alignment: center;
-                                Chip {
-                                    text: "изменён";
-                                    accent: true;
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 3px;
+                                    horizontal-stretch: 1;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: srv.name;
+                                            font-size: Theme.fs-title;
+                                            font-weight: 600;
+                                            overflow: elide;
+                                            horizontal-stretch: 1;
+                                            color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
+                                        }
+                                    }
+                                    Text {
+                                        text: srv.description != "" ? srv.description : srv.endpoint;
+                                        font-size: Theme.fs-caption;
+                                        overflow: elide;
+                                        color: i == root.current-server ? Palette.selection-foreground : Theme.muted;
+                                    }
                                 }
-                            }
-                            if srv.proxies > 1: VerticalLayout {
-                                alignment: center;
-                                Chip {
-                                    text: "авто × " + srv.proxies;
+                                if srv.ping-level != 0: VerticalLayout {
+                                    alignment: center;
+                                    PingChip {
+                                        text: srv.ping-text;
+                                        level: srv.ping-level;
+                                    }
                                 }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                Chip {
-                                    text: srv.protocol;
+                                if srv.edited: VerticalLayout {
+                                    alignment: center;
+                                    Chip {
+                                        text: "изменён";
+                                        accent: true;
+                                    }
                                 }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                Chip {
-                                    text: srv.transport;
+                                if srv.proxies > 1: VerticalLayout {
+                                    alignment: center;
+                                    Chip {
+                                        text: "авто × " + srv.proxies;
+                                    }
                                 }
-                            }
-                            if root.manual-selected: VerticalLayout {
-                                alignment: center;
-                                IconButton {
-                                    icon: Icons.delete;
-                                    tint: Theme.danger;
-                                    enabled: root.conn-state != "connecting" && root.conn-state != "disconnecting";
-                                    clicked => {
-                                        root.remove-server(i);
+                                VerticalLayout {
+                                    alignment: center;
+                                    Chip {
+                                        text: srv.protocol;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Chip {
+                                        text: srv.transport;
+                                    }
+                                }
+                                if root.manual-selected: VerticalLayout {
+                                    alignment: center;
+                                    IconButton {
+                                        icon: Icons.delete;
+                                        tint: Theme.danger;
+                                        enabled: root.conn-state != "connecting" && root.conn-state != "disconnecting";
+                                        clicked => {
+                                            root.remove-server(i);
+                                        }
                                     }
                                 }
                             }
@@ -3247,10 +3261,10 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            }
         }
-        }
+    
     }
-
     // ── Helper install dialog ──────────────────────────────────
     if root.helper-dialog: Rectangle {
         // Animated 0 → 1 on open: backdrop fades, card settles from 96 %.

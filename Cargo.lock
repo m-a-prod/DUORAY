@@ -1285,7 +1285,7 @@ checksum = "edf234dd1594d6dd434a8fb8cada51ddbbc593e40e4a01556a0b31c62da2775b"
 
 [[package]]
 name = "duoray-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "duoray-gui"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "duoray-helper"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "duoray-core",
@@ -4702,6 +4702,7 @@ dependencies = [
  "const-field-offset",
  "i-slint-backend-linuxkms",
  "i-slint-backend-selector",
+ "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",

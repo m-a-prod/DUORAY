@@ -52,9 +52,10 @@ def main():
         report = json.loads(row[1])
         log = report.pop("log", None)
         xray = report.pop("xray_log", None)
+        helper = report.pop("helper_log", None)
         print(f"received {when(row[0])}")
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        for title, text in (("app log", log), ("xray log", xray)):
+        for title, text in (("app log", log), ("xray log", xray), ("helper log", helper)):
             if text:
                 print(f"\n--- {title} ---\n{text}")
     else:

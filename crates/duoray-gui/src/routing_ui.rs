@@ -127,7 +127,7 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         let st = app.lock().unwrap();
         load(ui, &st.store.settings.routing);
     }
-    // Save quickly; reconnect only after the user stops editing.
+    // Save quickly; apply to the connection only after the user stops editing.
     let save_timer = Rc::new(slint::Timer::default());
     let reconnect_timer = Rc::new(slint::Timer::default());
     let committed: Rc<dyn Fn(&AppWindow)> = {
@@ -142,7 +142,7 @@ pub fn install(ui: &AppWindow, app: &Shared) {
                 if let Some(ui) = ui_weak.upgrade() {
                     let connected = matches!(app2.lock().unwrap().conn_state, ConnState::Connected { .. });
                     if connected {
-                        crate::reconnect(&ui, &app2);
+                        crate::apply_routing(&ui, &app2);
                     }
                 }
             });

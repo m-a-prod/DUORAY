@@ -55,6 +55,18 @@ pub struct Connection {
     /// The config dials Hysteria somewhere (directly or in a balancer).
     pub hysteria: bool,
     respawn: Respawn,
+    /// What the tunnel was set up with: a routing change that keeps these can
+    /// be applied by restarting xray alone (see [`Connection::rerouter`]).
+    tunnel: TunnelInputs,
+}
+
+#[derive(Clone)]
+struct TunnelInputs {
+    server: Server,
+    iface: String,
+    apps: duoray_core::routing::AppRouting,
+    bypass: Vec<std::net::IpAddr>,
+    direct_socks: Option<SocketAddr>,
 }
 
 /// Everything needed to start the same xray again.
@@ -142,6 +154,13 @@ pub fn connect(
     }
 
     let (socks, user, pass) = (rt.socks, rt.user.clone(), rt.pass.clone());
+    let tunnel = TunnelInputs {
+        server: server.clone(),
+        iface: iface.clone(),
+        apps: routing.apps.clone(),
+        bypass: rt.bypass.clone(),
+        direct_socks: rt.direct_socks,
+    };
     let tun = match helper.start(TunRequest {
         socks: rt.socks,
         user: rt.user,
@@ -207,7 +226,7 @@ pub fn connect(
         }
     });
 
-    Ok(Connection { helper, xray, closing, tun, socks, user, pass, warnings, hysteria, respawn })
+    Ok(Connection { helper, xray, closing, tun, socks, user, pass, warnings, hysteria, respawn, tunnel })
 }
 
 impl Connection {
@@ -230,6 +249,43 @@ impl Connection {
         }
     }
 
+    /// A job that applies new routing without touching the tunnel: a fresh
+    /// xray config on the same SOCKS port and credentials, then an xray
+    /// restart (open connections drop, the VPN stays up). `None` when the
+    /// change needs a new tunnel: other per-app rules. The job returns
+    /// `Ok(None)` if it finds that the server's addresses changed (the tunnel
+    /// lets the old ones past itself): reconnect then.
+    pub fn rerouter(
+        &self,
+        routing: &RoutingSettings,
+        geo: &GeoDir,
+    ) -> Option<impl FnOnce() -> Result<Option<Vec<String>>> + Send + 'static> {
+        if routing.apps != self.tunnel.apps {
+            return None;
+        }
+        let (routing, t, r, xray) = (routing.clone(), self.tunnel.clone(), self.respawn.clone(), self.xray.clone());
+        let (user, pass, lists) = (self.user.clone(), self.pass.clone(), geo.lists());
+        Some(move || {
+            let geo_data = GeoData::load(r.assets.as_deref(), Some(&lists));
+            let mut rt = runtime::build(&t.server, &t.iface, Some(runtime::Routing { settings: &routing, geo: &geo_data }))
+                .context("preparing xray config")?;
+            if rt.bypass != t.bypass || rt.direct_socks.is_some() != t.direct_socks.is_some() {
+                return Ok(None);
+            }
+            keep_inbounds(&mut rt.config, r.socks.port(), t.direct_socks.map(|a| a.port()), &user, &pass);
+            write_private(&r.config, &serde_json::to_vec_pretty(&rt.config)?)?;
+            let mut child = xray.lock().unwrap();
+            let _ = child.kill();
+            let _ = child.wait();
+            let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
+            let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
+            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(10));
+            *child = fresh;
+            ready.map_err(|e| e.context(log_tail(&r.log)))?;
+            Ok(Some(rt.warnings))
+        })
+    }
+
     /// TUN down first (network restored), then xray.
     pub fn disconnect(self) {
         self.closing.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -238,6 +294,39 @@ impl Connection {
         let mut x = self.xray.lock().unwrap();
         let _ = x.kill();
         let _ = x.wait();
+    }
+}
+
+/// Points a fresh config's SOCKS inbounds at the port and credentials the
+/// tunnel already uses.
+fn keep_inbounds(config: &mut serde_json::Value, socks: u16, direct: Option<u16>, user: &str, pass: &str) {
+    for inbound in config["inbounds"].as_array_mut().into_iter().flatten() {
+        let port = match inbound["tag"].as_str() {
+            Some(duoray_core::routing::DIRECT_INBOUND) => direct,
+            _ => Some(socks),
+        };
+        if let Some(port) = port {
+            inbound["port"] = serde_json::json!(port);
+            inbound["settings"]["accounts"] = serde_json::json!([{ "user": user, "pass": pass }]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn rerouted_config_keeps_the_tunnel_endpoints() {
+        let mut config = serde_json::json!({ "inbounds": [
+            { "tag": "socks", "port": 1111, "settings": { "auth": "password", "accounts": [{ "user": "new", "pass": "new" }] } },
+            { "tag": duoray_core::routing::DIRECT_INBOUND, "port": 2222, "settings": { "accounts": [{ "user": "new", "pass": "new" }] } },
+        ]});
+        super::keep_inbounds(&mut config, 40000, Some(40001), "u", "p");
+        assert_eq!(config["inbounds"][0]["port"], 40000);
+        assert_eq!(config["inbounds"][1]["port"], 40001);
+        for i in 0..2 {
+            assert_eq!(config["inbounds"][i]["settings"]["accounts"], serde_json::json!([{ "user": "u", "pass": "p" }]));
+        }
+        assert_eq!(config["inbounds"][0]["settings"]["auth"], "password");
     }
 }
 

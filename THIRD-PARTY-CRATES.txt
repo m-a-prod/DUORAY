@@ -2202,9 +2202,9 @@ insights.
 ------------------------------------------------------------------------
 GNU General Public License v3.0 only (GPL-3.0-only)
 Used by:
-  - duoray-core 0.3.1
-  - duoray-gui 0.3.1
-  - duoray-helper 0.3.1
+  - duoray-core 0.3.2
+  - duoray-gui 0.3.2
+  - duoray-helper 0.3.2
   - i-slint-backend-selector 1.18.1 <https://github.com/slint-ui/slint>
   - i-slint-backend-winit 1.18.1 <https://github.com/slint-ui/slint>
   - i-slint-common 1.18.1 <https://github.com/slint-ui/slint>
