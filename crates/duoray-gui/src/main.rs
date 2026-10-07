@@ -200,7 +200,7 @@ fn main() -> anyhow::Result<()> {
     )));
     routing_ui::install(&ui, &app);
     editor_ui::install(&ui, &app);
-    full_repaint_on_return(&ui);
+    window_event_filter(&ui);
     support_ui::install(&ui, &app);
     {
         let st = app.lock().unwrap();
@@ -828,30 +828,73 @@ fn reconnect(ui: &AppWindow, app: &Shared) {
     switch_connection(ui, app, true);
 }
 
-/// After the window was minimized, covered or unfocused, repaint it whole:
-/// the software renderer otherwise presents only what changed, and Windows
-/// may have dropped the rest (parts of the window stayed blank). Registered
-/// once the winit window exists.
-fn full_repaint_on_return(ui: &AppWindow) {
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    {
-        use slint::winit_030::{EventResult, WinitWindowAccessor, winit::event::WindowEvent};
+/// Winit-level fixes for the main window, registered once the winit window
+/// exists (a window has one filter, so they share it):
+/// - Shortcuts on non-Latin layouts. Slint matches Ctrl+V/C/X/A/Z by the
+///   typed letter, so on a Russian layout Ctrl+V arrives as Ctrl+"м": fields
+///   did not paste, and the key fell through to "add from clipboard". Ctrl/Cmd
+///   with a letter key is passed on as the Latin letter of that key.
+/// - After the window was minimized, covered or unfocused, repaint it whole:
+///   the software renderer otherwise presents only what changed, and Windows
+///   may have dropped the rest (parts of the window stayed blank).
+fn window_event_filter(ui: &AppWindow) {
+    use slint::platform::WindowEvent as SlintEvent;
+    use slint::winit_030::winit::event::{ElementState, WindowEvent};
+    use slint::winit_030::winit::keyboard::{Key, ModifiersState, PhysicalKey};
+    use slint::winit_030::{EventResult, WinitWindowAccessor};
+    let ui_weak = ui.as_weak();
+    slint::Timer::single_shot(std::time::Duration::from_millis(300), move || {
+        let Some(ui) = ui_weak.upgrade() else { return };
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let ui_weak = ui.as_weak();
-        slint::Timer::single_shot(std::time::Duration::from_millis(300), move || {
-            let Some(ui) = ui_weak.upgrade() else { return };
-            let ui_weak = ui.as_weak();
-            ui.window().on_winit_window_event(move |_, event| {
-                if matches!(event, WindowEvent::Focused(true) | WindowEvent::Occluded(false) | WindowEvent::Resized(_))
-                    && let Some(ui) = ui_weak.upgrade()
-                {
-                    ui.set_repaint_all(!ui.get_repaint_all());
+        let mut mods = ModifiersState::empty();
+        ui.window().on_winit_window_event(move |window, event| {
+            match event {
+                WindowEvent::ModifiersChanged(m) => mods = m.state(),
+                WindowEvent::KeyboardInput { event, is_synthetic: false, .. } => {
+                    if let (Key::Character(typed), PhysicalKey::Code(code)) = (&event.logical_key, event.physical_key)
+                        && let Some(text) = latin_shortcut(typed, code, mods)
+                    {
+                        let text = slint::SharedString::from(text.to_string());
+                        let _ = window.dispatch_event_with_result(match event.state {
+                            ElementState::Pressed if event.repeat => SlintEvent::KeyPressRepeated { text },
+                            ElementState::Pressed => SlintEvent::KeyPressed { text },
+                            ElementState::Released => SlintEvent::KeyReleased { text },
+                        });
+                        return EventResult::PreventDefault;
+                    }
                 }
-                EventResult::Propagate
-            });
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
+                WindowEvent::Focused(true) | WindowEvent::Occluded(false) | WindowEvent::Resized(_) => {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        ui.set_repaint_all(!ui.get_repaint_all());
+                    }
+                }
+                _ => {}
+            }
+            EventResult::Propagate
         });
+    });
+}
+
+/// The Latin letter to report for a Ctrl/Cmd shortcut that typed a non-Latin
+/// character, e.g. "v" for Ctrl+"м" on the V key. None for anything else
+/// (Latin layouts, AltGr, keys outside A–Z).
+fn latin_shortcut(
+    typed: &str,
+    code: slint::winit_030::winit::keyboard::KeyCode,
+    mods: slint::winit_030::winit::keyboard::ModifiersState,
+) -> Option<char> {
+    use slint::winit_030::winit::keyboard::KeyCode::*;
+    const LETTERS: [slint::winit_030::winit::keyboard::KeyCode; 26] = [
+        KeyA, KeyB, KeyC, KeyD, KeyE, KeyF, KeyG, KeyH, KeyI, KeyJ, KeyK, KeyL, KeyM, KeyN, KeyO, KeyP, KeyQ, KeyR,
+        KeyS, KeyT, KeyU, KeyV, KeyW, KeyX, KeyY, KeyZ,
+    ];
+    if !(mods.control_key() || mods.super_key()) || mods.alt_key() || typed.is_ascii() {
+        return None;
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let _ = ui;
+    let letter = (b'a' + LETTERS.iter().position(|k| *k == code)? as u8) as char;
+    Some(if mods.shift_key() { letter.to_ascii_uppercase() } else { letter })
 }
 
 /// Routing changed while connected: restart xray with the new rules and keep
@@ -1720,5 +1763,18 @@ mod tests {
         assert_eq!(plural(56, "сервер", "сервера", "серверов"), "56 серверов");
         assert_eq!(bytes(92_156_218_401), "85.8 ГБ");
         assert_eq!(date(1_798_761_600), "01.01.2027");
+    }
+
+    #[test]
+    fn shortcuts_on_non_latin_layouts() {
+        use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState as M};
+        assert_eq!(latin_shortcut("м", KeyCode::KeyV, M::CONTROL), Some('v'));
+        assert_eq!(latin_shortcut("я", KeyCode::KeyZ, M::CONTROL | M::SHIFT), Some('Z'));
+        assert_eq!(latin_shortcut("с", KeyCode::KeyC, M::SUPER), Some('c'));
+        // Latin layouts, plain typing, AltGr and non-letter keys stay as they are.
+        assert_eq!(latin_shortcut("v", KeyCode::KeyV, M::CONTROL), None);
+        assert_eq!(latin_shortcut("м", KeyCode::KeyV, M::empty()), None);
+        assert_eq!(latin_shortcut("м", KeyCode::KeyV, M::CONTROL | M::ALT), None);
+        assert_eq!(latin_shortcut("ж", KeyCode::Semicolon, M::CONTROL), None);
     }
 }
