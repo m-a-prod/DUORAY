@@ -242,7 +242,7 @@ pub fn install(file: &Path, how: &Install) -> Result<()> {
                 std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
             }
             std::fs::rename(&staged, current)?;
-            std::process::Command::new(current).spawn().context("запуск новой версии")?;
+            std::process::Command::new(current).arg("--wait-for-instance").spawn().context("запуск новой версии")?;
             Ok(())
         }
         Install::Open => {

@@ -18,6 +18,7 @@ mod connection;
 mod diag;
 mod editor_ui;
 mod helper;
+mod instance;
 mod ping;
 mod routing_ui;
 mod server_edit;
@@ -138,6 +139,16 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {}
     }
+    // Acquire before opening shared logs/state or touching xray. An updater's
+    // replacement process waits until this process finishes disconnecting.
+    let path = Store::default_path()?;
+    let Some(_instance) = instance::acquire(
+        path.parent().unwrap_or(std::path::Path::new(".")),
+        std::env::args().any(|arg| arg == "--wait-for-instance"),
+    )? else {
+        instance::already_running();
+        return Ok(());
+    };
     // Linux and Windows: an opaque window and the software renderer.
     //
     // Opaque: winit creates windows transparent there by default, so any pixel
@@ -161,7 +172,6 @@ fn main() -> anyhow::Result<()> {
     }
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
-    let path = Store::default_path()?;
     diag::init(path.parent().unwrap_or(std::path::Path::new(".")));
     diag::log(format!("start {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH));
     let (store, status) = match Store::load(&path) {
@@ -1163,7 +1173,7 @@ fn save(st: &mut App) {
 }
 
 fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
-    let (url, fallback, headers) = {
+    let (url, fallback, headers, proxy) = {
         let mut st = app.lock().unwrap();
         if !st.refreshing.insert(id.clone()) {
             return;
@@ -1175,13 +1185,19 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
             return;
         }
         let (url, fallback) = (sub.url.clone(), sub.info.fallback_url.clone());
-        (url, fallback, identity::request_headers(&st.store.settings.happ, device, st.store.settings.send_device_info))
+        let proxy = st.conn.as_ref().map(|c| format!("socks5h://{}:{}@{}", c.user, c.pass, c.socks));
+        (url, fallback, identity::request_headers(&st.store.settings.happ, device, st.store.settings.send_device_info), proxy)
     };
     render(ui, &app.lock().unwrap());
 
     let (ui_weak, app): (Weak<AppWindow>, Shared) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let result = subscription::fetch(&url, fallback.as_deref(), &headers).map_err(|e| humanize(&format!("{e:#}")));
+        let result = subscription::fetch(&url, fallback.as_deref(), &headers)
+            .or_else(|original| match proxy.as_deref() {
+                Some(proxy) => subscription::fetch_with_proxy(&url, fallback.as_deref(), &headers, Some(proxy)).map_err(|_| original),
+                None => Err(original),
+            })
+            .map_err(|e| humanize(&format!("{e:#}")));
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             st.refreshing.remove(&id);

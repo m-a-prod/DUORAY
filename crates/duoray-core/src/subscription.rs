@@ -50,26 +50,32 @@ pub struct Fetched {
 /// Fetches a subscription; if `url` is unreachable and the panel earlier
 /// advertised a `fallback-url`, that one is tried instead.
 pub fn fetch(url: &str, fallback: Option<&str>, headers: &[(String, String)]) -> Result<Fetched> {
-    match fetch_one(url, headers) {
+    fetch_with_proxy(url, fallback, headers, None)
+}
+
+/// An explicit SOCKS5 proxy resolves subscription hostnames through xray,
+/// avoiding a broken system resolver while the VPN is active.
+pub fn fetch_with_proxy(url: &str, fallback: Option<&str>, headers: &[(String, String)], proxy: Option<&str>) -> Result<Fetched> {
+    let mut config = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(25)));
+    if let Some(proxy) = proxy {
+        config = config.proxy(Some(ureq::Proxy::new(proxy)?));
+    }
+    let agent: ureq::Agent = config.build().into();
+    match fetch_one(&agent, url, headers) {
         Ok(f) => Ok(f),
         Err(e) => match fallback.filter(|f| !f.trim().eq_ignore_ascii_case(url.trim())) {
             // The primary failure is the actionable one if both fail.
-            Some(fb) => fetch_one(fb, headers).map_err(|_| e),
+            Some(fb) => fetch_one(&agent, fb, headers).map_err(|_| e),
             None => Err(e),
         },
     }
 }
 
-fn fetch_one(url: &str, headers: &[(String, String)]) -> Result<Fetched> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(25)))
-        .build()
-        .into();
-
+fn fetch_one(agent: &ureq::Agent, url: &str, headers: &[(String, String)]) -> Result<Fetched> {
     // 1. The URL as given. Panels choose the format per client here, and only
     //    here do Remnawave's response rules (e.g. additionalExtendedClientsRegex,
     //    which adds meta.serverDescription) apply; `/json` ignores them.
-    let base = get(&agent, url, headers);
+    let base = get(agent, url, headers);
     if let Ok(f) = &base
         && f.json
     {
@@ -78,7 +84,7 @@ fn fetch_one(url: &str, headers: &[(String, String)]) -> Result<Fetched> {
 
     // 2. Share links (or an error): full JSON configs beat links, try `/json`.
     if let Some(json_url) = json_endpoint(url)
-        && let Ok(f) = get(&agent, &json_url, headers)
+        && let Ok(f) = get(agent, &json_url, headers)
         && f.json
         && !f.servers.is_empty()
     {
@@ -327,6 +333,44 @@ mod tests {
                       {"remarks":"B","outbounds":[{"protocol":"freedom"}]}]"#;
         let (s, k, json) = parse_body(body).unwrap();
         assert_eq!((s.len(), k.len(), json), (1, 1, true));
+    }
+
+    #[test]
+    fn proxy_resolves_subscription_hostname() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let proxy = format!("socks5h://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut hello = [0; 2];
+            stream.read_exact(&mut hello).unwrap();
+            assert_eq!(hello[0], 5);
+            let mut methods = vec![0; hello[1] as usize];
+            stream.read_exact(&mut methods).unwrap();
+            stream.write_all(&[5, 0]).unwrap();
+            let mut request = [0; 5];
+            stream.read_exact(&mut request).unwrap();
+            assert_eq!(&request[..4], &[5, 1, 0, 3], "SOCKS must receive a domain, not a locally resolved IP");
+            let mut host = vec![0; request[4] as usize];
+            stream.read_exact(&mut host).unwrap();
+            assert_eq!(host, b"subscription.invalid");
+            let mut port = [0; 2];
+            stream.read_exact(&mut port).unwrap();
+            stream.write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 80]).unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+                assert!(header.len() < 16384);
+            }
+            let body = r#"[{"remarks":"Test","outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"198.51.100.1","port":443}]}}]}]"#;
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let fetched = fetch_with_proxy("http://subscription.invalid/sub", None, &[], Some(&proxy)).unwrap();
+        assert_eq!(fetched.servers.len(), 1);
+        worker.join().unwrap();
     }
 
     #[test]
