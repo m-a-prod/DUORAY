@@ -16,7 +16,7 @@ pub enum Action {
     Quit,
 }
 
-/// What the tray shows: the logo is grey while disconnected, red when connected.
+/// What the tray shows: the logo is grey while disconnected, powder pink when connected.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
     pub connected: bool,
@@ -60,15 +60,24 @@ pub fn update(state: State) {
     LAST.with(|l| *l.borrow_mut() = Some(state));
 }
 
-const GREY: [u8; 3] = [0x8e, 0x8e, 0x93];
-const RED: [u8; 3] = [0xe5, 0x48, 0x4d];
+/// Gradient stops (offset, RGB) as in ui/assets/logo-{off,on}.svg.
+const OFF: &[(f32, [u8; 3])] = &[(0.0, [0x3f, 0x3f, 0x46]), (0.4, [0x71, 0x71, 0x7a]), (0.75, [0xa1, 0xa1, 0xaa]), (1.0, [0xd4, 0xd4, 0xd8])];
+const ON: &[(f32, [u8; 3])] = &[(0.0, [0xc9, 0x7f, 0xa3]), (0.5, [0xf4, 0xc2, 0xd7]), (1.0, [0xfd, 0xeb, 0xf3])];
 
-/// The DUORAY mark (ui/assets/logo.svg: two mirrored "D"s, the right one at
-/// half opacity) as straight RGBA, centred in a `size`×`size` square.
+fn gradient(stops: &[(f32, [u8; 3])], t: f32) -> [u8; 3] {
+    let t = t.clamp(0.0, 1.0);
+    let i = stops.iter().position(|s| s.0 >= t).unwrap_or(stops.len() - 1).max(1);
+    let ((a, ca), (b, cb)) = (stops[i - 1], stops[i]);
+    let f = if b > a { (t - a) / (b - a) } else { 0.0 };
+    std::array::from_fn(|k| (ca[k] as f32 + (cb[k] as f32 - ca[k] as f32) * f).round() as u8)
+}
+
+/// The DUORAY mark (ui/assets/logo-*.svg: two mirrored "D"s, the right one at
+/// half opacity, a diagonal gradient) as straight RGBA, centred in a square.
 pub fn logo_rgba(size: u32, connected: bool) -> Vec<u8> {
     const W: f32 = 198.0;
     const H: f32 = 161.0;
-    let color = if connected { RED } else { GREY };
+    let stops = if connected { ON } else { OFF };
     // The left "D": a bar plus a half disc, minus the same shape inset.
     let d = |x: f32, y: f32| {
         let shape = |inset: f32, r: f32| {
@@ -94,7 +103,11 @@ pub fn logo_rgba(size: u32, connected: bool) -> Vec<u8> {
                 }
             }
             let a = (alpha / (SS * SS) as f32 * 255.0).round() as u8;
-            out.extend_from_slice(&[color[0], color[1], color[2], a]);
+            // From the bottom-left corner (0) to the top-right one (1).
+            let (x, y) = ((px as f32 + 0.5) / scale, (py as f32 + 0.5 - top) / scale);
+            let t = (x * W + (H - y) * H) / (W * W + H * H);
+            let c = gradient(stops, t);
+            out.extend_from_slice(&[c[0], c[1], c[2], a]);
         }
     }
     out
@@ -258,6 +271,9 @@ mod tests {
         // Left bar is opaque, the right one half transparent.
         assert!(alpha(2, size / 2) > 200);
         assert!((100..160).contains(&alpha(size - 3, size / 2)));
-        assert_eq!(&px[((size / 2 * size + 2) * 4) as usize..][..3], &RED);
+        // Pink, darker at the bottom left than at the top right.
+        let rgb = |x: u32, y: u32| &px[((y * size + x) * 4) as usize..][..3];
+        assert!(rgb(2, size / 2)[0] > rgb(2, size / 2)[1]);
+        assert!(rgb(2, size - 12).iter().map(|&c| c as u32).sum::<u32>() < rgb(size - 3, 12).iter().map(|&c| c as u32).sum::<u32>());
     }
 }

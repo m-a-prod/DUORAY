@@ -2435,16 +2435,26 @@ export component AppWindow inherits Window {
                     Rectangle {
                         height: brand-symbol.height + 12px;
                         background: transparent;
+                        // Grey while off, powder pink when connected (as in the
+                        // tray). Both stacked so the change cross-fades.
                         brand-symbol := Image {
-                            source: @image-url("assets/logo.svg");
-                            // Like the tray icon: grey while off, red when connected.
-                            colorize: root.conn-state == "connected" ? #e5484d : #8e8e93;
-                            animate colorize { duration: 250ms; }
+                            source: @image-url("assets/logo-off.svg");
                             height: 26px * Theme.text-scale;
-                            width: self.height * 198 / 161;
+                            width: self.height * 206 / 169;
                             x: 0;
                             y: 4px;
                             image-fit: contain;
+                            opacity: root.conn-state == "connected" ? 0 : 1;
+                            animate opacity { duration: 300ms; }
+                        }
+                        Image {
+                            source: @image-url("assets/logo-on.svg");
+                            height: brand-symbol.height;
+                            width: brand-symbol.width;
+                            x: brand-symbol.x;
+                            y: brand-symbol.y;
+                            image-fit: contain;
+                            opacity: 1 - brand-symbol.opacity;
                         }
                         brand-wordmark := Text {
                             x: brand-symbol.width + 12px;
