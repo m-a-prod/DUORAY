@@ -368,24 +368,44 @@ pub fn hidden(cmd: &mut Command) -> &mut Command {
 /// Default-route adapters by preference: (alias, looks like a VPN).
 #[cfg(windows)]
 fn windows_default_aliases() -> Result<Vec<(String, bool)>> {
-    let script = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; \
-        Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | \
-        Sort-Object RouteMetric | ForEach-Object { $_.InterfaceAlias + '|' + (Get-NetAdapter -InterfaceIndex $_.ifIndex -ErrorAction SilentlyContinue).InterfaceDescription }";
-    let out = hidden(Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script]))
-        .output()
-        .context("powershell")?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    Ok(text
-        .lines()
-        .filter_map(|l| {
-            let (alias, desc) = l.trim().split_once('|')?;
-            let hay = format!("{alias} {desc}").to_lowercase();
-            let vpn = ["duoray", "wintun", "wireguard", "tap-", "tailscale", "openvpn", "happ", "throne", "hiddify", "nekoray", "sing-tun", "clash", "mihomo", "v2ray", "xray"]
-                .iter()
-                .any(|k| hay.contains(k));
-            Some((alias.to_string(), vpn))
-        })
-        .collect())
+    // The IP Helper API directly: a PowerShell start costs about two seconds.
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        FreeMibTable, GetIfEntry2, GetIpForwardTable2, GetIpInterfaceEntry, MIB_IF_ROW2, MIB_IPFORWARD_TABLE2,
+        MIB_IPINTERFACE_ROW,
+    };
+    use windows_sys::Win32::Networking::WinSock::AF_INET;
+    let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+    // SAFETY: on success the table is ours until FreeMibTable.
+    let err = unsafe { GetIpForwardTable2(AF_INET, &mut table) };
+    if err != 0 {
+        bail!("GetIpForwardTable2: error {err}");
+    }
+    // SAFETY: the table holds NumEntries rows.
+    let rows = unsafe { std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize) };
+    let wide = |s: &[u16]| String::from_utf16_lossy(&s[..s.iter().position(|&c| c == 0).unwrap_or(s.len())]);
+    let mut found: Vec<(u32, String, bool)> = vec![];
+    for row in rows.iter().filter(|r| r.DestinationPrefix.PrefixLength == 0) {
+        let mut iface = MIB_IPINTERFACE_ROW { Family: AF_INET, InterfaceLuid: row.InterfaceLuid, ..Default::default() };
+        // SAFETY: Family and InterfaceLuid identify the row to fill.
+        if unsafe { GetIpInterfaceEntry(&mut iface) } != 0 || !iface.Connected {
+            continue;
+        }
+        let mut entry = MIB_IF_ROW2 { InterfaceLuid: row.InterfaceLuid, ..Default::default() };
+        // SAFETY: InterfaceLuid identifies the row to fill.
+        if unsafe { GetIfEntry2(&mut entry) } != 0 {
+            continue;
+        }
+        let (alias, desc) = (wide(&entry.Alias), wide(&entry.Description));
+        let hay = format!("{alias} {desc}").to_lowercase();
+        let vpn = ["duoray", "wintun", "wireguard", "tap-", "tailscale", "openvpn", "happ", "throne", "hiddify", "nekoray", "sing-tun", "clash", "mihomo", "v2ray", "xray"]
+            .iter()
+            .any(|k| hay.contains(k));
+        found.push((row.Metric.saturating_add(iface.Metric), alias, vpn));
+    }
+    // SAFETY: allocated by GetIpForwardTable2 above.
+    unsafe { FreeMibTable(table.cast()) };
+    found.sort_by_key(|f| f.0);
+    Ok(found.into_iter().map(|(_, a, vpn)| (a, vpn)).collect())
 }
 
 #[cfg(windows)]
