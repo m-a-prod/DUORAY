@@ -147,7 +147,7 @@ pub fn connect(
         socks: rt.socks,
     };
 
-    if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(10)) {
+    if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(20)) {
         let _ = child.kill();
         let _ = child.wait();
         return Err(ConnectError::Other(e.context(log_tail(&log_path))));
@@ -242,7 +242,7 @@ impl Connection {
             let _ = child.wait();
             let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
             let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
-            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(10));
+            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(20));
             // Keep it even if not ready yet: the watchdog reports a dead one.
             *child = fresh;
             ready.map_err(|e| e.context(log_tail(&r.log)))
@@ -279,7 +279,7 @@ impl Connection {
             let _ = child.wait();
             let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
             let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
-            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(10));
+            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(20));
             *child = fresh;
             ready.map_err(|e| e.context(log_tail(&r.log)))?;
             Ok(Some(rt.warnings))
@@ -598,12 +598,19 @@ pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration) ->
         if let Some(status) = child.try_wait()? {
             bail!("xray завершился при старте ({status})");
         }
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok() {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    bail!("xray не открыл порт за {}с", timeout.as_secs())
+    // Tells apart "xray never listened" from "something blocks loopback
+    // connections" (antivirus, firewall filters) in reports.
+    let bound = std::net::TcpListener::bind(addr).is_err();
+    bail!(
+        "xray не открыл порт за {}с ({})",
+        timeout.as_secs(),
+        if bound { "порт занят, но подключение к нему не проходит" } else { "порт свободен" }
+    )
 }
 
 /// An xray left over from a crashed session would keep the port and the old config.

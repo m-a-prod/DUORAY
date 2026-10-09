@@ -10,7 +10,7 @@
 //!    the name), and those IPs are routed around the TUN;
 //! 4. the user's routing (see [`crate::routing`]) is merged into the panel's.
 
-use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs, UdpSocket};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -65,7 +65,7 @@ pub fn build_with(
         None => vec![],
     };
 
-    let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+    let port = free_port()?;
     let socks = SocketAddr::from(([127, 0, 0, 1], port));
     let user = random_token(16);
     let pass = random_token(32);
@@ -91,7 +91,7 @@ pub fn build_with(
     }]);
     let mut direct_socks = None;
     if routing.as_ref().is_some_and(|r| r.settings.apps.active()) {
-        let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+        let port = free_port()?;
         let mut inbound = config["inbounds"][0].clone();
         inbound["tag"] = json!(routing::DIRECT_INBOUND);
         inbound["port"] = json!(port);
@@ -179,9 +179,30 @@ fn random_token(len: usize) -> String {
     std::iter::repeat_with(fastrand::alphanumeric).take(len).collect()
 }
 
+/// A loopback port free for both TCP and UDP: the SOCKS inbound listens on
+/// both. Windows reserves port ranges (Hyper-V, WinNAT) per protocol, so a
+/// port the system hands out for TCP can still be forbidden for UDP.
+fn free_port() -> Result<u16> {
+    for _ in 0..50 {
+        let tcp = TcpListener::bind("127.0.0.1:0")?;
+        let port = tcp.local_addr()?.port();
+        if UdpSocket::bind(("127.0.0.1", port)).is_ok() {
+            return Ok(port);
+        }
+    }
+    bail!("нет свободного локального порта")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn free_port_is_free_for_tcp_and_udp() {
+        let port = free_port().unwrap();
+        let _tcp = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        let _udp = UdpSocket::bind(("127.0.0.1", port)).unwrap();
+    }
 
     fn server(cfg: Value) -> Server {
         Server::from_xray_config(cfg).unwrap()
