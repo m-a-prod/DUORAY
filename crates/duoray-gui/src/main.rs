@@ -395,6 +395,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_hysteria_minutes(st.store.settings.hysteria_restart_minutes.to_string().into());
             ui.set_telemetry_enabled(st.store.settings.telemetry == Some(true));
             ui.set_auto_update(st.store.settings.auto_update);
+            ui.set_switch_on_select(st.store.settings.switch_on_select);
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
             let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
@@ -828,8 +829,12 @@ fn restore_selection_in_current(ui: &AppWindow, st: &App) {
     }
 }
 
-/// While connected, picking another server switches the connection to it.
+/// While connected, picking another server switches the connection to it,
+/// unless the user turned that off.
 fn follow_selection(ui: &AppWindow, app: &Shared) {
+    if !app.lock().unwrap().store.settings.switch_on_select {
+        return;
+    }
     switch_connection(ui, app, false);
 }
 
@@ -1537,6 +1542,8 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.hysteria_restart = ui.get_hysteria_restart();
     st.store.settings.hysteria_restart_minutes = ui.get_hysteria_minutes().parse().unwrap_or(5);
     st.store.settings.auto_update = ui.get_auto_update();
+    st.store.settings.switch_on_select = ui.get_switch_on_select();
+    st.store.settings.show_server_type = ui.get_show_server_type();
     let reports = ui.get_telemetry_enabled();
     if st.store.settings.telemetry.is_some_and(|t| t != reports) {
         support_ui::set_consent(&mut st.store.settings, reports);
@@ -1567,6 +1574,7 @@ fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
     ui.set_theme_mode(mode);
     ui.global::<Theme>().set_text_scale(s.text_scale.clamp(80, 150) as f32 / 100.0);
     ui.set_font_family(s.font.clone().into());
+    ui.set_show_server_type(s.show_server_type);
 }
 
 fn restart_hysteria_if_due(ui: &AppWindow, app: &Shared) {

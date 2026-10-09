@@ -682,6 +682,8 @@ component SettingsPage inherits Rectangle {
     in-out property <string> hysteria-minutes: "5";
     in-out property <bool> telemetry-enabled;
     in-out property <bool> auto-update: true;
+    in-out property <bool> switch-on-select: true;
+    in-out property <bool> show-server-type: true;
     in property <string> duoray-version;
     in property <string> update-info;
 
@@ -993,6 +995,15 @@ component SettingsPage inherits Rectangle {
                         }
                     }
                 }
+                Divider { }
+                ToggleRow {
+                    title: "Показывать тип сервера";
+                    description: "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.";
+                    checked <=> root.show-server-type;
+                    toggled => {
+                        root.changed();
+                    }
+                }
             }
 
             // ── Connection ──
@@ -1000,6 +1011,15 @@ component SettingsPage inherits Rectangle {
                 text: "ПОДКЛЮЧЕНИЕ";
             }
             SettingsCard {
+                ToggleRow {
+                    title: "Переключаться при выборе сервера";
+                    description: "Если VPN подключён, выбор другого сервера в списке сразу переключает подключение на него. Если выключить, новый сервер применится при следующем подключении.";
+                    checked <=> root.switch-on-select;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
                 ToggleRow {
                     title: "Перезапускать Hysteria2";
                     description: "Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения.";
@@ -2246,6 +2266,8 @@ export component AppWindow inherits Window {
     in-out property <string> ping-threads <=> settings-page.ping-threads;
     in-out property <string> ping-url <=> settings-page.ping-url;
     in-out property <bool> send-device-info <=> settings-page.send-device-info;
+    in-out property <bool> switch-on-select <=> settings-page.switch-on-select;
+    in-out property <bool> show-server-type <=> settings-page.show-server-type;
     in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
     in-out property <string> font-choice <=> settings-page.font-choice;
     in-out property <string> theme-choice <=> settings-page.theme-choice;
@@ -2583,9 +2605,9 @@ export component AppWindow inherits Window {
                                         height: 4px;
                                         border-radius: 2px;
                                         background: Palette.border;
-                                        Rectangle {
+                                        if sub.usage > 0: Rectangle {
                                             x: 0;
-                                            width: parent.width * min(1, sub.usage);
+                                            width: max(self.height, parent.width * min(1, sub.usage));
                                             border-radius: 2px;
                                             animate width { duration: 300ms; easing: ease-out; }
                                             background: sub.usage > 0.9 ? Theme.danger : Theme.accent;
@@ -3014,19 +3036,23 @@ export component AppWindow inherits Window {
                                 }
                             }
                             // Traffic used / limit.
+                            // No clip: the software renderer clips to the bounding box, not
+                            // the rounded shape, so the fill is a pill of its own.
                             Rectangle {
                                 horizontal-stretch: 1;
                                 height: 20px;
                                 y: (parent.height - self.height) / 2;
-                                border-radius: 10px;
-                                border-width: 1px;
-                                border-color: Palette.border;
-                                clip: true;
-                                if root.usage-fraction >= 0: Rectangle {
+                                if root.usage-fraction > 0: Rectangle {
                                     x: 0;
-                                    width: parent.width * min(1, root.usage-fraction);
+                                    width: max(self.height, parent.width * min(1, root.usage-fraction));
+                                    border-radius: self.height / 2;
                                     animate width { duration: 300ms; easing: ease-out; }
                                     background: root.usage-fraction > 0.9 ? Theme.danger.with-alpha(0.7) : Theme.accent.with-alpha(0.55);
+                                }
+                                Rectangle {
+                                    border-radius: self.height / 2;
+                                    border-width: 1px;
+                                    border-color: Palette.border;
                                 }
                                 Text {
                                     text: root.usage-text;
@@ -3270,13 +3296,13 @@ export component AppWindow inherits Window {
                                         text: "авто × " + srv.proxies;
                                     }
                                 }
-                                VerticalLayout {
+                                if root.show-server-type: VerticalLayout {
                                     alignment: center;
                                     Chip {
                                         text: srv.protocol;
                                     }
                                 }
-                                VerticalLayout {
+                                if root.show-server-type: VerticalLayout {
                                     alignment: center;
                                     Chip {
                                         text: srv.transport;

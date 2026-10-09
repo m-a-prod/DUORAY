@@ -45,6 +45,10 @@ pub struct Settings {
     pub install_id: String,
     /// Look for, download and offer DUORAY updates.
     pub auto_update: bool,
+    /// While connected, picking another server switches the connection to it.
+    pub switch_on_select: bool,
+    /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
+    pub show_server_type: bool,
 }
 
 impl Default for Settings {
@@ -63,6 +67,8 @@ impl Default for Settings {
             telemetry: None,
             install_id: String::new(),
             auto_update: true,
+            switch_on_select: true,
+            show_server_type: true,
         }
     }
 }
