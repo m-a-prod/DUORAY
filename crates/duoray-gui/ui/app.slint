@@ -684,6 +684,8 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> auto-update: true;
     in-out property <bool> switch-on-select: true;
     in-out property <bool> show-server-type: true;
+    in-out property <bool> close-to-tray: true;
+    in property <bool> tray-available;
     in property <string> duoray-version;
     in property <string> update-info;
 
@@ -993,6 +995,17 @@ component SettingsPage inherits Rectangle {
                         selected => {
                             root.changed();
                         }
+                    }
+                }
+                Divider { }
+                ToggleRow {
+                    title: "Сворачивать в трей при закрытии";
+                    description: root.tray-available
+                        ? "Крестик прячет окно, VPN продолжает работать. Открыть окно или выйти — через значок DUORAY в трее."
+                        : "Значок в трее недоступен в этом окружении (в GNOME нужно расширение AppIndicator), поэтому крестик закрывает DUORAY.";
+                    checked <=> root.close-to-tray;
+                    toggled => {
+                        root.changed();
                     }
                 }
                 Divider { }
@@ -2268,6 +2281,8 @@ export component AppWindow inherits Window {
     in-out property <bool> send-device-info <=> settings-page.send-device-info;
     in-out property <bool> switch-on-select <=> settings-page.switch-on-select;
     in-out property <bool> show-server-type <=> settings-page.show-server-type;
+    in-out property <bool> close-to-tray <=> settings-page.close-to-tray;
+    in property <bool> tray-available <=> settings-page.tray-available;
     in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
     in-out property <string> font-choice <=> settings-page.font-choice;
     in-out property <string> theme-choice <=> settings-page.theme-choice;
@@ -2422,7 +2437,9 @@ export component AppWindow inherits Window {
                         background: transparent;
                         brand-symbol := Image {
                             source: @image-url("assets/logo.svg");
-                            colorize: Palette.foreground;
+                            // Like the tray icon: grey while off, red when connected.
+                            colorize: root.conn-state == "connected" ? #e5484d : #8e8e93;
+                            animate colorize { duration: 250ms; }
                             height: 26px * Theme.text-scale;
                             width: self.height * 198 / 161;
                             x: 0;

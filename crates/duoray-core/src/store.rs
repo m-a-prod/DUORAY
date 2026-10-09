@@ -49,6 +49,8 @@ pub struct Settings {
     pub switch_on_select: bool,
     /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
     pub show_server_type: bool,
+    /// Closing the window hides it to the tray; the VPN keeps running.
+    pub close_to_tray: bool,
 }
 
 impl Default for Settings {
@@ -69,6 +71,7 @@ impl Default for Settings {
             auto_update: true,
             switch_on_select: true,
             show_server_type: true,
+            close_to_tray: true,
         }
     }
 }

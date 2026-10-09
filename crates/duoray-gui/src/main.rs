@@ -22,6 +22,7 @@ mod instance;
 mod ping;
 mod routing_ui;
 mod server_edit;
+mod tray;
 mod support_ui;
 mod update;
 #[cfg(windows)]
@@ -142,11 +143,12 @@ fn main() -> anyhow::Result<()> {
     // Acquire before opening shared logs/state or touching xray. An updater's
     // replacement process waits until this process finishes disconnecting.
     let path = Store::default_path()?;
-    let Some(_instance) = instance::acquire(
-        path.parent().unwrap_or(std::path::Path::new(".")),
-        std::env::args().any(|arg| arg == "--wait-for-instance"),
-    )? else {
-        instance::already_running();
+    let data_dir = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+    let Some(_instance) = instance::acquire(&data_dir, std::env::args().any(|arg| arg == "--wait-for-instance"))? else {
+        // Already running (maybe hidden in the tray): bring that window up.
+        if !instance::signal(&data_dir) {
+            instance::already_running();
+        }
         return Ok(());
     };
     // Linux and Windows: an opaque window and the software renderer.
@@ -212,6 +214,7 @@ fn main() -> anyhow::Result<()> {
     editor_ui::install(&ui, &app);
     window_event_filter(&ui);
     support_ui::install(&ui, &app);
+    background(&ui, &app, &data_dir);
     {
         let st = app.lock().unwrap();
         apply_appearance(&ui, &st.store.settings);
@@ -396,6 +399,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_telemetry_enabled(st.store.settings.telemetry == Some(true));
             ui.set_auto_update(st.store.settings.auto_update);
             ui.set_switch_on_select(st.store.settings.switch_on_select);
+            ui.set_close_to_tray(st.store.settings.close_to_tray);
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
             let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
@@ -725,14 +729,77 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    ui.run()?;
+    ui.show()?;
+    // Not ui.run(): with the tray, hiding the window does not end the app.
+    slint::run_event_loop_until_quit()?;
 
-    // Window closed: bring the network back before exiting.
+    // Quit: bring the network back before exiting.
     let conn = app.lock().unwrap().conn.take();
     if let Some(conn) = conn {
         conn.disconnect();
     }
     Ok(())
+}
+
+/// The tray icon, closing to it, and later launches showing this window.
+fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
+    let ui_weak = ui.as_weak();
+    instance::serve(data_dir, move || {
+        let _ = ui_weak.upgrade_in_event_loop(|ui| show_window(&ui));
+    });
+
+    ui.window().on_close_requested({
+        let app = app.clone();
+        move || {
+            if !(tray::available() && app.lock().unwrap().store.settings.close_to_tray) {
+                let _ = slint::quit_event_loop();
+            }
+            slint::CloseRequestResponse::HideWindow
+        }
+    });
+
+    // After the event loop starts: macOS wants a running NSApp for the icon.
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+        let Some(ui) = ui_weak.upgrade() else { return };
+        let state = tray_state(&ui, &app.lock().unwrap());
+        let ui_weak = ui.as_weak();
+        let started = tray::start(state, move |action| {
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| match action {
+                tray::Action::Show => show_window(&ui),
+                tray::Action::Toggle => ui.invoke_toggle_connection(),
+                tray::Action::Quit => {
+                    let _ = slint::quit_event_loop();
+                }
+            });
+        });
+        diag::log(format!("tray: {}", if started { "on" } else { "not available" }));
+        ui.set_tray_available(started);
+    });
+}
+
+fn show_window(ui: &AppWindow) {
+    use slint::winit_030::WinitWindowAccessor;
+    let _ = ui.show();
+    ui.window().with_winit_window(|w| {
+        w.set_minimized(false);
+        w.set_visible(true);
+        w.focus_window();
+    });
+}
+
+fn tray_state(ui: &AppWindow, st: &App) -> tray::State {
+    let toggle = match st.conn_state {
+        ConnState::Connected { .. } | ConnState::Connecting { .. } | ConnState::Switching { .. } => "Отключиться",
+        ConnState::Disconnecting => "",
+        ConnState::Idle | ConnState::Failed(_) if selected_server(ui, st).is_some() => "Подключиться",
+        ConnState::Idle | ConnState::Failed(_) => "",
+    };
+    tray::State {
+        connected: matches!(st.conn_state, ConnState::Connected { .. }),
+        status: ui.get_conn_title().to_string(),
+        toggle: toggle.into(),
+    }
 }
 
 /// What reports say about the setup: switches and the kind of server in use,
@@ -1275,6 +1342,7 @@ fn render(ui: &AppWindow, st: &App) {
     ui.set_conn_state(state.into());
     ui.set_conn_title(title.into());
     ui.set_conn_detail(detail.into());
+    tray::update(tray_state(ui, st));
     let (live_text, live_level) = match (&st.conn_state, &st.live_ping) {
         (ConnState::Connected { .. }, Some(p)) => p.clone(),
         (ConnState::Connected { .. }, None) => ("…".to_string(), 5),
@@ -1544,6 +1612,7 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.auto_update = ui.get_auto_update();
     st.store.settings.switch_on_select = ui.get_switch_on_select();
     st.store.settings.show_server_type = ui.get_show_server_type();
+    st.store.settings.close_to_tray = ui.get_close_to_tray();
     let reports = ui.get_telemetry_enabled();
     if st.store.settings.telemetry.is_some_and(|t| t != reports) {
         support_ui::set_consent(&mut st.store.settings, reports);

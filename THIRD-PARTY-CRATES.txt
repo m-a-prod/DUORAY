@@ -4429,6 +4429,7 @@ DEALINGS IN THE SOFTWARE.
 MIT License (MIT)
 Used by:
   - keyboard-types 0.7.0 <https://github.com/pyfisch/keyboard-types>
+  - keyboard-types 0.8.3 <https://github.com/rust-windowing/keyboard-types>
 
 Copyright (c) 2017 Pyfisch
 
@@ -7031,6 +7032,8 @@ SOFTWARE.
 MIT License (MIT)
 Used by:
   - muda 0.19.3 <https://github.com/tauri-apps/muda>
+  - muda 0.21.2 <https://github.com/tauri-apps/muda>
+  - tray-icon 0.26.1 <https://github.com/tauri-apps/tray-icon>
 
 MIT License
 
