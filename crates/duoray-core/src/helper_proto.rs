@@ -17,11 +17,14 @@ use serde::{Deserialize, Serialize};
 
 /// Bumped on protocol changes; the GUI offers to reinstall the helper.
 /// v3: per-app routing (`TunRequest::apps`).
-pub const PROTOCOL: u32 = 3;
+/// v4: system proxy on macOS (`Request::SystemProxy`).
+pub const PROTOCOL: u32 = 4;
 /// Oldest helper the GUI still works with (without the newer features).
 pub const MIN_PROTOCOL: u32 = 2;
 /// First protocol with per-app routing.
 pub const PROTOCOL_APPS: u32 = 3;
+/// First protocol with the system proxy (macOS: changing it needs root).
+pub const PROTOCOL_PROXY: u32 = 4;
 
 #[cfg(unix)]
 pub const SOCKET_PATH: &str = "/var/run/duoray-helper.sock";
@@ -38,8 +41,12 @@ pub enum Request {
     Hello,
     Start(TunRequest),
     Stop,
-    /// Is the TUN of this connection still up? Polled by the client.
+    /// Is the TUN (or the system proxy) of this connection still up? Polled by the client.
     Status,
+    /// Proxy mode on macOS: point every network service's system proxy at
+    /// `127.0.0.1:port` for as long as this connection lives (like a TUN
+    /// session, it is undone on `Stop` or when the client goes away).
+    SystemProxy { port: u16 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +77,7 @@ pub struct AppsRequest {
 pub enum Response {
     Hello { version: String, protocol: u32 },
     Started { tun: String },
+    ProxySet,
     Stopped,
     /// `error` is set once when the TUN died on its own.
     Status { running: bool, error: Option<String> },

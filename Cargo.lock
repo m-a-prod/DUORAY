@@ -1333,6 +1333,7 @@ dependencies = [
  "anyhow",
  "duoray-core",
  "duotun",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

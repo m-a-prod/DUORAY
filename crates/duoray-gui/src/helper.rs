@@ -67,6 +67,17 @@ impl HelperSession {
         }
     }
 
+    /// Proxy mode on macOS: the helper points the system proxy at
+    /// `127.0.0.1:port` until `stop` (or this connection closes).
+    #[cfg(target_os = "macos")]
+    pub fn system_proxy(&mut self, port: u16) -> Result<()> {
+        match self.call(&Request::SystemProxy { port })? {
+            Response::ProxySet => Ok(()),
+            Response::Error { message } => bail!("{message}"),
+            other => bail!("unexpected reply {other:?}"),
+        }
+    }
+
     /// `Ok(None)` while the TUN is up; `Ok(Some(reason))` once it went down.
     pub fn status(&mut self) -> Result<Option<String>> {
         match self.call(&Request::Status)? {

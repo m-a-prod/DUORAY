@@ -226,7 +226,8 @@ fn http(
 /// One HTTP request through a SOCKS5 proxy with a fresh connection, so the
 /// time includes the handshake with the server (the "real delay").
 pub fn via_socks(socks: SocketAddr, user: &str, pass: &str, url: &str, head: bool, timeout: Duration) -> Result<Duration> {
-    let proxy = ureq::Proxy::new(&format!("socks5://{user}:{pass}@{socks}"))?;
+    // Proxy mode's inbound has no password.
+    let proxy = ureq::Proxy::new(&if user.is_empty() { format!("socks5://{socks}") } else { format!("socks5://{user}:{pass}@{socks}") })?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .proxy(Some(proxy))
         .timeout_global(Some(timeout))

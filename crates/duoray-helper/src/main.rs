@@ -4,6 +4,8 @@
 //! Windows), it brings the TUN up on request of the unprivileged GUI. A session
 //! is bound to the client connection: when the GUI disconnects or dies, the TUN
 //! goes down and routes/DNS are restored. Stopping the service does the same.
+//! On macOS it also sets the system proxy for proxy mode, bound to the client
+//! connection the same way.
 
 #![cfg_attr(windows, allow(dead_code))]
 
@@ -19,6 +21,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
+
+#[cfg(any(target_os = "macos", test))]
+mod macproxy;
 
 fn main() -> Result<()> {
     // The GUI checks a helper binary before installing it.
@@ -72,8 +77,10 @@ async fn shutdown_signal() {
 /// Accepts clients until `shutdown` flips, then waits for every session to
 /// restore the network.
 async fn serve_forever(shutdown: watch::Receiver<bool>) -> Result<()> {
-    // A previous instance may have died with the TUN up.
+    // A previous instance may have died with the TUN up (or the proxy set).
     duotun::sys::recover();
+    #[cfg(target_os = "macos")]
+    macproxy::restore_saved();
     let busy = Arc::new(AtomicBool::new(false));
     let mut sessions = tokio::task::JoinSet::new();
     let result = accept_loop(&mut sessions, busy, shutdown).await;
@@ -198,6 +205,8 @@ where
     let (r, mut w) = tokio::io::split(stream);
     let mut lines = BufReader::new(r).lines();
     let mut session: Option<(Session, BusyGuard)> = None;
+    // Proxy mode (macOS): the system proxy is set while this holds.
+    let mut proxy: Option<BusyGuard> = None;
     // Why the TUN went down on its own; reported once on the next Status.
     let mut died: Option<String> = None;
 
@@ -235,10 +244,13 @@ where
                 protocol: PROTOCOL,
             },
             Request::Status => Response::Status {
-                running: session.is_some(),
+                running: session.is_some() || proxy.is_some(),
                 error: died.take(),
             },
-            Request::Start(_) if session.is_some() => Response::Error { message: "already started".into() },
+            Request::Start(_) | Request::SystemProxy { .. } if session.is_some() || proxy.is_some() => {
+                Response::Error { message: "already started".into() }
+            }
+            Request::SystemProxy { port } => system_proxy(port, &busy, &mut proxy).await,
             Request::Start(req) => {
                 if busy.swap(true, Ordering::SeqCst) {
                     Response::Error { message: "another DUORAY session is active".into() }
@@ -258,6 +270,9 @@ where
                 if let Some((s, _guard)) = session.take() {
                     stop(s).await;
                 }
+                if let Some(_guard) = proxy.take() {
+                    unset_system_proxy().await;
+                }
                 Response::Stopped
             }
         };
@@ -269,7 +284,42 @@ where
         info!("client gone, stopping TUN");
         stop(s).await;
     }
+    if let Some(_guard) = proxy.take() {
+        info!("client gone, restoring the system proxy");
+        unset_system_proxy().await;
+    }
     Ok(())
+}
+
+/// Proxy mode on macOS: system proxy to `127.0.0.1:port` (only loopback).
+/// Elsewhere the GUI sets it itself (no root needed there).
+#[cfg(target_os = "macos")]
+async fn system_proxy(port: u16, busy: &Arc<AtomicBool>, proxy: &mut Option<BusyGuard>) -> Response {
+    if port == 0 {
+        return Response::Error { message: "bad port".into() };
+    }
+    if busy.swap(true, Ordering::SeqCst) {
+        return Response::Error { message: "another DUORAY session is active".into() };
+    }
+    let guard = BusyGuard(busy.clone());
+    match tokio::task::spawn_blocking(move || macproxy::enable(port)).await {
+        Ok(Ok(())) => {
+            *proxy = Some(guard);
+            Response::ProxySet
+        }
+        Ok(Err(e)) => Response::Error { message: format!("{e:#}") },
+        Err(e) => Response::Error { message: format!("{e}") },
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn system_proxy(_port: u16, _busy: &Arc<AtomicBool>, _proxy: &mut Option<BusyGuard>) -> Response {
+    Response::Error { message: "the system proxy is set by the app itself on this OS".into() }
+}
+
+async fn unset_system_proxy() {
+    #[cfg(target_os = "macos")]
+    let _ = tokio::task::spawn_blocking(macproxy::restore_saved).await;
 }
 
 async fn start(req: TunRequest) -> Result<(Session, String)> {

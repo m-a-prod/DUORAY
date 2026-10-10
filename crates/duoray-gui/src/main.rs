@@ -24,6 +24,8 @@ mod routing_ui;
 mod server_edit;
 mod tray;
 mod support_ui;
+#[cfg(not(target_os = "macos"))]
+mod sysproxy;
 mod update;
 #[cfg(windows)]
 mod windows_helper;
@@ -176,6 +178,9 @@ fn main() -> anyhow::Result<()> {
     let _ = slint::set_xdg_app_id("duoray");
     diag::init(path.parent().unwrap_or(std::path::Path::new(".")));
     diag::log(format!("start {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH));
+    // Died in proxy mode last time: the system proxy points at a dead port.
+    #[cfg(not(target_os = "macos"))]
+    sysproxy::recover(&data_dir.join("run"));
     let (store, status) = match Store::load(&path) {
         Ok(s) => (s, String::new()),
         Err(e) => (Store::default(), format!("Не удалось прочитать данные: {e:#}")),
@@ -401,6 +406,8 @@ fn main() -> anyhow::Result<()> {
             ui.set_auto_update(st.store.settings.auto_update);
             ui.set_switch_on_select(st.store.settings.switch_on_select);
             ui.set_close_to_tray(st.store.settings.close_to_tray);
+            ui.set_proxy_mode(st.store.settings.proxy_mode);
+            ui.set_proxy_port(st.store.settings.proxy_port.to_string().into());
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
             let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
@@ -1136,6 +1143,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     st.conn_state = ConnState::Connecting { name: name.clone() };
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
     let routing = st.store.settings.routing.clone();
+    let proxy_port = st.store.settings.proxy_mode.then_some(st.store.settings.proxy_port);
     render(ui, &st);
     drop(st);
     let geo = routing_ui::geo_dir(app);
@@ -1164,7 +1172,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     };
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let result = connection::connect(&server, &run_dir, &routing, &geo, on_failure, on_uplink_change);
+        let result = connection::connect(&server, &run_dir, &routing, &geo, proxy_port, on_failure, on_uplink_change);
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Connecting { .. });
@@ -1195,9 +1203,15 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     st.connect_after_install = true;
                     ui.set_helper_error("".into());
                     ui.set_helper_dialog_text(
-                        "Для VPN-туннеля (TUN) DUORAY нужен небольшой системный помощник. Он устанавливается один раз: \
-                         система попросит пароль администратора. Дальше подключение работает без пароля."
-                            .into(),
+                        if proxy_port.is_some() {
+                            "Системный прокси в macOS меняется только с правами администратора, поэтому DUORAY нужен \
+                             небольшой системный помощник. Он устанавливается один раз: система попросит пароль \
+                             администратора. Дальше подключение работает без пароля."
+                        } else {
+                            "Для VPN-туннеля (TUN) DUORAY нужен небольшой системный помощник. Он устанавливается один раз: \
+                             система попросит пароль администратора. Дальше подключение работает без пароля."
+                        }
+                        .into(),
                     );
                     ui.set_helper_dialog(true);
                 }
@@ -1301,7 +1315,11 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
             return;
         }
         let (url, fallback) = (sub.url.clone(), sub.info.fallback_url.clone());
-        let proxy = st.conn.as_ref().map(|c| format!("socks5h://{}:{}@{}", c.user, c.pass, c.socks));
+        let proxy = st.conn.as_ref().map(|c| match c.user.as_str() {
+            // Proxy mode: no password.
+            "" => format!("socks5h://{}", c.socks),
+            user => format!("socks5h://{user}:{}@{}", c.pass, c.socks),
+        });
         (url, fallback, identity::request_headers(&st.store.settings.happ, device, st.store.settings.send_device_info), proxy)
     };
     render(ui, &app.lock().unwrap());
@@ -1657,6 +1675,14 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.switch_on_select = ui.get_switch_on_select();
     st.store.settings.show_server_type = ui.get_show_server_type();
     st.store.settings.close_to_tray = ui.get_close_to_tray();
+    let mode = (st.store.settings.proxy_mode, st.store.settings.proxy_port);
+    st.store.settings.proxy_mode = ui.get_proxy_mode();
+    if let Some(port) = ui.get_proxy_port().trim().parse::<u16>().ok().filter(|&p| p > 0) {
+        st.store.settings.proxy_port = port;
+    }
+    // TUN ↔ proxy (or another port) while connected: connect the new way.
+    let mode_changed = mode != (st.store.settings.proxy_mode, st.store.settings.proxy_port)
+        && matches!(st.conn_state, ConnState::Connected { .. });
     let reports = ui.get_telemetry_enabled();
     if st.store.settings.telemetry.is_some_and(|t| t != reports) {
         support_ui::set_consent(&mut st.store.settings, reports);
@@ -1668,6 +1694,10 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.font = if font == SYSTEM_FONT { String::new() } else { font };
     apply_appearance(ui, &st.store.settings);
     save(&mut st);
+    drop(st);
+    if mode_changed {
+        reconnect(ui, app);
+    }
 }
 
 const SYSTEM_FONT: &str = "Системный";

@@ -1,4 +1,5 @@
-//! One VPN connection: xray (as the user) + TUN (through the helper).
+//! One VPN connection: xray (as the user) + TUN (through the helper), or in
+//! proxy mode xray + the system proxy pointed at it.
 
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
@@ -7,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+#[cfg(target_os = "macos")]
+use duoray_core::helper_proto::PROTOCOL_PROXY;
 use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, TunRequest};
 use duoray_core::routing::AppMode;
 use duoray_core::geo::GeoDir;
@@ -41,7 +44,11 @@ impl From<serde_json::Error> for ConnectError {
 }
 
 pub struct Connection {
-    helper: Arc<Mutex<HelperSession>>,
+    /// None in proxy mode on Windows and Linux (no root needed there).
+    helper: Option<Arc<Mutex<HelperSession>>>,
+    /// Proxy mode: puts the system proxy back when dropped.
+    #[cfg(not(target_os = "macos"))]
+    sysproxy: Option<crate::sysproxy::Guard>,
     xray: Arc<Mutex<Child>>,
     /// Tells the watcher that the teardown is intentional.
     closing: Arc<std::sync::atomic::AtomicBool>,
@@ -62,6 +69,8 @@ pub struct Connection {
 
 #[derive(Clone)]
 struct TunnelInputs {
+    /// Proxy mode: the system proxy's port, no TUN.
+    proxy: Option<u16>,
     server: Server,
     iface: String,
     apps: duoray_core::routing::AppRouting,
@@ -79,6 +88,16 @@ struct Respawn {
     socks: SocketAddr,
 }
 
+/// Per-app routing works through the TUN only: proxy mode goes without it.
+fn effective_routing(routing: &RoutingSettings, proxy: Option<u16>) -> RoutingSettings {
+    let mut routing = routing.clone();
+    if proxy.is_some() {
+        routing.apps = Default::default();
+    }
+    routing
+}
+
+/// `proxy_port`: proxy mode (no TUN; the system proxy points at xray there).
 /// `on_failure` is called (from another thread) if the TUN or xray dies,
 /// `on_uplink_change` (Linux) when the network moved to another interface:
 /// xray is bound to the old one, so the connection has to be made again.
@@ -87,30 +106,58 @@ pub fn connect(
     run_dir: &Path,
     routing: &RoutingSettings,
     geo: &GeoDir,
+    proxy_port: Option<u16>,
     on_failure: impl Fn(String) + Send + Sync + Clone + 'static,
     on_uplink_change: impl Fn() + Send + 'static,
 ) -> Result<Connection, ConnectError> {
-    let mut helper = HelperSession::open().map_err(|e| match e {
-        OpenError::Missing => ConnectError::HelperMissing,
-        OpenError::Outdated(v) => ConnectError::HelperOutdated(v),
-        OpenError::Other(e) => ConnectError::Other(e),
-    })?;
-
-    // Per-app routing needs a helper that knows it.
-    if routing.apps.active() && helper.protocol < PROTOCOL_APPS {
-        return Err(ConnectError::HelperOutdated(helper.version.clone()));
-    }
+    // Proxy mode needs no TUN, and the app sets the system proxy itself,
+    // except on macOS: changing it needs root there, so the helper does it.
+    let mut helper = if proxy_port.is_none() || cfg!(target_os = "macos") {
+        let helper = HelperSession::open().map_err(|e| match e {
+            OpenError::Missing => ConnectError::HelperMissing,
+            OpenError::Outdated(v) => ConnectError::HelperOutdated(v),
+            OpenError::Other(e) => ConnectError::Other(e),
+        })?;
+        // Per-app routing needs a helper that knows it; so does the proxy.
+        let needed = match proxy_port {
+            #[cfg(target_os = "macos")]
+            Some(_) => PROTOCOL_PROXY,
+            #[cfg(not(target_os = "macos"))]
+            Some(_) => 0,
+            None if routing.apps.active() => PROTOCOL_APPS,
+            None => 0,
+        };
+        if helper.protocol < needed {
+            return Err(ConnectError::HelperOutdated(helper.version.clone()));
+        }
+        Some(helper)
+    } else {
+        None
+    };
+    let apps_skipped = proxy_port.is_some() && routing.apps.active();
+    let routing = &effective_routing(routing, proxy_port);
     let iface = physical_interface()?;
     // Fresh databases if downloaded, else the ones shipped with xray (then
     // tags missing there, like geoip:ru-whitelist, are skipped).
     let assets = geo.assets().map(Path::to_path_buf).or_else(|| find_xray().ok().and_then(|(_, a)| a));
     let geo_data = GeoData::load(assets.as_deref(), Some(&geo.lists()));
-    let rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
+    let mut rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
         .context("preparing xray config")?;
-    let warnings = rt.warnings.clone();
+    if let Some(port) = proxy_port {
+        // A fixed port: something else on it would answer instead of xray.
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_err() {
+            return Err(ConnectError::Other(anyhow::anyhow!(
+                "порт {port} занят другой программой. Выберите другой порт прокси в настройках"
+            )));
+        }
+        rt.open_proxy(port);
+    }
+    let mut warnings = rt.warnings.clone();
+    if apps_skipped {
+        warnings.push("Маршрутизация по приложениям работает только в режиме TUN, в режиме прокси она выключена.".into());
+    }
     #[cfg(target_os = "macos")]
-    let warnings = {
-        let mut warnings = warnings;
+    {
         if routing.apps.active()
             && Command::new("/bin/ps").args(["-axo", "comm="]).output().ok().is_some_and(|out| {
                 out.status.success()
@@ -125,8 +172,7 @@ pub fn connect(
                  или временно выключите его защиту для проверки, затем полностью перезапустите браузер.".into(),
             );
         }
-        warnings
-    };
+    }
     let hysteria = rt.config["outbounds"]
         .as_array()
         .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));
@@ -155,34 +201,57 @@ pub fn connect(
 
     let (socks, user, pass) = (rt.socks, rt.user.clone(), rt.pass.clone());
     let tunnel = TunnelInputs {
+        proxy: proxy_port,
         server: server.clone(),
         iface: iface.clone(),
         apps: routing.apps.clone(),
         bypass: rt.bypass.clone(),
         direct_socks: rt.direct_socks,
     };
-    let tun = match helper.start(TunRequest {
-        socks: rt.socks,
-        user: rt.user,
-        pass: rt.pass,
-        bypass: rt.bypass,
-        ipv6: true,
-        apps: rt.direct_socks.map(|direct_socks| AppsRequest {
-            only: routing.apps.mode == AppMode::Only,
-            apps: routing.apps.apps.clone(),
-            direct_socks,
-        }),
-    }) {
+    #[cfg(not(target_os = "macos"))]
+    let mut sysproxy = None;
+    let up = match (proxy_port, helper.as_mut()) {
+        (Some(port), _helper) => {
+            #[cfg(target_os = "macos")]
+            let set = _helper.expect("the helper is opened for the proxy on macOS").system_proxy(port).map(|()| None);
+            #[cfg(not(target_os = "macos"))]
+            let set = crate::sysproxy::enable(run_dir, port).map(|(guard, warning)| {
+                sysproxy = Some(guard);
+                warning
+            });
+            set.map(|warning| {
+                warnings.extend(warning);
+                format!("прокси 127.0.0.1:{port}")
+            })
+            .context("системный прокси")
+        }
+        (None, Some(helper)) => helper
+            .start(TunRequest {
+                socks: rt.socks,
+                user: rt.user,
+                pass: rt.pass,
+                bypass: rt.bypass,
+                ipv6: true,
+                apps: rt.direct_socks.map(|direct_socks| AppsRequest {
+                    only: routing.apps.mode == AppMode::Only,
+                    apps: routing.apps.apps.clone(),
+                    direct_socks,
+                }),
+            })
+            .context("TUN"),
+        (None, None) => unreachable!("TUN mode always opens the helper"),
+    };
+    let tun = match up {
         Ok(t) => t,
         Err(e) => {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(ConnectError::Other(e.context("TUN")));
+            return Err(ConnectError::Other(e));
         }
     };
 
     let xray = Arc::new(Mutex::new(child));
-    let helper = Arc::new(Mutex::new(helper));
+    let helper = helper.map(|h| Arc::new(Mutex::new(h)));
     let closing = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Watchdog: the helper never pushes messages, so ask it (and check xray).
     std::thread::spawn({
@@ -213,6 +282,7 @@ pub fn connect(
                     }
                     return;
                 }
+                let Some(helper) = &helper else { continue };
                 let status = helper.lock().unwrap().status();
                 if gone(&closing) {
                     return;
@@ -226,7 +296,21 @@ pub fn connect(
         }
     });
 
-    Ok(Connection { helper, xray, closing, tun, socks, user, pass, warnings, hysteria, respawn, tunnel })
+    Ok(Connection {
+        helper,
+        #[cfg(not(target_os = "macos"))]
+        sysproxy,
+        xray,
+        closing,
+        tun,
+        socks,
+        user,
+        pass,
+        warnings,
+        hysteria,
+        respawn,
+        tunnel,
+    })
 }
 
 impl Connection {
@@ -260,10 +344,11 @@ impl Connection {
         routing: &RoutingSettings,
         geo: &GeoDir,
     ) -> Option<impl FnOnce() -> Result<Option<Vec<String>>> + Send + 'static> {
+        let routing = effective_routing(routing, self.tunnel.proxy);
         if routing.apps != self.tunnel.apps {
             return None;
         }
-        let (routing, t, r, xray) = (routing.clone(), self.tunnel.clone(), self.respawn.clone(), self.xray.clone());
+        let (t, r, xray) = (self.tunnel.clone(), self.respawn.clone(), self.xray.clone());
         let (user, pass, lists) = (self.user.clone(), self.pass.clone(), geo.lists());
         Some(move || {
             let geo_data = GeoData::load(r.assets.as_deref(), Some(&lists));
@@ -271,6 +356,9 @@ impl Connection {
                 .context("preparing xray config")?;
             if rt.bypass != t.bypass || rt.direct_socks.is_some() != t.direct_socks.is_some() {
                 return Ok(None);
+            }
+            if let Some(port) = t.proxy {
+                rt.open_proxy(port);
             }
             keep_inbounds(&mut rt.config, r.socks.port(), t.direct_socks.map(|a| a.port()), &user, &pass);
             write_private(&r.config, &serde_json::to_vec_pretty(&rt.config)?)?;
@@ -286,11 +374,15 @@ impl Connection {
         })
     }
 
-    /// TUN down first (network restored), then xray.
+    /// The network first (TUN down or the system proxy back), then xray.
     pub fn disconnect(self) {
         self.closing.store(true, std::sync::atomic::Ordering::SeqCst);
-        let _ = self.helper.lock().unwrap().stop();
+        if let Some(helper) = &self.helper {
+            let _ = helper.lock().unwrap().stop();
+        }
         drop(self.helper);
+        #[cfg(not(target_os = "macos"))]
+        drop(self.sysproxy);
         let mut x = self.xray.lock().unwrap();
         let _ = x.kill();
         let _ = x.wait();
@@ -307,7 +399,10 @@ fn keep_inbounds(config: &mut serde_json::Value, socks: u16, direct: Option<u16>
         };
         if let Some(port) = port {
             inbound["port"] = serde_json::json!(port);
-            inbound["settings"]["accounts"] = serde_json::json!([{ "user": user, "pass": pass }]);
+            // Proxy mode has none.
+            if !user.is_empty() {
+                inbound["settings"]["accounts"] = serde_json::json!([{ "user": user, "pass": pass }]);
+            }
         }
     }
 }

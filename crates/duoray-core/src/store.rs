@@ -53,6 +53,11 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// The user closed the "Нет VPN? Купить DUALIZM" banner for good.
     pub hide_buy: bool,
+    /// Proxy mode instead of the TUN: xray listens on `proxy_port` without a
+    /// password and the system proxy points at it.
+    pub proxy_mode: bool,
+    /// Loopback port of that proxy (HTTP and SOCKS5 on one port).
+    pub proxy_port: u16,
 }
 
 impl Default for Settings {
@@ -75,6 +80,8 @@ impl Default for Settings {
             show_server_type: true,
             close_to_tray: true,
             hide_buy: false,
+            proxy_mode: false,
+            proxy_port: 10808,
         }
     }
 }

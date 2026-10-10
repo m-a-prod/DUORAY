@@ -9,6 +9,9 @@
 //! 3. server hostnames are resolved now, before the TUN exists (SNI/Host keep
 //!    the name), and those IPs are routed around the TUN;
 //! 4. the user's routing (see [`crate::routing`]) is merged into the panel's.
+//!
+//! In proxy mode [`Runtime::open_proxy`] then moves the inbound to a fixed
+//! port without a password: system proxy settings carry no credentials.
 
 use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs, UdpSocket};
 
@@ -29,6 +32,23 @@ pub struct Runtime {
     pub direct_socks: Option<SocketAddr>,
     /// Routing entries that were skipped (e.g. a missing geo database).
     pub warnings: Vec<String>,
+}
+
+impl Runtime {
+    /// Proxy mode: the SOCKS inbound listens on `port` without a password
+    /// (xray's SOCKS inbound also speaks HTTP, so one port serves both).
+    /// Loopback only, like in TUN mode.
+    pub fn open_proxy(&mut self, port: u16) {
+        let inbound = &mut self.config["inbounds"][0];
+        inbound["port"] = json!(port);
+        inbound["settings"]["auth"] = json!("noauth");
+        if let Some(settings) = inbound["settings"].as_object_mut() {
+            settings.remove("accounts");
+        }
+        self.socks.set_port(port);
+        self.user.clear();
+        self.pass.clear();
+    }
 }
 
 /// User routing to merge into the config.
@@ -264,6 +284,23 @@ mod tests {
         assert_eq!(rt.config["outbounds"][0]["protocol"], "vless");
         assert_eq!(rt.config["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"], "K");
         assert_eq!(rt.bypass, vec!["5.6.7.8".parse::<IpAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn proxy_mode_opens_the_inbound_on_its_port() {
+        let s = server(json!({
+            "outbounds": [{"tag": "proxy", "protocol": "vless",
+                           "settings": {"vnext": [{"address": "1.2.3.4", "port": 443, "users": [{"id": "u"}]}]}}]
+        }));
+        let mut rt = build_with(&s, "eth0", None, |_| unreachable!()).unwrap();
+        rt.open_proxy(10808);
+        let inbound = &rt.config["inbounds"][0];
+        assert_eq!(inbound["port"], 10808);
+        assert_eq!(inbound["listen"], "127.0.0.1");
+        assert_eq!(inbound["settings"]["auth"], "noauth");
+        assert!(inbound["settings"].get("accounts").is_none());
+        assert_eq!(rt.socks, "127.0.0.1:10808".parse().unwrap());
+        assert!(rt.user.is_empty() && rt.pass.is_empty());
     }
 
     #[test]
