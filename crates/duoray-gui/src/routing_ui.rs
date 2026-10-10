@@ -351,6 +351,16 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
     ui.on_buy(|| crate::open_url(crate::BUY_URL));
+    ui.on_hide_buy({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            st.store.settings.hide_buy = true;
+            crate::save(&mut st);
+            crate::render(&ui, &st);
+        }
+    });
 
     // Databases: now (if stale) and then every 6 hours.
     update_geo(ui, app, false);

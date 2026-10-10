@@ -180,6 +180,7 @@ fn main() -> anyhow::Result<()> {
         Ok(s) => (s, String::new()),
         Err(e) => (Store::default(), format!("Не удалось прочитать данные: {e:#}")),
     };
+    let pings = load_pings(&path);
     let app: Shared = Arc::new(Mutex::new(App {
         store,
         path,
@@ -190,7 +191,7 @@ fn main() -> anyhow::Result<()> {
         conn_state: ConnState::Idle,
         conn_gen: 0,
         connect_after_install: false,
-        ping_results: Default::default(),
+        ping_results: pings,
         sort_by_ping: false,
         live_ping: None,
         live_ping_busy: false,
@@ -875,6 +876,49 @@ fn key_of(sub: &Subscription, s: &duoray_core::server::Server) -> String {
     format!("{}\u{1f}{}\u{1f}{}:{}", sub.id, s.name, s.address, s.port)
 }
 
+/// A ping row: label, level (1 fast … 3 slow, 4 failed) and the sort key.
+fn ping_entry(ms: Option<u128>) -> (String, i32, u128) {
+    match ms {
+        Some(ms) => {
+            let ms = ms.max(1);
+            let level = if ms < 150 { 1 } else if ms < 400 { 2 } else { 3 };
+            (format!("{ms} мс"), level, ms)
+        }
+        None => ("—".to_string(), 4, u128::MAX),
+    }
+}
+
+/// Last ping results live in pings.json next to the store, so they are
+/// still shown after a restart (people ping the same locations again).
+/// Server key -> milliseconds, or null when the server did not answer.
+fn pings_path(store_path: &std::path::Path) -> PathBuf {
+    store_path.with_file_name("pings.json")
+}
+
+fn load_pings(store_path: &std::path::Path) -> std::collections::HashMap<String, (String, i32, u128)> {
+    let Ok(text) = std::fs::read_to_string(pings_path(store_path)) else { return Default::default() };
+    let saved: std::collections::HashMap<String, Option<u64>> = serde_json::from_str(&text).unwrap_or_default();
+    saved.into_iter().map(|(k, ms)| (k, ping_entry(ms.map(u128::from)))).collect()
+}
+
+/// Saves finished results of servers that still exist; "…" (in progress) is skipped.
+fn save_pings(st: &App) {
+    let live: HashSet<String> =
+        st.store.subscriptions.iter().flat_map(|sub| sub.servers.iter().map(|s| key_of(sub, s))).collect();
+    let saved: std::collections::BTreeMap<&String, Option<u64>> = st
+        .ping_results
+        .iter()
+        .filter(|(k, r)| r.1 != 5 && live.contains(*k))
+        .map(|(k, r)| (k, (r.1 != 4).then(|| u64::try_from(r.2).unwrap_or(u64::MAX))))
+        .collect();
+    let path = pings_path(&st.path);
+    let tmp = path.with_extension("json.tmp");
+    let ok = serde_json::to_vec(&saved).is_ok_and(|bytes| std::fs::write(&tmp, bytes).is_ok());
+    if !ok || std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
 /// Selects the remembered server anywhere; `false` if there is none.
 fn restore_selection(ui: &AppWindow, st: &App) -> bool {
     let Some(want) = &st.store.settings.last_server else { return false };
@@ -1351,7 +1395,7 @@ fn render(ui: &AppWindow, st: &App) {
     ui.set_conn_ping_text(live_text.into());
     ui.set_conn_ping_level(live_level);
     ui.set_can_connect(selected_server(ui, st).is_some());
-    ui.set_show_buy(!st.store.subscriptions.iter().any(is_active_dualizm));
+    ui.set_show_buy(!st.store.settings.hide_buy && !st.store.subscriptions.iter().any(is_active_dualizm));
 
     let Some(sub) = current(ui, st) else {
         ui.set_servers(ModelRc::new(VecModel::from(Vec::<ServerRow>::new())));
@@ -1703,16 +1747,10 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
             if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
                 return;
             }
-            let entry = match result {
-                Ok(d) => {
-                    let ms = d.as_millis().max(1);
-                    let level = if ms < 150 { 1 } else if ms < 400 { 2 } else { 3 };
-                    (format!("{ms} мс"), level, ms)
-                }
-                Err(_) => ("—".to_string(), 4, u128::MAX),
-            };
+            let entry = ping_entry(result.ok().map(|d| d.as_millis()));
             st.live_ping = Some((entry.0.clone(), entry.1));
             st.ping_results.insert(key, entry);
+            save_pings(&st);
             render(&ui, &st);
         });
     });
@@ -1801,14 +1839,7 @@ fn ping_jobs(
             let app = app.clone();
             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                 let mut st = app.lock().unwrap();
-                let entry = match result {
-                    Ok(d) => {
-                        let ms = d.as_millis().max(1);
-                        let level = if ms < 150 { 1 } else if ms < 400 { 2 } else { 3 };
-                        (format!("{ms} мс"), level, ms)
-                    }
-                    Err(_) => ("—".to_string(), 4, u128::MAX),
-                };
+                let entry = ping_entry(result.ok().map(|d| d.as_millis()));
                 st.ping_results.insert(key, entry);
                 if let Some((done, _)) = st.ping_progress.as_mut() {
                     *done += 1;
@@ -1836,6 +1867,7 @@ fn ping_jobs(
                 st.ping_cancel = None;
                 // Cancelled: servers never checked lose their "…".
                 st.ping_results.retain(|_, r| r.1 != 5);
+                save_pings(&st);
                 ui.set_pinging(false);
                 render(&ui, &st);
             });
@@ -1847,6 +1879,22 @@ fn ping_jobs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pings_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("duoray-pings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = dir.join("store.json");
+        std::fs::write(pings_path(&store), r#"{"a":120,"b":null,"c":900}"#).unwrap();
+        let pings = load_pings(&store);
+        assert_eq!(pings["a"], ("120 мс".to_string(), 1, 120));
+        assert_eq!(pings["b"].1, 4);
+        assert_eq!(pings["c"].1, 3);
+        // A broken file is ignored, not fatal.
+        std::fs::write(pings_path(&store), "not json").unwrap();
+        assert!(load_pings(&store).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn formatting() {

@@ -209,9 +209,6 @@ global Icons {
     out property <image> arrow-down: @image-url("icons/arrow-down.svg");
     out property <image> delete: @image-url("icons/delete.svg");
     out property <image> speed: @image-url("icons/speed.svg");
-    // The spinning refresh icon stays a path: rotating a colorized image
-    // renders incorrectly on some GPUs (seen on Windows).
-    out property <string> refresh-path: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
 }
 
 // ── Controls ───────────────────────────────────────────────────
@@ -494,21 +491,30 @@ component RefreshButton inherits Rectangle {
         height: 20px;
         colorize: Palette.foreground;
     }
-    // A vector path in a rotating box: rotating a colorized image renders
-    // incorrectly on some GPUs (seen on Windows).
-    if root.spinning: Rectangle {
+    // A three-quarter arc whose ends move around the circle. The points are
+    // computed here, not rotated with transform-rotation: the software
+    // renderer (Linux, Windows) ignores rotation, so the icon stood still.
+    if root.spinning: Path {
+        // One turn per second, only while spinning (so no redraws when idle).
+        property <angle> a: mod(animation-tick() / 1ms, 1000) * 0.36deg;
         width: 20px;
         height: 20px;
-        // One turn per second, only while spinning (so no redraws when idle).
-        transform-rotation: mod(animation-tick() / 1ms, 1000) * 0.36deg;
-        Path {
-            commands: Icons.refresh-path;
-            viewbox-width: 24;
-            viewbox-height: 24;
-            width: parent.width;
-            height: parent.height;
-            fill: Palette.foreground;
-            fill-rule: evenodd;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: Palette.foreground;
+        stroke-width: 2.2px;
+        stroke-line-cap: round;
+        MoveTo {
+            x: 12 + 8 * cos(a);
+            y: 12 + 8 * sin(a);
+        }
+        ArcTo {
+            x: 12 + 8 * cos(a + 270deg);
+            y: 12 + 8 * sin(a + 270deg);
+            radius-x: 8;
+            radius-y: 8;
+            large-arc: true;
+            sweep: true;
         }
     }
     touch := TouchArea {
@@ -2261,6 +2267,7 @@ export component AppWindow inherits Window {
     callback routing-app-removed <=> routing-page.app-removed;
     callback routing-pick-running <=> routing-page.pick-running;
     callback buy();
+    callback hide-buy();
 
     // Settings page (aliases into it).
     in-out property <bool> happ-enabled <=> settings-page.happ-enabled;
@@ -2706,7 +2713,7 @@ export component AppWindow inherits Window {
                         animate transform-scale { duration: 100ms; easing: ease-out; }
                         HorizontalLayout {
                             padding-left: 14px;
-                            padding-right: 14px;
+                            padding-right: 48px;
                             spacing: 6px;
                             Text {
                                 text: "Нет VPN?";
@@ -2734,6 +2741,34 @@ export component AppWindow inherits Window {
                             mouse-cursor: pointer;
                             clicked => {
                                 root.buy();
+                            }
+                        }
+                        // "Не показывать больше": hides the banner for good.
+                        Rectangle {
+                            x: parent.width - self.width - 8px;
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 14px;
+                            accessible-role: button;
+                            accessible-label: "Не показывать больше";
+                            accessible-action-default => { root.hide-buy(); }
+                            background: Theme.on-accent.with-alpha(hide-touch.pressed ? 0.22 : hide-touch.has-hover ? 0.14 : 0);
+                            animate background { duration: 120ms; easing: ease-out; }
+                            Path {
+                                width: 12px;
+                                height: 12px;
+                                viewbox-width: 12;
+                                viewbox-height: 12;
+                                stroke: Theme.on-accent;
+                                stroke-width: 1.8px;
+                                stroke-line-cap: round;
+                                commands: "M1 1L11 11M11 1L1 11";
+                            }
+                            hide-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.hide-buy();
+                                }
                             }
                         }
                     }

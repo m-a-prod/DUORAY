@@ -51,6 +51,8 @@ pub struct Settings {
     pub show_server_type: bool,
     /// Closing the window hides it to the tray; the VPN keeps running.
     pub close_to_tray: bool,
+    /// The user closed the "Нет VPN? Купить DUALIZM" banner for good.
+    pub hide_buy: bool,
 }
 
 impl Default for Settings {
@@ -72,6 +74,7 @@ impl Default for Settings {
             switch_on_select: true,
             show_server_type: true,
             close_to_tray: true,
+            hide_buy: false,
         }
     }
 }
