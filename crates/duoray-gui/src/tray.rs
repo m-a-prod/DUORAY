@@ -73,8 +73,9 @@ fn gradient(stops: &[(f32, [u8; 3])], t: f32) -> [u8; 3] {
 }
 
 /// The DUORAY mark (ui/assets/logo-*.svg: two mirrored "D"s, the right one at
-/// half opacity, a diagonal gradient) as straight RGBA, centred in a square.
-pub fn logo_rgba(size: u32, connected: bool) -> Vec<u8> {
+/// half opacity, a diagonal gradient) as straight RGBA, centred in a square
+/// and taking `fill` of its width.
+pub fn logo_rgba(size: u32, connected: bool, fill: f32) -> Vec<u8> {
     const W: f32 = 198.0;
     const H: f32 = 161.0;
     let stops = if connected { ON } else { OFF };
@@ -86,7 +87,8 @@ pub fn logo_rgba(size: u32, connected: bool) -> Vec<u8> {
         };
         shape(0.0, 80.5) && !shape(17.71, 62.79)
     };
-    let scale = size as f32 / W;
+    let scale = size as f32 * fill / W;
+    let left = (size as f32 - W * scale) / 2.0;
     let top = (size as f32 - H * scale) / 2.0;
     const SS: u32 = 4;
     let mut out = Vec::with_capacity((size * size * 4) as usize);
@@ -95,7 +97,7 @@ pub fn logo_rgba(size: u32, connected: bool) -> Vec<u8> {
             let mut alpha = 0.0;
             for sy in 0..SS {
                 for sx in 0..SS {
-                    let x = (px as f32 + (sx as f32 + 0.5) / SS as f32) / scale;
+                    let x = (px as f32 + (sx as f32 + 0.5) / SS as f32 - left) / scale;
                     let y = (py as f32 + (sy as f32 + 0.5) / SS as f32 - top) / scale;
                     let left = if d(x, y) { 1.0 } else { 0.0 };
                     let right = if d(W - x, y) { 0.5 } else { 0.0 };
@@ -104,7 +106,7 @@ pub fn logo_rgba(size: u32, connected: bool) -> Vec<u8> {
             }
             let a = (alpha / (SS * SS) as f32 * 255.0).round() as u8;
             // From the bottom-left corner (0) to the top-right one (1).
-            let (x, y) = ((px as f32 + 0.5) / scale, (py as f32 + 0.5 - top) / scale);
+            let (x, y) = ((px as f32 + 0.5 - left) / scale, (py as f32 + 0.5 - top) / scale);
             let t = (x * W + (H - y) * H) / (W * W + H * H);
             let c = gradient(stops, t);
             out.extend_from_slice(&[c[0], c[1], c[2], a]);
@@ -136,7 +138,7 @@ mod imp {
                 .into_iter()
                 .map(|size| {
                     // RGBA -> ARGB, as the spec wants.
-                    let mut data = logo_rgba(size, self.state.connected);
+                    let mut data = logo_rgba(size, self.state.connected, 1.0);
                     for px in data.as_chunks_mut::<4>().0 {
                         px.rotate_right(1);
                     }
@@ -196,9 +198,13 @@ mod imp {
         toggle: MenuItem,
     }
 
+    /// The menu bar draws the icon 18 pt high whatever the image: a mark
+    /// filling it looked oversized next to the system icons, so it gets a margin.
+    const FILL: f32 = if cfg!(target_os = "macos") { 0.74 } else { 1.0 };
+
     fn icon(connected: bool) -> Option<Icon> {
         let size = 64;
-        Icon::from_rgba(logo_rgba(size, connected), size, size).ok()
+        Icon::from_rgba(logo_rgba(size, connected, FILL), size, size).ok()
     }
 
     impl Tray {
@@ -263,7 +269,7 @@ mod tests {
     #[test]
     fn logo_has_both_halves_and_transparent_corners() {
         let size = 64;
-        let px = logo_rgba(size, true);
+        let px = logo_rgba(size, true, 1.0);
         assert_eq!(px.len(), (size * size * 4) as usize);
         let alpha = |x: u32, y: u32| px[((y * size + x) * 4 + 3) as usize];
         assert_eq!(alpha(0, 0), 0, "outside the mark");
