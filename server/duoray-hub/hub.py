@@ -11,6 +11,7 @@ limiting only).
   GET  /v1/update/manifest.sig
   GET  /v1/update/files/<name>     installers / AppImages
   GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
+  GET  /download/<kind>              302 to the current build, e.g. /download/windows
   GET  /health
 """
 
@@ -35,6 +36,21 @@ RETENTION_DAYS = 90
 MAX_DB_BYTES = 1024 * 1024 * 1024
 RATE_PER_HOUR = 30
 ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
+
+# Stable links for people (bot, site): /download/<kind> -> the current file.
+# Names as packaging/release.sh publishes them; {v} is the manifest version.
+DOWNLOADS = {
+    "windows": "DUORAY-Setup-{v}-x64.exe",
+    "windows-x86": "DUORAY-Setup-{v}-x86.exe",
+    "macos": "DUORAY-{v}-macos-aarch64.dmg",
+    "macos-intel": "DUORAY-{v}-macos-x86_64.dmg",
+    "linux": "DUORAY-{v}-x86_64.AppImage",
+    "linux-arm": "DUORAY-{v}-aarch64.AppImage",
+    "deb": "duoray_{v}-1_amd64.deb",
+    "deb-arm": "duoray_{v}-1_arm64.deb",
+    "rpm": "duoray-{v}-1.x86_64.rpm",
+    "rpm-arm": "duoray-{v}-1.aarch64.rpm",
+}
 
 _db_lock = threading.Lock()
 _rate = defaultdict(deque)
@@ -193,6 +209,18 @@ class Handler(BaseHTTPRequestHandler):
                     "application/octet-stream",
                     {"Content-Disposition": f'attachment; filename="{name}"'},
                 )
+        if self.path.startswith("/download/"):
+            template = DOWNLOADS.get(self.path[len("/download/"):].strip("/"))
+            try:
+                with open(os.path.join(UPDATES, "manifest.json"), encoding="utf-8") as f:
+                    version = json.load(f)["version"]
+            except (OSError, ValueError, KeyError):
+                version = None
+            if template and version:
+                name = template.format(v=version)
+                if os.path.isfile(os.path.join(UPDATES, "files", name)):
+                    return self.reply(302, b"", "text/plain", {"Location": f"/v1/update/files/{name}", "Cache-Control": "no-cache"})
+            return self.reply_json(404, {"error": "not found"})
         # pacman repository: Server = https://<hub>/arch/$arch
         if self.path.startswith("/arch/"):
             arch, _, name = self.path[len("/arch/"):].partition("/")
