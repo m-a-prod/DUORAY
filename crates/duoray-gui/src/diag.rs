@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 /// Hubs that receive reports and serve updates, main first. The others are
 /// mirrors for when a domain is blocked or down; updates are signature-
 /// checked whichever one answers.
-const HUBS: &[&str] = &["https://duoray.dualizm.space", "https://duoray.it-dualizm.space", "https://api.duoray.pro"];
+const HUBS: &[&str] = &["https://duoray.dualizm.space", "https://duoray.pro", "https://duoray.it-dualizm.space"];
 
 /// The hub that answered last; tried first next time.
 static PREFERRED: AtomicUsize = AtomicUsize::new(0);
