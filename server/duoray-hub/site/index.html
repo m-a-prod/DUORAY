@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUORAY — приложение DUALIZM для компьютера</title>
+<meta name="description" content="DUORAY — приложение DUALIZM для Windows, macOS и Linux.">
+<meta name="theme-color" content="#141118">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #141118;
+  --bg-2: #1c1822;
+  --line: #ffffff14;
+  --line-2: #ffffff24;
+  --text: #f6eef3;
+  --muted: #b9abb4;
+  --pink: #f4c2d7;
+  --pink-hi: #fdebf3;
+  --pink-lo: #c97fa3;
+  --grad: linear-gradient(100deg, var(--pink-hi) 0%, var(--pink) 45%, var(--pink-lo) 100%);
+  --gutter: clamp(16px, 5vw, 80px);
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --display: Unbounded, "Arial Black", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--text); scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { font: 400 17px/1.6 Onest, system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: hidden; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--pink); outline-offset: 4px; border-radius: 8px; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: -9999px; z-index: 10; }
+.skip:focus { left: var(--gutter); top: 12px; background: var(--pink); color: var(--bg); padding: 8px 14px; border-radius: 8px; }
+.wrap { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 var(--gutter); }
+
+/* ---------- backdrop ---------- */
+.stage { position: relative; isolation: isolate; overflow: hidden; }
+.stage::before {
+  content: ""; position: absolute; inset: 0; z-index: -2;
+  background:
+    radial-gradient(900px 640px at var(--mx, 78%) var(--my, 40%), #f4c2d726, transparent 60%),
+    radial-gradient(700px 520px at 100% 100%, #c97fa32e, transparent 60%),
+    radial-gradient(640px 420px at 0% 0%, #6750a422, transparent 60%);
+}
+.stage::after {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(900px 640px at 72% 45%, #000 15%, transparent 72%);
+          mask-image: radial-gradient(900px 640px at 72% 45%, #000 15%, transparent 72%);
+}
+
+/* ---------- header ---------- */
+header .wrap { display: flex; align-items: center; justify-content: space-between; padding-top: 28px; padding-bottom: 28px; }
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; font: 800 18px var(--display); letter-spacing: .02em; }
+.brand svg { width: 38px; height: auto; }
+header nav { display: flex; gap: 28px; font-weight: 500; }
+header nav a { text-decoration: none; color: var(--muted); }
+header nav a:hover { color: var(--text); }
+
+/* ---------- hero ---------- */
+.hero { display: grid; grid-template-columns: 1.15fr .85fr; align-items: center; gap: 40px; min-height: min(760px, calc(100vh - 100px)); padding-bottom: 72px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px;
+  background: #f4c2d714; border: 1px solid #f4c2d745; color: var(--pink);
+  font: 500 14px var(--mono); letter-spacing: .06em; text-transform: uppercase;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pink); box-shadow: 0 0 12px var(--pink); }
+h1 {
+  margin-top: 32px; font: 800 clamp(52px, 8vw, 112px)/.95 var(--display); letter-spacing: -.02em;
+  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lead { margin-top: 24px; font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--display); letter-spacing: -.01em; max-width: 26ch; }
+.sub { margin-top: 16px; color: var(--muted); font-size: clamp(17px, 1.5vw, 20px); max-width: 42ch; }
+
+.cta { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.btn {
+  position: relative; display: inline-flex; align-items: center; gap: 12px;
+  padding: 18px 28px; border-radius: 16px; text-decoration: none;
+  font: 600 18px Onest, sans-serif;
+}
+.btn-main { background: var(--grad); color: #2a1220; box-shadow: 0 10px 40px -10px #f4c2d780; }
+.btn-main:hover { box-shadow: 0 14px 50px -8px #f4c2d7b0; }
+.btn-ghost { background: #ffffff0d; border: 1px solid var(--line-2); color: var(--text); }
+.btn-ghost:hover { background: #ffffff16; }
+.btn svg { width: 20px; height: 20px; flex: none; }
+.hint { margin-top: 14px; color: var(--muted); font: 500 14px var(--mono); }
+
+/* the mark: two halves that come together and light up, like the app */
+.mark { position: relative; display: grid; place-items: center; }
+.mark button {
+  all: unset; cursor: pointer; display: grid; place-items: center; gap: 28px;
+  border-radius: 24px; padding: 12px;
+}
+.mark button:focus-visible { outline: 2px solid var(--pink); outline-offset: 8px; }
+.mark svg { width: min(380px, 30vw); height: auto; overflow: visible; filter: drop-shadow(0 0 0 transparent); transition: filter .8s; }
+.mark .half { transition: transform 1s cubic-bezier(.2,.8,.2,1); }
+.mark .l { transform: translateX(-26px); }
+.mark .r { transform: translateX(26px); }
+.mark stop { transition: stop-color .8s; }
+.mark .on svg { filter: drop-shadow(0 0 60px #f4c2d755); }
+.mark .on .l, .mark .on .r { transform: none; }
+.status {
+  display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 999px;
+  background: #ffffff0a; border: 1px solid var(--line-2); font: 500 15px var(--mono); color: var(--muted);
+  transition: color .6s, border-color .6s;
+}
+.status .dot { background: #71717a; box-shadow: none; transition: background .6s, box-shadow .6s; }
+.on .status { color: var(--pink); border-color: #f4c2d755; }
+.on .status .dot { background: var(--pink); box-shadow: 0 0 12px var(--pink); }
+
+/* ---------- features ---------- */
+section { position: relative; }
+.sec { padding: 96px 0; border-top: 1px solid var(--line); }
+.eyebrow { font: 500 14px var(--mono); color: var(--pink); letter-spacing: .08em; text-transform: uppercase; }
+h2 { margin-top: 14px; font: 800 clamp(30px, 4.4vw, 56px)/1.05 var(--display); letter-spacing: -.02em; max-width: 18ch; }
+.features { margin-top: 56px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line-2); }
+.feature { padding: 28px 28px 8px 0; }
+.feature + .feature { padding-left: 28px; border-left: 1px solid var(--line); }
+.num { font: 500 14px var(--mono); color: var(--pink-lo); }
+.feature h3 { margin-top: 18px; font: 600 20px/1.25 var(--display); letter-spacing: -.01em; }
+.feature p { margin-top: 12px; color: var(--muted); font-size: 16px; }
+
+/* ---------- downloads ---------- */
+.os { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.os-col {
+  position: relative; padding: 28px; border-radius: 24px; background: var(--bg-2); border: 1px solid var(--line);
+  transition: border-color .3s;
+}
+.os-col.mine { border-color: #f4c2d766; box-shadow: 0 0 0 1px #f4c2d733, 0 30px 80px -40px #f4c2d766; }
+.os-col .tag { position: absolute; top: 24px; right: 24px; font: 500 12px var(--mono); color: var(--pink); letter-spacing: .06em; text-transform: uppercase; display: none; }
+.os-col.mine .tag { display: block; }
+.os-col h3 { display: flex; align-items: center; gap: 12px; font: 800 24px var(--display); }
+.os-col h3 svg { width: 26px; height: 26px; color: var(--pink); }
+.files { list-style: none; padding: 0; margin-top: 20px; }
+.files a {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 0; border-top: 1px solid var(--line); text-decoration: none; font-weight: 600;
+}
+.files a span { color: var(--muted); font: 500 13px var(--mono); }
+.files a::after { content: "↓"; color: var(--pink); font-weight: 600; margin-left: 4px; }
+.files a:hover { color: var(--pink); }
+.note { margin-top: 14px; color: var(--muted); font-size: 14px; }
+.note a { color: var(--pink); }
+
+.arch { margin-top: 20px; padding: 28px; border-radius: 24px; background: var(--bg-2); border: 1px solid var(--line); }
+.arch-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+.arch h3 { font: 800 20px var(--display); }
+.arch p { color: var(--muted); font-size: 15px; }
+.code { position: relative; margin-top: 18px; border-radius: 16px; background: #0e0c11; border: 1px solid var(--line); }
+pre { overflow-x: auto; padding: 20px 22px; font: 500 14px/1.75 var(--mono); color: #e9dce4; }
+.code.has-copy pre { padding-right: 140px; }
+.copy {
+  position: absolute; top: 12px; right: 12px; cursor: pointer;
+  font: 500 13px var(--mono); color: var(--pink); background: #f4c2d714; border: 1px solid #f4c2d745;
+  border-radius: 10px; padding: 8px 14px;
+}
+.copy:hover { background: #f4c2d726; }
+
+footer { border-top: 1px solid var(--line); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 28px; padding-bottom: 36px; color: var(--muted); font-size: 15px; }
+footer .domain { font: 500 15px var(--mono); color: var(--pink); }
+
+/* ---------- reveal ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .js .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s cubic-bezier(.2,.8,.2,1); }
+  .js .reveal.in { opacity: 1; transform: none; }
+  .btn, .copy, .files a { transition: box-shadow .25s, background .2s, color .2s; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mark .half, .mark stop, .mark svg, .status, .status .dot { transition: none; }
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 980px) {
+  .hero { grid-template-columns: 1fr; min-height: 0; padding-top: 24px; }
+  .mark { order: -1; }
+  .mark svg { width: min(260px, 60vw); }
+  .features { grid-template-columns: 1fr 1fr; }
+  .feature:nth-child(3) { padding-left: 0; border-left: 0; }
+  .feature:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .os { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  header nav a:not(:last-child) { display: none; }
+  .features { grid-template-columns: 1fr; }
+  .feature, .feature + .feature { padding: 24px 0 4px; border-left: 0; }
+  .feature + .feature { border-top: 1px solid var(--line); }
+  .btn { width: 100%; justify-content: center; }
+  .sec { padding: 72px 0; }
+  .os-col, .arch { padding: 22px; }
+  .code.has-copy pre { padding-right: 22px; padding-top: 60px; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#download">К загрузкам</a>
+
+<div class="stage" id="stage">
+  <header>
+    <div class="wrap">
+      <a class="brand" href="/">
+        <svg viewBox="-4 -4 206 169" aria-hidden="true"><defs><linearGradient id="gb" gradientUnits="userSpaceOnUse" x1="0" y1="161" x2="198" y2="0"><stop offset="0" stop-color="#c97fa3"/><stop offset=".5" stop-color="#f4c2d7"/><stop offset="1" stop-color="#fdebf3"/></linearGradient></defs><path fill-rule="evenodd" fill="url(#gb)" d="M0 0H47.5A80.5 80.5 0 0 1 47.5 161H0ZM17.71 17.71H47.5A62.79 62.79 0 0 1 47.5 143.29H17.71Z"/><path fill-rule="evenodd" fill="url(#gb)" opacity=".5" d="M198 0H150.5A80.5 80.5 0 0 0 150.5 161H198ZM180.29 17.71H150.5A62.79 62.79 0 0 0 150.5 143.29H180.29Z"/></svg>
+        DUORAY
+      </a>
+      <nav aria-label="Разделы">
+        <a href="#features">Возможности</a>
+        <a href="#download">Скачать</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap hero">
+      <div>
+        <span class="pill"><span class="dot" aria-hidden="true"></span>Приложение DUALIZM</span>
+        <h1>DUORAY</h1>
+        <p class="lead">Весь DUALIZM на&nbsp;компьютере в&nbsp;одну кнопку</p>
+        <p class="sub">Windows, macOS и Linux. Ваша подписка работает целиком: все серверы, маршруты и&nbsp;настройки.</p>
+        <div class="cta">
+          <a class="btn btn-main" id="primary" href="#download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>
+            <span id="primary-label">Скачать</span>
+          </a>
+          <a class="btn btn-ghost" href="#download">Все платформы</a>
+        </div>
+        <p class="hint" id="primary-note">Windows · macOS · Linux</p>
+      </div>
+
+      <div class="mark">
+        <button type="button" id="power" aria-pressed="false" aria-label="Подключение, демонстрация">
+          <svg viewBox="-4 -4 206 169" aria-hidden="true">
+            <defs><linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="0" y1="161" x2="198" y2="0">
+              <stop offset="0" stop-color="#3f3f46"/><stop offset=".5" stop-color="#71717a"/><stop offset="1" stop-color="#d4d4d8"/>
+            </linearGradient></defs>
+            <path class="half l" fill-rule="evenodd" fill="url(#gm)" d="M0 0H47.5A80.5 80.5 0 0 1 47.5 161H0ZM17.71 17.71H47.5A62.79 62.79 0 0 1 47.5 143.29H17.71Z"/>
+            <path class="half r" fill-rule="evenodd" fill="url(#gm)" opacity=".5" d="M198 0H150.5A80.5 80.5 0 0 0 150.5 161H198ZM180.29 17.71H150.5A62.79 62.79 0 0 0 150.5 143.29H180.29Z"/>
+          </svg>
+          <span class="status"><span class="dot" aria-hidden="true"></span><span id="status-text">Отключено</span></span>
+        </button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<section class="sec" id="features" aria-labelledby="f-title">
+  <div class="wrap">
+    <p class="eyebrow">Почему DUORAY</p>
+    <h2 id="f-title" class="reveal">Сделан под DUALIZM, а&nbsp;не&nbsp;под всех сразу</h2>
+    <div class="features">
+      <div class="feature reveal">
+        <span class="num">01</span>
+        <h3>Подписка целиком</h3>
+        <p>Балансировщики, мосты и маршруты из панели работают как задумано, без ручной настройки.</p>
+      </div>
+      <div class="feature reveal">
+        <span class="num">02</span>
+        <h3>Без утечек</h3>
+        <p>Свой TUN: весь трафик и DNS идут через сервер, а не мимо него.</p>
+      </div>
+      <div class="feature reveal">
+        <span class="num">03</span>
+        <h3>Российское напрямую</h3>
+        <p>Сайты, банки, локальная сеть и игры идут мимо VPN. Можно выбрать и отдельные приложения.</p>
+      </div>
+      <div class="feature reveal">
+        <span class="num">04</span>
+        <h3>Поставил и забыл</h3>
+        <p>Пароль администратора нужен один раз. Обновления приходят сами.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="download" aria-labelledby="d-title">
+  <div class="wrap">
+    <p class="eyebrow">Скачать</p>
+    <h2 id="d-title" class="reveal">Выберите свою систему</h2>
+
+    <div class="os">
+      <div class="os-col reveal" data-os="win">
+        <span class="tag">Ваша система</span>
+        <h3><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.5v7H3zM11.5 4.4 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z"/></svg>Windows</h3>
+        <ul class="files">
+          <li><a href="/download/windows">Windows 10 и 11 <span>64-бит · exe</span></a></li>
+          <li><a href="/download/windows-x86">Старые компьютеры <span>32-бит · exe</span></a></li>
+        </ul>
+      </div>
+      <div class="os-col reveal" data-os="mac">
+        <span class="tag">Ваша система</span>
+        <h3><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.8-3.5.8-.7 0-1.8-.8-3-.8-1.6 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.6zM14.1 5.6c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>macOS</h3>
+        <ul class="files">
+          <li><a href="/download/macos">Apple M1 и новее <span>dmg</span></a></li>
+          <li><a href="/download/macos-intel">Intel <span>dmg</span></a></li>
+        </ul>
+        <p class="note">Первый запуск: правый клик по приложению → «Открыть».</p>
+      </div>
+      <div class="os-col reveal" data-os="linux">
+        <span class="tag">Ваша система</span>
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-5-6-5M12 19h8"/></svg>Linux</h3>
+        <ul class="files">
+          <li><a href="/download/linux">Любой дистрибутив <span>AppImage</span></a></li>
+          <li><a href="/download/deb">Debian, Ubuntu, Mint <span>deb</span></a></li>
+          <li><a href="/download/rpm">Fedora, openSUSE <span>rpm</span></a></li>
+        </ul>
+        <p class="note">ARM: <a href="/download/linux-arm">AppImage</a> · <a href="/download/deb-arm">deb</a> · <a href="/download/rpm-arm">rpm</a></p>
+      </div>
+    </div>
+
+    <div class="arch reveal">
+      <div class="arch-head">
+        <h3>Arch, CachyOS, Manjaro</h3>
+        <p>Подключите репозиторий один раз, дальше DUORAY обновляется вместе с системой.</p>
+      </div>
+      <div class="code">
+        <pre id="arch-cmd"><code>curl -fsSL https://duoray.pro/arch/duoray.asc | sudo pacman-key --add -
+sudo pacman-key --lsign-key 13F077054DB026DC11D58144254C5F497BDAC7B9
+printf '\n[duoray]\nServer = https://duoray.pro/arch/$arch\n' | sudo tee -a /etc/pacman.conf
+sudo pacman -Sy duoray</code></pre>
+        <button class="copy" type="button" data-copy="arch-cmd" hidden>Копировать</button>
+      </div>
+      <p class="vh" id="copy-status" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>DUORAY — приложение DUALIZM</span>
+    <span class="domain">duoray.pro</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var doc = document.documentElement;
+  doc.classList.add("js");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Highlight the visitor's system and point the main button at it.
+  var ua = navigator.userAgent;
+  var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var os = null;
+  if (/Win/i.test(platform)) os = ["win", "/download/windows", "Скачать для Windows", "Windows 10 и 11 · 64-бит"];
+  else if (/Mac/i.test(platform) && !/iPhone|iPad/i.test(ua)) os = ["mac", "/download/macos", "Скачать для macOS", "Apple M1 и новее · для Intel — ниже"];
+  else if (/Linux/i.test(platform) && !/Android/i.test(ua)) os = ["linux", "/download/linux", "Скачать для Linux", "AppImage · deb, rpm и Arch — ниже"];
+  if (os) {
+    document.getElementById("primary").href = os[1];
+    document.getElementById("primary-label").textContent = os[2];
+    document.getElementById("primary-note").textContent = os[3];
+    var col = document.querySelector('[data-os="' + os[0] + '"]');
+    if (col) col.classList.add("mine");
+  }
+
+  // The mark "connects" like the app: halves meet, grey turns pink.
+  var power = document.getElementById("power");
+  var stops = power.querySelectorAll("stop");
+  var off = ["#3f3f46", "#71717a", "#d4d4d8"], on = ["#c97fa3", "#f4c2d7", "#fdebf3"];
+  var statusText = document.getElementById("status-text");
+  function setOn(v) {
+    power.classList.toggle("on", v);
+    power.setAttribute("aria-pressed", String(v));
+    stops.forEach(function (s, i) { s.setAttribute("stop-color", (v ? on : off)[i]); });
+    statusText.textContent = v ? "Подключено" : "Отключено";
+  }
+  power.addEventListener("click", function () { setOn(power.getAttribute("aria-pressed") !== "true"); });
+  setTimeout(function () { setOn(true); }, reduce ? 0 : 700);
+
+  // Glow follows the pointer in the hero.
+  var stage = document.getElementById("stage");
+  if (!reduce && window.matchMedia("(pointer: fine)").matches) {
+    stage.addEventListener("pointermove", function (e) {
+      var r = stage.getBoundingClientRect();
+      stage.style.setProperty("--mx", ((e.clientX - r.left) / r.width * 100) + "%");
+      stage.style.setProperty("--my", ((e.clientY - r.top) / r.height * 100) + "%");
+    });
+  }
+
+  // Reveal on scroll.
+  var items = document.querySelectorAll(".reveal");
+  if ("IntersectionObserver" in window && !reduce) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } });
+    }, { threshold: .15 });
+    items.forEach(function (el, i) { el.style.transitionDelay = (i % 4) * 80 + "ms"; io.observe(el); });
+  } else {
+    items.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  // Copy the Arch commands.
+  var status = document.getElementById("copy-status");
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    if (!navigator.clipboard) return;
+    btn.hidden = false;
+    btn.parentNode.classList.add("has-copy");
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(document.getElementById(btn.dataset.copy).textContent).then(function () {
+        btn.textContent = "Скопировано";
+        status.textContent = "Команды скопированы";
+        setTimeout(function () { btn.textContent = "Копировать"; status.textContent = ""; }, 2000);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ limiting only).
   GET  /v1/update/files/<name>     installers / AppImages
   GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
   GET  /download/<kind>              302 to the current build, e.g. /download/windows
+  GET  /, /favicon.svg              download page (site/ next to this file)
   GET  /health
 """
 
@@ -30,6 +31,11 @@ STATE = os.environ.get("STATE_DIRECTORY", "/var/lib/duoray-hub")
 DB_PATH = os.path.join(STATE, "reports.db")
 UPDATES = os.path.join(STATE, "updates")
 LISTEN = os.environ.get("HUB_LISTEN", "127.0.0.1:5090")
+SITE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
+PAGES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+}
 
 MAX_BODY = 256 * 1024
 RETENTION_DAYS = 90
@@ -193,6 +199,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.reply(200, b"ok", "text/plain")
+        page = PAGES.get(self.path.split("?", 1)[0])
+        if page:
+            return self.send_file(os.path.join(SITE, page[0]), page[1], {"Cache-Control": "no-cache"})
         names = {
             "/v1/update/manifest.json": ("manifest.json", "application/json"),
             "/v1/update/manifest.sig": ("manifest.sig", "text/plain"),
