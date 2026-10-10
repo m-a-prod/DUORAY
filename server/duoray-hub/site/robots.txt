@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /download/
+Disallow: /v1/
+Disallow: /arch/
+
+Sitemap: https://duoray.pro/sitemap.xml

@@ -3,10 +3,41 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DUORAY — приложение для компьютера</title>
-<meta name="description" content="DUORAY — приложение для Windows, macOS и Linux.">
+<title>DUORAY — VPN-клиент на Xray для Windows, macOS и Linux</title>
+<meta name="description" content="VPN-клиент на Xray для Windows, macOS и Linux.">
+<link rel="canonical" href="https://duoray.pro/">
 <meta name="theme-color" content="#141118">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DUORAY">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:url" content="https://duoray.pro/">
+<meta property="og:title" content="DUORAY — VPN-клиент на Xray для компьютера">
+<meta property="og:description" content="Windows, macOS и Linux. Подписка из панели работает целиком: все серверы, маршруты и настройки.">
+<meta property="og:image" content="https://duoray.pro/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="DUORAY — VPN-клиент на Xray для Windows, macOS и Linux">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "DUORAY",
+  "url": "https://duoray.pro/",
+  "image": "https://duoray.pro/og.png",
+  "description": "VPN-клиент на Xray для Windows, macOS и Linux.",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Windows 10, Windows 11, macOS, Linux",
+  "downloadUrl": "https://duoray.pro/#download",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "RUB" },
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "publisher": { "@type": "Organization", "name": "DUALIZM", "url": "https://t.me/dualizm_vpn" },
+  "sameAs": ["https://github.com/m-a-prod/DUORAY"]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -70,11 +101,12 @@ header nav a:hover { color: var(--text); }
   font: 500 14px var(--mono); letter-spacing: .06em; text-transform: uppercase;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pink); box-shadow: 0 0 12px var(--pink); }
-h1 {
-  margin-top: 32px; font: 800 clamp(52px, 8vw, 112px)/.95 var(--display); letter-spacing: -.02em;
+h1 { margin-top: 32px; }
+h1 .name {
+  display: block; font: 800 clamp(52px, 8vw, 112px)/.95 var(--display); letter-spacing: -.02em;
   background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.lead { margin-top: 24px; font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--display); letter-spacing: -.01em; max-width: 26ch; }
+.lead { display: block; margin-top: 24px; font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--display); letter-spacing: -.01em; max-width: 26ch; }
 .sub { margin-top: 16px; color: var(--muted); font-size: clamp(17px, 1.5vw, 20px); max-width: 42ch; }
 
 .cta { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
@@ -164,6 +196,9 @@ pre { overflow-x: auto; padding: 20px 22px; font: 500 14px/1.75 var(--mono); col
 footer { border-top: 1px solid var(--line); }
 footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 28px; padding-bottom: 36px; color: var(--muted); font-size: 15px; }
 footer .domain { font: 500 15px var(--mono); color: var(--pink); }
+footer a, .src a { color: var(--text); text-decoration-color: #f4c2d766; text-underline-offset: 3px; }
+footer a:hover, .src a:hover { color: var(--pink); }
+.src { margin-top: 28px; color: var(--muted); font-size: 15px; }
 
 /* ---------- reveal ---------- */
 @media (prefers-reduced-motion: no-preference) {
@@ -209,6 +244,7 @@ footer .domain { font: 500 15px var(--mono); color: var(--pink); }
       </a>
       <nav aria-label="Разделы">
         <a href="#features">Возможности</a>
+        <a href="https://github.com/m-a-prod/DUORAY">Исходники</a>
         <a href="#download">Скачать</a>
       </nav>
     </div>
@@ -218,8 +254,7 @@ footer .domain { font: 500 15px var(--mono); color: var(--pink); }
     <div class="wrap hero">
       <div>
         <span class="pill"><span class="dot" aria-hidden="true"></span>Приложение для компьютера</span>
-        <h1>DUORAY</h1>
-        <p class="lead">Ваш VPN на&nbsp;компьютере в&nbsp;одну кнопку</p>
+        <h1><span class="name">DUORAY</span> <span class="lead">Ваш VPN на&nbsp;компьютере в&nbsp;одну кнопку</span></h1>
         <p class="sub">Windows, macOS и Linux. Ваша подписка работает целиком: все серверы, маршруты и&nbsp;настройки.</p>
         <div class="cta">
           <a class="btn btn-main" id="primary" href="#download">
@@ -232,7 +267,8 @@ footer .domain { font: 500 15px var(--mono); color: var(--pink); }
       </div>
 
       <div class="mark">
-        <button type="button" id="power" aria-pressed="false" aria-label="Подключение, демонстрация">
+        <button type="button" id="power" aria-pressed="false">
+          <span class="vh">Демонстрация подключения:</span>
           <svg viewBox="-4 -4 206 169" aria-hidden="true">
             <defs><linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="0" y1="161" x2="198" y2="0">
               <stop offset="0" stop-color="#3f3f46"/><stop offset=".5" stop-color="#71717a"/><stop offset="1" stop-color="#d4d4d8"/>
@@ -255,7 +291,7 @@ footer .domain { font: 500 15px var(--mono); color: var(--pink); }
       <div class="feature reveal">
         <span class="num">01</span>
         <h3>Подписка целиком</h3>
-        <p>Балансировщики, мосты и маршруты из панели работают как задумано, без ручной настройки.</p>
+        <p>Полные конфиги Xray из панели: балансировщики, мосты и маршруты работают как задумано. Ссылки VLESS, VMess, Trojan и Shadowsocks тоже подходят.</p>
       </div>
       <div class="feature reveal">
         <span class="num">02</span>
@@ -264,8 +300,8 @@ footer .domain { font: 500 15px var(--mono); color: var(--pink); }
       </div>
       <div class="feature reveal">
         <span class="num">03</span>
-        <h3>Российское напрямую</h3>
-        <p>Сайты, банки, локальная сеть и игры идут мимо VPN. Можно выбрать и отдельные приложения.</p>
+        <h3>Продвинутая маршрутизация</h3>
+        <p>Игры (Steam, CS2, FACEIT), сайты из белого списка и локальная сеть идут в&nbsp;обход VPN. Для остального&nbsp;— свои правила по&nbsp;доменам, IP и&nbsp;приложениям.</p>
       </div>
       <div class="feature reveal">
         <span class="num">04</span>
@@ -325,12 +361,14 @@ sudo pacman -Sy duoray</code></pre>
       </div>
       <p class="vh" id="copy-status" role="status" aria-live="polite"></p>
     </div>
+
+    <p class="src reveal">Код открыт: <a href="https://github.com/m-a-prod/DUORAY">исходники на&nbsp;GitHub</a>, лицензия GPL-3.0. Установщики собирает GitHub Actions из&nbsp;этого кода.</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <span>DUORAY от DUALIZM</span>
+    <span>DUORAY от <a href="https://t.me/dualizm_vpn">DUALIZM</a> · <a href="https://github.com/m-a-prod/DUORAY">GitHub</a></span>
     <span class="domain">duoray.pro</span>
   </div>
 </footer>

@@ -20,7 +20,7 @@ self-updates and Arch packages. Daily totals only, no cookies or scripts.
   GET  /v1/update/files/<name>     installers / AppImages
   GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
   GET  /download/<kind>              302 to the current build, e.g. /download/windows
-  GET  /, /favicon.svg              download page (site/ next to this file)
+  GET  /, /robots.txt, /og.png, ... download page and its files (site/, see PAGES)
   GET  /health
 """
 
@@ -43,6 +43,10 @@ SITE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
 PAGES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+    "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+    "/og.png": ("og.png", "image/png"),  # link previews (og:image)
+    "/robots.txt": ("robots.txt", "text/plain; charset=utf-8"),
+    "/sitemap.xml": ("sitemap.xml", "application/xml"),
 }
 
 MAX_BODY = 64 * 1024  # the largest real report so far is ~18 KB
