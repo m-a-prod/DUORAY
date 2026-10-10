@@ -201,13 +201,13 @@ mod imp {
 
     pub fn enable(port: u16, save: impl FnOnce(&Saved) -> Result<()>) -> Result<Option<String>> {
         let mut before = Saved::default();
-        if gsettings(&["get", "org.gnome.system.proxy", "mode"]).is_some() {
-            for (schema, key) in GNOME {
-                if let Some(v) = gsettings(&["get", schema, key]) {
-                    before.gnome.push((schema.into(), key.into(), v));
-                }
-            }
-        }
+        // All of them or none: a key set below but missing from the snapshot
+        // would never be put back (a "mode" left at manual cuts the internet).
+        let gnome: Option<Vec<_>> = GNOME
+            .iter()
+            .map(|&(schema, key)| gsettings(&["get", schema, key]).map(|v| (schema.into(), key.into(), v)))
+            .collect();
+        before.gnome = gnome.unwrap_or_default();
         if let Some((read, write)) = kde_tools() {
             for key in KDE_KEYS {
                 let v = Command::new(read)

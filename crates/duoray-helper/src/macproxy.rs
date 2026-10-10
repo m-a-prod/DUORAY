@@ -2,6 +2,8 @@
 //! network settings needs root, hence here and not in the GUI). The previous
 //! settings of every network service are written to [`STATE`] before anything
 //! changes, so a helper that died meanwhile restores them on its next start.
+//! The proxy settings survive a reboot, so the snapshot must too: not
+//! /var/run.
 
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -13,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 #[cfg(target_os = "macos")]
-pub const STATE: &str = "/var/run/duoray-proxy.json";
+pub const STATE: &str = "/Library/Application Support/DUORAY/proxy-state.json";
 /// HTTP, HTTPS and SOCKS: xray's inbound answers all three on one port.
 #[cfg(target_os = "macos")]
 const KINDS: [&str; 3] = ["webproxy", "securewebproxy", "socksfirewallproxy"];
@@ -28,6 +30,7 @@ pub struct ProxyState {
     pub port: u16,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Service {
     pub name: String,
@@ -47,6 +50,9 @@ pub fn enable(port: u16) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     if saved.is_empty() {
         bail!("no network services");
+    }
+    if let Some(dir) = std::path::Path::new(STATE).parent() {
+        std::fs::create_dir_all(dir).context("creating the helper state directory")?;
     }
     std::fs::write(STATE, serde_json::to_vec(&saved)?).context("saving the proxy settings")?;
     let apply = || -> Result<()> {
