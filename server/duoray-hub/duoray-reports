@@ -4,13 +4,26 @@
   duoray-reports list [-n 30] [--kind K] [--version V]
   duoray-reports show DR-XXXXXX
   duoray-reports stats [--days 14]
+  duoray-reports traffic [--days 14]   visits, downloads, active installs
+
+Reports are written by anyone who can reach the hub: their text is printed
+with control characters replaced, so a report cannot drive the terminal
+(colours, title, clipboard, hidden lines).
 """
 
 import argparse
 import json
 import os
+import re
 import sqlite3
 import time
+
+# C0 controls except tab and newline, DEL, and C1 controls (\x9b is a CSI).
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def out(text=""):
+    print(CONTROL.sub("\ufffd", str(text)))
 
 DB = os.environ.get("DUORAY_REPORTS_DB") or next(
     (p for p in ("/var/lib/private/duoray-hub/reports.db", "/var/lib/duoray-hub/reports.db") if os.path.exists(p)),
@@ -33,6 +46,8 @@ def main():
     show.add_argument("id")
     st = sub.add_parser("stats")
     st.add_argument("--days", type=int, default=14)
+    tr = sub.add_parser("traffic")
+    tr.add_argument("--days", type=int, default=14)
     a = ap.parse_args()
 
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
@@ -44,7 +59,7 @@ def main():
             q, args = q + " AND version=?", args + [a.version]
         for rid, ts, ver, os_, kind, msg in conn.execute(q + " ORDER BY received DESC LIMIT ?", args + [a.n]):
             first = (msg or "").splitlines()[0][:90] if msg else ""
-            print(f"{rid}  {when(ts)}  {ver:<8} {kind:<16} {os_[:24]:<24} {first}")
+            out(f"{rid}  {when(ts)}  {ver:<8} {kind:<16} {os_[:24]:<24} {first}")
     elif a.cmd == "show":
         row = conn.execute("SELECT received, payload FROM reports WHERE id=?", (a.id.upper(),)).fetchone()
         if not row:
@@ -53,11 +68,13 @@ def main():
         log = report.pop("log", None)
         xray = report.pop("xray_log", None)
         helper = report.pop("helper_log", None)
-        print(f"received {when(row[0])}")
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        out(f"received {when(row[0])}")
+        out(json.dumps(report, ensure_ascii=False, indent=2))
         for title, text in (("app log", log), ("xray log", xray), ("helper log", helper)):
             if text:
-                print(f"\n--- {title} ---\n{text}")
+                out(f"\n--- {title} ---\n{text}")
+    elif a.cmd == "traffic":
+        traffic(conn, a.days)
     else:
         since = int(time.time()) - a.days * 86400
         print(f"last {a.days} days: {conn.execute('SELECT COUNT(*) FROM reports WHERE received>=?', (since,)).fetchone()[0]} reports\n")
@@ -67,7 +84,43 @@ def main():
         )
         for sig, kind, n, users, ver, msg in conn.execute(q, (since,)):
             first = (msg or "").splitlines()[0][:70] if msg else ""
-            print(f"{n:>5}× {users:>4} users  {kind:<16} {ver:<8} {sig}  {first}")
+            out(f"{n:>5}× {users:>4} users  {kind:<16} {ver:<8} {sig}  {first}")
+
+
+def traffic(conn, days):
+    """Per UTC day: site visitors (unique) and views, downloads by platform,
+    apps checking for updates (≈ active installs), self-updates, Arch packages."""
+    try:
+        rows = conn.execute(
+            "SELECT day, key, hits, uniq FROM traffic WHERE day >= date('now', ?) ORDER BY day",
+            (f"-{days - 1} days",),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    if not rows:
+        return out(f"no traffic recorded in the last {days} days")
+    by_day, kinds = {}, {}
+    for day, key, hits, uniq in rows:
+        by_day.setdefault(day, {})[key] = (hits, uniq)
+        if key.startswith("download:"):
+            kinds[key[9:]] = kinds.get(key[9:], 0) + hits
+    out("UTC day      visitors  views  downloads  installs  updates  arch")
+    total = {}
+    for day, keys in by_day.items():
+        visit = keys.get("visit", (0, 0))
+        downloads = sum(h for k, (h, _) in keys.items() if k.startswith("download:"))
+        installs = keys.get("update-check", (0, 0))[1]
+        updates = keys.get("update", (0, 0))[0]
+        arch = keys.get("arch", (0, 0))[0]
+        for name, v in (("visitors", visit[1]), ("views", visit[0]), ("downloads", downloads), ("updates", updates), ("arch", arch)):
+            total[name] = total.get(name, 0) + v
+        out(f"{day}  {visit[1]:>8}  {visit[0]:>5}  {downloads:>9}  {installs:>8}  {updates:>7}  {arch:>4}")
+    out(
+        f"\ntotal: {total['visitors']} visitors (per day, summed), {total['views']} views, "
+        f"{total['downloads']} downloads, {total['updates']} updates, {total['arch']} Arch packages"
+    )
+    if kinds:
+        out("downloads: " + ", ".join(f"{k} {n}" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])))
 
 
 if __name__ == "__main__":

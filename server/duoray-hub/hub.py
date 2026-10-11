@@ -4,7 +4,15 @@ serves signed update files. Standard library only.
 
 Listens on 127.0.0.1 behind haproxy (TLS). Stores reports in SQLite under
 $STATE_DIRECTORY; never stores client IPs (they are used in memory for rate
-limiting only).
+limiting and, hashed with a salt that changes daily, for counting visitors).
+
+Reports are open to anyone who reads the client's source, so they are
+limited here: per address and for everyone together, by size, by database
+size, and repeated errors of one install within minutes are stored once.
+
+Traffic counters (table `traffic`, `duoray-reports traffic`): page visits,
+/download/<kind> downloads, update checks (≈ active installs per day),
+self-updates and Arch packages. Daily totals only, no cookies or scripts.
 
   POST /v1/report                  JSON report -> {"id": "DR-XXXXXX"}
   GET  /v1/update/manifest.json    update manifest (signed, see manifest.sig)
@@ -37,11 +45,17 @@ PAGES = {
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
 }
 
-MAX_BODY = 256 * 1024
+MAX_BODY = 64 * 1024  # the largest real report so far is ~18 KB
 RETENTION_DAYS = 90
-MAX_DB_BYTES = 1024 * 1024 * 1024
-RATE_PER_HOUR = 30
+MAX_DB_BYTES = 256 * 1024 * 1024
+RATE_PER_HOUR = 20  # per client address
+GLOBAL_PER_HOUR = 200  # all clients together: a flood from many addresses stops here
+DEDUP_SECONDS = 600  # the same error of one install within this: stored once
 ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
+# The app (since 0.3.0) sends this; anything else is not a DUORAY client.
+CLIENT_UA = "Duoray/"
+# Page visits from these User-Agents are not counted.
+BOTS = ("bot", "crawl", "spider", "slurp", "preview", "facebookexternalhit", "headless")
 
 # Stable links for people (bot, site): /download/<kind> -> the current file.
 # Names as packaging/release.sh publishes them; {v} is the manifest version.
@@ -60,7 +74,12 @@ DOWNLOADS = {
 
 _db_lock = threading.Lock()
 _rate = defaultdict(deque)
+_global = deque()
 _rate_lock = threading.Lock()
+# Unique visitors per day: hashes of (daily salt, address), in memory only.
+_seen = {}
+_salt = ("", b"")
+_traffic_lock = threading.Lock()
 
 
 def db():
@@ -81,6 +100,12 @@ def init_db():
         )
         c.execute("CREATE INDEX IF NOT EXISTS reports_received ON reports(received)")
         c.execute("CREATE INDEX IF NOT EXISTS reports_signature ON reports(signature)")
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS traffic (
+                day TEXT NOT NULL, key TEXT NOT NULL,
+                hits INTEGER NOT NULL, uniq INTEGER NOT NULL,
+                PRIMARY KEY (day, key))"""
+        )
 
 
 def safe_name(name):
@@ -96,12 +121,45 @@ def allowed(ip):
     now = time.time()
     with _rate_lock:
         hits = _rate[ip]
-        while hits and hits[0] < now - 3600:
-            hits.popleft()
-        if len(hits) >= RATE_PER_HOUR:
+        for q in (hits, _global):
+            while q and q[0] < now - 3600:
+                q.popleft()
+        if len(hits) >= RATE_PER_HOUR or len(_global) >= GLOBAL_PER_HOUR:
             return False
         hits.append(now)
+        _global.append(now)
+        if len(_rate) > 10000:
+            for key in [k for k, q in _rate.items() if not q or q[-1] < now - 3600]:
+                del _rate[key]
         return True
+
+
+def db_full():
+    return sum(os.path.getsize(p) for p in (DB_PATH, DB_PATH + "-wal") if os.path.exists(p)) > MAX_DB_BYTES
+
+
+def count(key, ip):
+    """Adds a hit to today's `key`, and a unique one if this address is new today."""
+    global _salt
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    with _traffic_lock:
+        if _salt[0] != day:
+            _salt = (day, secrets.token_bytes(16))
+            _seen.clear()
+        seen = _seen.setdefault(key, set())
+        mark = hashlib.sha256(_salt[1] + ip.encode()).digest()[:12]
+        new = mark not in seen
+        if new and len(seen) < 200000:
+            seen.add(mark)
+    try:
+        with _db_lock, db() as conn:
+            conn.execute(
+                "INSERT INTO traffic VALUES (?,?,1,?) "
+                "ON CONFLICT(day, key) DO UPDATE SET hits = hits + 1, uniq = uniq + excluded.uniq",
+                (day, key, int(new)),
+            )
+    except sqlite3.Error as e:  # counting never breaks a download
+        print(f"traffic count failed: {e}", flush=True)
 
 
 def new_id(conn):
@@ -116,14 +174,24 @@ def store(report):
     message = clip(report.get("message"), 8192)
     first = message.splitlines()[0] if message else ""
     signature = clip(report.get("signature"), 64) or hashlib.sha1(f"{kind}\n{first}".encode()).hexdigest()[:12]
+    install = clip(report.get("install_id"), 64)
+    now = int(time.time())
     with _db_lock, db() as conn:
+        # An error that keeps repeating: the report from minutes ago stands for it.
+        if install:
+            row = conn.execute(
+                "SELECT id FROM reports WHERE signature=? AND install_id=? AND received>? ORDER BY received DESC LIMIT 1",
+                (signature, install, now - DEDUP_SECONDS),
+            ).fetchone()
+            if row:
+                return row[0]
         rid = new_id(conn)
         conn.execute(
             "INSERT INTO reports VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 rid,
-                int(time.time()),
-                clip(report.get("install_id"), 64),
+                now,
+                install,
                 clip(report.get("version"), 32),
                 clip(report.get("os"), 96),
                 kind,
@@ -160,9 +228,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def client_ip(self):
-        # haproxy (option forwardfor) appends the real address last.
-        fwd = self.headers.get("X-Forwarded-For", "")
-        return fwd.split(",")[-1].strip() or self.client_address[0]
+        # haproxy (option forwardfor) adds its own X-Forwarded-For line after
+        # any the client sent: only the last line is the real address. (The
+        # first one used to be read: a made-up header got past the limits.)
+        lines = self.headers.get_all("X-Forwarded-For") or []
+        return (lines[-1].split(",")[-1].strip() if lines else "") or self.client_address[0]
+
+    def user_agent(self):
+        return self.headers.get("User-Agent", "")
 
     def reply(self, status, body=b"", ctype="application/json", extra=None):
         self.send_response(status)
@@ -180,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/v1/report":
             return self.reply_json(404, {"error": "not found"})
+        if not self.user_agent().startswith(CLIENT_UA):
+            return self.reply_json(400, {"error": "not a DUORAY client"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
@@ -188,6 +263,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply_json(413, {"error": "too large"})
         if not allowed(self.client_ip()):
             return self.reply_json(429, {"error": "too many reports"})
+        if db_full():
+            return self.reply_json(503, {"error": "storage full"})
         try:
             report = json.loads(self.rfile.read(length))
             if not isinstance(report, dict):
@@ -199,8 +276,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.reply(200, b"ok", "text/plain")
+        get = self.command == "GET"
         page = PAGES.get(self.path.split("?", 1)[0])
         if page:
+            ua = self.user_agent().lower()
+            if get and page[0] == "index.html" and ua and not any(b in ua for b in BOTS):
+                count("visit", self.client_ip())
             return self.send_file(os.path.join(SITE, page[0]), page[1], {"Cache-Control": "no-cache"})
         names = {
             "/v1/update/manifest.json": ("manifest.json", "application/json"),
@@ -208,18 +289,25 @@ class Handler(BaseHTTPRequestHandler):
         }
         if self.path in names:
             name, ctype = names[self.path]
+            # Each running app checks: unique addresses a day ≈ active installs.
+            if get and name == "manifest.json" and self.user_agent().startswith(CLIENT_UA):
+                count("update-check", self.client_ip())
             return self.send_file(os.path.join(UPDATES, name), ctype, {"Cache-Control": "no-cache"})
         prefix = "/v1/update/files/"
         if self.path.startswith(prefix):
             name = self.path[len(prefix):]
             if safe_name(name):
+                # The app updating itself (people come here through /download/).
+                if get and self.user_agent().startswith(CLIENT_UA):
+                    count("update", self.client_ip())
                 return self.send_file(
                     os.path.join(UPDATES, "files", name),
                     "application/octet-stream",
                     {"Content-Disposition": f'attachment; filename="{name}"'},
                 )
         if self.path.startswith("/download/"):
-            template = DOWNLOADS.get(self.path[len("/download/"):].strip("/"))
+            kind = self.path[len("/download/"):].split("?", 1)[0].strip("/")
+            template = DOWNLOADS.get(kind)
             try:
                 with open(os.path.join(UPDATES, "manifest.json"), encoding="utf-8") as f:
                     version = json.load(f)["version"]
@@ -228,12 +316,16 @@ class Handler(BaseHTTPRequestHandler):
             if template and version:
                 name = template.format(v=version)
                 if os.path.isfile(os.path.join(UPDATES, "files", name)):
+                    if get:
+                        count(f"download:{kind}", self.client_ip())
                     return self.reply(302, b"", "text/plain", {"Location": f"/v1/update/files/{name}", "Cache-Control": "no-cache"})
             return self.reply_json(404, {"error": "not found"})
         # pacman repository: Server = https://<hub>/arch/$arch
         if self.path.startswith("/arch/"):
             arch, _, name = self.path[len("/arch/"):].partition("/")
             if arch in ("x86_64", "aarch64", "any") and safe_name(name):
+                if get and ".pkg.tar." in name and not name.endswith(".sig"):
+                    count("arch", self.client_ip())
                 return self.send_file(os.path.join(UPDATES, "arch", arch, name), "application/octet-stream", {})
             if arch == "duoray.asc":
                 return self.send_file(os.path.join(UPDATES, "arch", "duoray.asc"), "text/plain", {})
