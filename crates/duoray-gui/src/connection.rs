@@ -143,9 +143,20 @@ pub fn connect(
     let geo_data = GeoData::load(assets.as_deref(), Some(&geo.lists()));
     let mut rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
         .context("preparing xray config")?;
+    // Before the port check: our own xray from a previous run may hold it.
+    std::fs::create_dir_all(run_dir)?;
+    kill_stale_xray(run_dir);
     if let Some(port) = proxy_port {
         // A fixed port: something else on it would answer instead of xray.
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_err() {
+        // The xray just stopped above may need a moment to let it go.
+        let free = (0..20).any(|_| {
+            let free = std::net::TcpListener::bind(("127.0.0.1", port)).is_ok();
+            if !free {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            free
+        });
+        if !free {
             return Err(ConnectError::Other(anyhow::anyhow!(
                 "порт {port} занят другой программой. Выберите другой порт прокси в настройках"
             )));
@@ -177,8 +188,6 @@ pub fn connect(
         .as_array()
         .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));
 
-    std::fs::create_dir_all(run_dir)?;
-    kill_stale_xray(run_dir);
     let config_path = run_dir.join("xray.json");
     write_private(&config_path, &serde_json::to_vec_pretty(&rt.config)?)?;
     let log_path = run_dir.join("xray.log");
