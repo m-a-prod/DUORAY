@@ -1320,6 +1320,7 @@ dependencies = [
  "slint",
  "slint-build",
  "socket2",
+ "swash",
  "tray-icon",
  "ureq",
  "url",

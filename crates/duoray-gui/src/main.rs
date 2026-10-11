@@ -17,6 +17,7 @@ slint::include_modules!();
 mod connection;
 mod diag;
 mod editor_ui;
+mod emoji;
 mod helper;
 mod instance;
 mod ping;
@@ -596,12 +597,16 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // While connected: latency through the live tunnel every 5 s.
+    // While connected: latency through the live tunnel every 5 s, only while
+    // the window is shown (no one sees it from the tray or the dock).
     let live_ping_timer = slint::Timer::default();
     live_ping_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(5), {
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || {
             let Some(ui) = ui_weak.upgrade() else { return };
+            if !ui.window().is_visible() || ui.window().is_minimized() {
+                return;
+            }
             let mut st = app.lock().unwrap();
             measure_live_ping(&ui, &app, &mut st);
         }
@@ -1365,6 +1370,7 @@ fn render(ui: &AppWindow, st: &App) {
         .map(|(index, s)| SubRow {
             index: index as i32,
             name: s.display_name().into(),
+            name_parts: emoji::name_parts(&s.display_name()),
             meta: sub_meta(s).into(),
             usage: usage(s),
             error: s.last_error.as_deref().map(first_line).unwrap_or_default().into(),
@@ -1420,6 +1426,7 @@ fn render(ui: &AppWindow, st: &App) {
         return;
     };
     ui.set_header_title(sub.display_name().into());
+    ui.set_header_title_parts(emoji::name_parts(&sub.display_name()));
     ui.set_header_meta(header_meta(sub).into());
     let (usage_text, usage_fraction) = usage_line(sub);
     ui.set_usage_text(usage_text.into());
@@ -1451,6 +1458,7 @@ fn render(ui: &AppWindow, st: &App) {
                 flag_image: image.unwrap_or_default(),
                 flag: flag.unwrap_or_default().into(),
                 name: name.into(),
+                name_parts: emoji::name_parts(emoji::without_leading_flag(&s.name)),
                 description: s.description.clone().unwrap_or_default().into(),
                 protocol: s.protocol.clone().into(),
                 transport: transport(&s.network, &s.security).into(),

@@ -1,9 +1,17 @@
 import { ListView, Palette, Spinner, ScrollView } from "std-widgets.slint";
 
+// A run of a name: text, or (text empty) a colour emoji image.
+export struct NamePart {
+    text: string,
+    emoji: image,
+}
+
 export struct SubRow {
     // Storage index: manual groups are shown outside this list.
     index: int,
     name: string,
+    // Set only when the name has emoji (see RichName).
+    name-parts: [NamePart],
     meta: string,
     // Traffic used, 0..1; negative when the plan is unlimited.
     usage: float,
@@ -15,6 +23,8 @@ export struct ServerRow {
     flag-image: image,
     has-flag-image: bool,
     name: string,
+    // Set only when the name has emoji (see RichName).
+    name-parts: [NamePart],
     description: string,
     protocol: string,
     transport: string,
@@ -439,6 +449,32 @@ component ComboBox inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+}
+
+// A name with colour emoji. The software renderer cannot draw them, so the
+// app passes them as images between the text runs (src/emoji.rs).
+component RichName inherits HorizontalLayout {
+    in property <[NamePart]> parts;
+    in property <length> font-size;
+    in property <int> font-weight;
+    in property <brush> color: Palette.foreground;
+    alignment: start;
+    for part in root.parts: HorizontalLayout {
+        if part.text != "": Text {
+            text: part.text;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            color: root.color;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if part.text == "": Image {
+            source: part.emoji;
+            height: root.font-size * 1.15;
+            width: self.height * part.emoji.width / max(1, part.emoji.height);
+            image-fit: contain;
         }
     }
 }
@@ -2233,6 +2269,7 @@ export component AppWindow inherits Window {
     in-out property <int> current-sub: -1;
     in-out property <int> current-server: -1;
     in property <string> header-title;
+    in property <[NamePart]> header-title-parts;
     in property <string> header-meta;
     in property <string> announce;
     // Traffic line under the header: "86 ГБ / ∞"; usage < 0 means unlimited.
@@ -2649,11 +2686,17 @@ export component AppWindow inherits Window {
                                     padding: 12px;
                                     padding-right: 48px;
                                     spacing: 5px;
-                                    Text {
+                                    if sub.name-parts.length == 0: Text {
                                         text: sub.name;
                                         font-size: Theme.fs-title;
                                         font-weight: 700;
                                         overflow: elide;
+                                        color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
+                                    }
+                                    if sub.name-parts.length > 0: RichName {
+                                        parts: sub.name-parts;
+                                        font-size: Theme.fs-title;
+                                        font-weight: 700;
                                         color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
                                     }
                                     Text {
@@ -3055,11 +3098,16 @@ export component AppWindow inherits Window {
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 spacing: 2px;
-                                Text {
+                                if root.header-title-parts.length == 0: Text {
                                     text: root.header-title;
                                     font-size: Theme.fs-display;
                                     font-weight: 800;
                                     overflow: elide;
+                                }
+                                if root.header-title-parts.length > 0: RichName {
+                                    parts: root.header-title-parts;
+                                    font-size: Theme.fs-display;
+                                    font-weight: 800;
                                 }
                                 Text {
                                     text: root.header-meta;
@@ -3349,11 +3397,18 @@ export component AppWindow inherits Window {
                                     horizontal-stretch: 1;
                                     HorizontalLayout {
                                         spacing: 8px;
-                                        Text {
+                                        if srv.name-parts.length == 0: Text {
                                             text: srv.name;
                                             font-size: Theme.fs-title;
                                             font-weight: 600;
                                             overflow: elide;
+                                            horizontal-stretch: 1;
+                                            color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
+                                        }
+                                        if srv.name-parts.length > 0: RichName {
+                                            parts: srv.name-parts;
+                                            font-size: Theme.fs-title;
+                                            font-weight: 600;
                                             horizontal-stretch: 1;
                                             color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
                                         }

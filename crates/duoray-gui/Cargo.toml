@@ -23,6 +23,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10"
 slint = { version = "1.18.1", features = ["unstable-winit-030"] }
+swash = { version = "0.2.10", default-features = false, features = ["std", "scale", "render"] }
 socket2 = { version = "0.6.5", features = ["all"] }
 ureq = { version = "3.4.2", features = ["socks-proxy", "json"] }
 url = "2.5.8"
