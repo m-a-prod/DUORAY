@@ -90,6 +90,15 @@ struct Respawn {
     socks: SocketAddr,
 }
 
+/// How to connect.
+#[derive(Clone, Copy, Default)]
+pub struct Options {
+    /// Proxy mode: no TUN; the system proxy points at xray on this port.
+    pub proxy_port: Option<u16>,
+    /// Keep the tunnel and restart xray if it dies (see [`connect`]).
+    pub kill_switch: bool,
+}
+
 /// Per-app routing works through the TUN only: proxy mode goes without it.
 fn effective_routing(routing: &RoutingSettings, proxy: Option<u16>) -> RoutingSettings {
     let mut routing = routing.clone();
@@ -100,6 +109,9 @@ fn effective_routing(routing: &RoutingSettings, proxy: Option<u16>) -> RoutingSe
 }
 
 /// `proxy_port`: proxy mode (no TUN; the system proxy points at xray there).
+/// `kill_switch`: if xray dies, keep the TUN (or the system proxy) so traffic
+/// stops instead of going around the VPN, and start xray again; if it will
+/// not come back, `on_failure` gets `true` (the tunnel is still up, blocking).
 /// `on_failure` is called (from another thread) if the TUN or xray dies,
 /// `on_uplink_change` (Linux) when the network moved to another interface:
 /// xray is bound to the old one, so the connection has to be made again.
@@ -108,10 +120,11 @@ pub fn connect(
     run_dir: &Path,
     routing: &RoutingSettings,
     geo: &GeoDir,
-    proxy_port: Option<u16>,
-    on_failure: impl Fn(String) + Send + Sync + Clone + 'static,
+    options: Options,
+    on_failure: impl Fn(String, bool) + Send + Sync + Clone + 'static,
     on_uplink_change: impl Fn() + Send + 'static,
 ) -> Result<Connection, ConnectError> {
+    let Options { proxy_port, kill_switch } = options;
     let started = Instant::now();
     // Proxy mode needs no TUN, and the app sets the system proxy itself,
     // except on macOS: changing it needs root there, so the helper does it.
@@ -272,6 +285,7 @@ pub fn connect(
         let (xray, helper, closing) = (xray.clone(), helper.clone(), closing.clone());
         let log_path = log_path.clone();
         let iface = iface.clone();
+        let respawn = respawn.clone();
         move || {
             let gone = |closing: &std::sync::atomic::AtomicBool| closing.load(std::sync::atomic::Ordering::SeqCst);
             let mut moved = 0;
@@ -290,11 +304,20 @@ pub fn connect(
                         return on_uplink_change();
                     }
                 }
-                if let Ok(Some(status)) = xray.lock().unwrap().try_wait() {
-                    if !gone(&closing) {
-                        on_failure(format!("xray остановился ({status}). {}", log_tail(&log_path)));
+                let exited = xray.lock().unwrap().try_wait();
+                if let Ok(Some(status)) = exited {
+                    if gone(&closing) {
+                        return;
                     }
-                    return;
+                    let why = format!("xray остановился ({status}). {}", log_tail(&log_path));
+                    if kill_switch {
+                        if restart_xray(&xray, &respawn, &closing) {
+                            crate::diag::log(format!("kill switch: xray stopped ({status}), started again"));
+                            continue;
+                        }
+                        return on_failure(why, true);
+                    }
+                    return on_failure(why, false);
                 }
                 let Some(helper) = &helper else { continue };
                 let status = helper.lock().unwrap().status();
@@ -303,8 +326,8 @@ pub fn connect(
                 }
                 match status {
                     Ok(None) => {}
-                    Ok(Some(reason)) => return on_failure(format!("Туннель остановился: {reason}")),
-                    Err(_) => return on_failure(String::new()),
+                    Ok(Some(reason)) => return on_failure(format!("Туннель остановился: {reason}"), false),
+                    Err(_) => return on_failure(String::new(), false),
                 }
             }
         }
@@ -411,6 +434,29 @@ impl Connection {
         let _ = x.kill();
         let _ = x.wait();
     }
+}
+
+/// Kill switch: xray died while the tunnel is up. Starts it again from the same
+/// config (port and credentials unchanged), three tries; `false` if it would
+/// not listen. The TUN stays up all the while, so nothing leaks meanwhile.
+fn restart_xray(xray: &Mutex<Child>, r: &Respawn, closing: &std::sync::atomic::AtomicBool) -> bool {
+    for attempt in 0..3 {
+        if closing.load(std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        let Ok(mut fresh) = spawn_xray(&r.config, &r.log, r.assets.as_deref()) else { continue };
+        let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
+        if wait_listening(r.socks, &mut fresh, Duration::from_secs(10)).is_ok() {
+            *xray.lock().unwrap() = fresh;
+            return true;
+        }
+        let _ = fresh.kill();
+        let _ = fresh.wait();
+    }
+    false
 }
 
 /// Points a fresh config's SOCKS inbounds at the port and credentials the

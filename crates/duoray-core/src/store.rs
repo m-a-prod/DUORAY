@@ -62,6 +62,9 @@ pub struct Settings {
     pub autostart: bool,
     /// Connect to the last server when DUORAY starts.
     pub autoconnect: bool,
+    /// If xray dies while connected: keep the tunnel (traffic stops instead
+    /// of going around the VPN) and start xray again.
+    pub kill_switch: bool,
 }
 
 impl Default for Settings {
@@ -88,6 +91,7 @@ impl Default for Settings {
             proxy_port: 10808,
             autostart: false,
             autoconnect: false,
+            kill_switch: false,
         }
     }
 }

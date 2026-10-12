@@ -732,6 +732,7 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> proxy-mode;
     in-out property <bool> autostart;
     in-out property <bool> autoconnect;
+    in-out property <bool> kill-switch;
     in-out property <string> proxy-port: "10808";
     in property <bool> tray-available;
     in property <string> duoray-version;
@@ -1085,6 +1086,15 @@ component SettingsPage inherits Rectangle {
                     title: "Подключаться при запуске";
                     description: "Сразу после запуска DUORAY подключается к последнему выбранному серверу.";
                     checked <=> root.autoconnect;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
+                ToggleRow {
+                    title: "Аварийная блокировка (kill switch)";
+                    description: "Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться».";
+                    checked <=> root.kill-switch;
                     toggled => {
                         root.changed();
                     }
@@ -2377,6 +2387,7 @@ export component AppWindow inherits Window {
     in-out property <bool> proxy-mode <=> settings-page.proxy-mode;
     in-out property <bool> autostart <=> settings-page.autostart;
     in-out property <bool> autoconnect <=> settings-page.autoconnect;
+    in-out property <bool> kill-switch <=> settings-page.kill-switch;
     in-out property <string> proxy-port <=> settings-page.proxy-port;
     in property <bool> tray-available <=> settings-page.tray-available;
     in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
@@ -2426,7 +2437,7 @@ export component AppWindow inherits Window {
     in property <bool> has-ping-results;
     in property <bool> sort-by-ping;
 
-    // Connection: "idle" | "connecting" | "connected" | "disconnecting" | "failed"
+    // Connection: "idle" | "connecting" | "connected" | "disconnecting" | "failed" | "blocked"
     in property <string> conn-state: "idle";
     in property <string> conn-title: "Не подключено";
     in property <string> conn-detail;
@@ -2909,7 +2920,7 @@ export component AppWindow inherits Window {
                                     alignment: center;
                                     Rectangle {
                                         property <brush> tone: root.conn-state == "connected" ? Theme.ok
-                                            : root.conn-state == "failed" ? Theme.danger
+                                            : root.conn-state == "failed" || root.conn-state == "blocked" ? Theme.danger
                                             : root.conn-state == "idle" ? Palette.border : Theme.warn;
                                         property <bool> pulsing: root.conn-state == "connecting" || root.conn-state == "disconnecting";
                                         width: 18px;
@@ -2963,12 +2974,12 @@ export component AppWindow inherits Window {
                                 }
                             }
                             Button {
-                                text: root.conn-state == "connected" ? "Отключиться"
+                                text: root.conn-state == "connected" || root.conn-state == "blocked" ? "Отключиться"
                                     : root.conn-state == "connecting" ? "Подключение…"
                                     : root.conn-state == "disconnecting" ? "Отключение…"
                                     : root.can-connect ? "Подключиться" : "Выберите сервер";
-                                primary: root.conn-state != "connected";
-                                enabled: root.conn-state == "connected" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
+                                primary: root.conn-state != "connected" && root.conn-state != "blocked";
+                                enabled: root.conn-state == "connected" || root.conn-state == "blocked" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
                                 clicked => {
                                     root.toggle-connection();
                                 }

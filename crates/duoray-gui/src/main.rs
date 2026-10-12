@@ -121,6 +121,9 @@ enum ConnState {
     Switching { name: String },
     Disconnecting,
     Failed(String),
+    /// Kill switch: xray is gone but the tunnel stays up, so traffic stops
+    /// instead of going around the VPN, until the user disconnects.
+    Blocked,
 }
 
 type Shared = Arc<Mutex<App>>;
@@ -411,6 +414,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_close_to_tray(st.store.settings.close_to_tray);
             ui.set_autostart(st.store.settings.autostart);
             ui.set_autoconnect(st.store.settings.autoconnect);
+            ui.set_kill_switch(st.store.settings.kill_switch);
             ui.set_proxy_mode(st.store.settings.proxy_mode);
             ui.set_proxy_port(st.store.settings.proxy_port.to_string().into());
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
@@ -837,7 +841,9 @@ fn show_window(ui: &AppWindow) {
 
 fn tray_state(ui: &AppWindow, st: &App) -> tray::State {
     let toggle = match st.conn_state {
-        ConnState::Connected { .. } | ConnState::Connecting { .. } | ConnState::Switching { .. } => "Отключиться",
+        ConnState::Connected { .. } | ConnState::Connecting { .. } | ConnState::Switching { .. } | ConnState::Blocked => {
+            "Отключиться"
+        }
         ConnState::Disconnecting => "",
         ConnState::Idle | ConnState::Failed(_) if selected_server(ui, st).is_some() => "Подключиться",
         ConnState::Idle | ConnState::Failed(_) => "",
@@ -866,6 +872,7 @@ fn diag_context(ui: &AppWindow, st: &App) -> serde_json::Value {
         ConnState::Switching { .. } => "switching",
         ConnState::Disconnecting => "disconnecting",
         ConnState::Failed(_) => "failed",
+        ConnState::Blocked => "blocked",
     };
     serde_json::json!({
         "connection": conn,
@@ -1171,7 +1178,7 @@ fn autoconnect(ui: &AppWindow, app: &Shared, attempt: u32) {
 fn toggle_connection(ui: &AppWindow, app: &Shared) {
     let mut st = app.lock().unwrap();
     match st.conn_state {
-        ConnState::Connected { .. } => {
+        ConnState::Connected { .. } | ConnState::Blocked => {
             let conn = st.conn.take();
             diag::log("disconnect");
             st.conn_state = ConnState::Disconnecting;
@@ -1211,15 +1218,16 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
     let routing = st.store.settings.routing.clone();
     let proxy_port = st.store.settings.proxy_mode.then_some(st.store.settings.proxy_port);
+    let kill_switch = st.store.settings.kill_switch;
     render(ui, &st);
     drop(st);
     let geo = routing_ui::geo_dir(app);
 
     let on_failure = {
         let (ui_weak, app) = (ui.as_weak(), app.clone());
-        move |msg: String| {
+        move |msg: String, blocked: bool| {
             let app = app.clone();
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| connection_failed(&ui, &app, generation, msg));
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| connection_failed(&ui, &app, generation, msg, blocked));
         }
     };
     let on_uplink_change = {
@@ -1239,7 +1247,15 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     };
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let result = connection::connect(&server, &run_dir, &routing, &geo, proxy_port, on_failure, on_uplink_change);
+        let result = connection::connect(
+            &server,
+            &run_dir,
+            &routing,
+            &geo,
+            connection::Options { proxy_port, kill_switch },
+            on_failure,
+            on_uplink_change,
+        );
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Connecting { .. });
@@ -1306,13 +1322,19 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     });
 }
 
-fn connection_failed(ui: &AppWindow, app: &Shared, generation: u64, msg: String) {
+fn connection_failed(ui: &AppWindow, app: &Shared, generation: u64, msg: String, blocked: bool) {
     let mut st = app.lock().unwrap();
     if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
         return;
     }
-    let conn = st.conn.take();
     diag::auto("tunnel_stopped", if msg.is_empty() { "helper disconnected" } else { &msg });
+    // Kill switch: the tunnel stays up (and blocks) until "Отключиться".
+    if blocked {
+        st.conn_state = ConnState::Blocked;
+        render(ui, &st);
+        return;
+    }
+    let conn = st.conn.take();
     st.conn_state = ConnState::Failed(if msg.is_empty() { "Помощник отключился".into() } else { msg });
     render(ui, &st);
     if let Some(c) = conn {
@@ -1468,6 +1490,11 @@ fn render(ui: &AppWindow, st: &App) {
         ConnState::Connected { name, tun, .. } => ("connected", "Подключено".into(), format!("{name} · {tun}")),
         ConnState::Disconnecting => ("disconnecting", "Отключение…".into(), String::new()),
         ConnState::Failed(e) => ("failed", "Ошибка подключения".into(), first_line(e)),
+        ConnState::Blocked => (
+            "blocked",
+            "Интернет заблокирован".into(),
+            "Сервер недоступен. Трафик остановлен, чтобы не идти мимо VPN".into(),
+        ),
     };
     ui.set_conn_state(state.into());
     ui.set_conn_title(title.into());
@@ -1746,6 +1773,7 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.show_server_type = ui.get_show_server_type();
     st.store.settings.close_to_tray = ui.get_close_to_tray();
     st.store.settings.autoconnect = ui.get_autoconnect();
+    st.store.settings.kill_switch = ui.get_kill_switch();
     if ui.get_autostart() != st.store.settings.autostart {
         st.store.settings.autostart = ui.get_autostart();
         if let Err(e) = autostart::set(st.store.settings.autostart) {
