@@ -50,6 +50,12 @@ pub fn split(s: &str) -> Vec<Part> {
     parts
 }
 
+/// `s` without emoji, for plain text the renderer cannot draw them in.
+pub fn strip(s: &str) -> String {
+    let text: String = split(s).into_iter().filter_map(|p| if let Part::Text(t) = p { Some(t) } else { None }).collect();
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 struct EmojiFont {
     data: std::borrow::Cow<'static, [u8]>,
     index: usize,

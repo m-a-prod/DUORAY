@@ -149,6 +149,9 @@ pub struct Subscription {
     pub last_error: Option<String>,
     /// The user collapsed this subscription's announcement.
     pub announce_hidden: bool,
+    /// The `info.expire` whose reminder the user closed; a renewal moves the
+    /// date and brings the reminder back for the next period.
+    pub expiry_dismissed: Option<u64>,
     /// Servers the user edited. Re-applied after every update, so an edit
     /// sticks until it is reset.
     pub overrides: Vec<ServerOverride>,

@@ -2417,6 +2417,11 @@ export component AppWindow inherits Window {
     callback report-preview-requested();
     callback report-send();
     callback report-copy-code();
+    // A subscription runs out soon ("" hides it); renew opens its page.
+    in property <string> expiry-banner;
+    in property <bool> expiry-can-renew;
+    callback renew-expiring();
+    callback dismiss-expiring();
     // Update banner in the sidebar ("" hides it).
     in property <string> update-banner;
     in property <string> update-button;
@@ -2885,6 +2890,64 @@ export component AppWindow inherits Window {
                         }
                     }
     
+                    if root.expiry-banner != "": Rectangle {
+                        border-radius: Theme.radius;
+                        background: Theme.warn.with-alpha(0.16);
+                        border-width: 1px;
+                        border-color: Theme.warn.with-alpha(0.45);
+                        height: exp-layout.preferred-height;
+                        exp-layout := HorizontalLayout {
+                            padding: 12px;
+                            padding-left: 14px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: root.expiry-banner;
+                                color: Palette.foreground;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            if root.expiry-can-renew: Button {
+                                text: "Продлить";
+                                primary: true;
+                                clicked => {
+                                    root.renew-expiring();
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: 14px;
+                                    accessible-role: button;
+                                    accessible-label: "Скрыть напоминание";
+                                    accessible-action-default => { root.dismiss-expiring(); }
+                                    background: Palette.foreground.with-alpha(exp-hide.pressed ? 0.16 : exp-hide.has-hover ? 0.08 : 0);
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                    Path {
+                                        width: 12px;
+                                        height: 12px;
+                                        viewbox-width: 12;
+                                        viewbox-height: 12;
+                                        stroke: Palette.foreground;
+                                        stroke-width: 1.8px;
+                                        stroke-line-cap: round;
+                                        commands: "M1 1L11 11M11 1L1 11";
+                                    }
+                                    exp-hide := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.dismiss-expiring();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if root.update-banner != "": Rectangle {
                         border-radius: Theme.radius;
                         background: Theme.tonal;

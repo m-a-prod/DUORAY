@@ -351,6 +351,28 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
     ui.on_buy(|| crate::open_url(crate::BUY_URL));
+    ui.on_renew_expiring({
+        let app = app.clone();
+        move || {
+            let st = app.lock().unwrap();
+            if let Some(url) = crate::expiring(&st.store.subscriptions, duoray_core::store::now()).and_then(crate::renew_url) {
+                crate::open_url(&url);
+            }
+        }
+    });
+    ui.on_dismiss_expiring({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let id = crate::expiring(&st.store.subscriptions, duoray_core::store::now()).map(|s| s.id.clone());
+            if let Some(sub) = st.store.subscriptions.iter_mut().find(|s| Some(&s.id) == id.as_ref()) {
+                sub.expiry_dismissed = sub.info.expire;
+                crate::save(&mut st);
+            }
+            crate::render_expiry(&ui, &st);
+        }
+    });
     ui.on_hide_buy({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || {

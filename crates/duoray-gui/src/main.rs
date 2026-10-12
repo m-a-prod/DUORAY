@@ -654,6 +654,8 @@ fn main() -> anyhow::Result<()> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let due: Vec<String> = {
                 let st = app.lock().unwrap();
+                // "завтра" turns into "сегодня" without any update.
+                render_expiry(&ui, &st);
                 let now = store::now();
                 st.store
                     .subscriptions
@@ -1541,7 +1543,7 @@ fn render(ui: &AppWindow, st: &App) {
     ui.set_conn_ping_text(live_text.into());
     ui.set_conn_ping_level(live_level);
     ui.set_can_connect(selected_server(ui, st).is_some());
-    ui.set_show_buy(!st.store.settings.hide_buy && !st.store.subscriptions.iter().any(is_active_dualizm));
+    render_expiry(ui, st);
 
     let Some(sub) = current(ui, st) else {
         ui.set_servers(ModelRc::new(VecModel::from(Vec::<ServerRow>::new())));
@@ -1730,14 +1732,68 @@ fn date(unix: u64) -> String {
     format!("{d:02}.{m:02}.{y}")
 }
 
+fn is_dualizm(sub: &Subscription) -> bool {
+    let host = url::Url::parse(&sub.url).ok().and_then(|u| u.host_str().map(str::to_lowercase)).unwrap_or_default();
+    host == "dualizm.space"
+        || host.ends_with(".dualizm.space")
+        || sub.info.title.as_deref().is_some_and(|t| t.to_uppercase().contains("DUALIZM"))
+}
+
 /// A DUALIZM subscription that still works: has servers and has not expired.
 fn is_active_dualizm(sub: &Subscription) -> bool {
-    let host = url::Url::parse(&sub.url).ok().and_then(|u| u.host_str().map(str::to_lowercase)).unwrap_or_default();
-    let ours = host == "dualizm.space"
-        || host.ends_with(".dualizm.space")
-        || sub.info.title.as_deref().is_some_and(|t| t.to_uppercase().contains("DUALIZM"));
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    ours && !sub.servers.is_empty() && sub.info.expire.is_none_or(|e| e == 0 || e > now)
+    is_dualizm(sub) && !sub.servers.is_empty() && sub.info.expire.is_none_or(|e| e == 0 || e > now)
+}
+
+/// The reminder starts this many days before the end and lasts a week after.
+const EXPIRY_AHEAD: u64 = 3 * 86400;
+const EXPIRY_AFTER: u64 = 7 * 86400;
+
+/// The subscription closest to its end, unless its reminder was closed.
+fn expiring(subs: &[Subscription], now: u64) -> Option<&Subscription> {
+    subs.iter()
+        .filter_map(|s| s.info.expire.filter(|&e| e > 0 && s.expiry_dismissed != Some(e)).map(|e| (s, e)))
+        .filter(|&(_, e)| e < now + EXPIRY_AHEAD && e + EXPIRY_AFTER > now)
+        .min_by_key(|&(_, e)| e)
+        .map(|(s, _)| s)
+}
+
+/// "Подписка «DUALIZM» заканчивается завтра в 14:00"
+fn expiry_text(name: &str, expire: u64, now: u64) -> String {
+    use chrono::TimeZone;
+    if expire <= now {
+        return format!("Подписка «{name}» закончилась");
+    }
+    let local = |t: u64| chrono::Local.timestamp_opt(t as i64, 0).single();
+    let (Some(end), Some(today)) = (local(expire), local(now)) else {
+        return format!("Подписка «{name}» заканчивается {}", date(expire));
+    };
+    let when = match (end.date_naive() - today.date_naive()).num_days() {
+        0 => format!("сегодня в {}", end.format("%H:%M")),
+        1 => format!("завтра в {}", end.format("%H:%M")),
+        n => format!("через {} ({})", plural(n as usize, "день", "дня", "дней"), end.format("%d.%m")),
+    };
+    format!("Подписка «{name}» заканчивается {when}")
+}
+
+/// Where to renew: the DUALIZM bot, otherwise the panel's page or support.
+fn renew_url(sub: &Subscription) -> Option<String> {
+    if is_dualizm(sub) {
+        return Some(BUY_URL.to_string());
+    }
+    sub.info.web_page_url.clone().or_else(|| sub.info.support_url.clone())
+}
+
+fn render_expiry(ui: &AppWindow, st: &App) {
+    let sub = expiring(&st.store.subscriptions, store::now());
+    let text = sub.and_then(|s| Some(expiry_text(&emoji::strip(&s.display_name()), s.info.expire?, store::now())));
+    ui.set_expiry_banner(text.unwrap_or_default().into());
+    ui.set_expiry_can_renew(sub.and_then(renew_url).is_some());
+    // The reminder's "Продлить" already leads to the bot.
+    let renewing = sub.is_some_and(is_dualizm);
+    ui.set_show_buy(
+        !st.store.settings.hide_buy && !renewing && !st.store.subscriptions.iter().any(is_active_dualizm),
+    );
 }
 
 fn first_line(s: &str) -> String {
@@ -2065,6 +2121,29 @@ fn ping_jobs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expiry_reminder() {
+        let now = 1_800_000_000;
+        let sub = |id: &str, expire: Option<u64>| Subscription {
+            id: id.into(),
+            info: subscription::SubInfo { expire, ..Default::default() },
+            ..Default::default()
+        };
+        let mut subs = vec![sub("far", Some(now + 10 * 86400)), sub("unlimited", Some(0)), sub("none", None)];
+        assert!(expiring(&subs, now).is_none());
+        subs.push(sub("soon", Some(now + 2 * 86400)));
+        subs.push(sub("sooner", Some(now + 3600)));
+        assert_eq!(expiring(&subs, now).map(|s| s.id.as_str()), Some("sooner"));
+        subs[4].expiry_dismissed = Some(now + 3600);
+        assert_eq!(expiring(&subs, now).map(|s| s.id.as_str()), Some("soon"), "closed one is skipped");
+        subs[4].info.expire = Some(now + 30 * 86400);
+        assert_eq!(expiring(&subs, now + 3 * 86400).map(|s| s.id.as_str()), Some("soon"), "expired, within a week");
+        assert!(expiring(&subs, now + 21 * 86400).is_none(), "a week after the end it stops");
+
+        assert_eq!(expiry_text("X", now - 1, now), "Подписка «X» закончилась");
+        assert!(expiry_text("X", now + 5 * 86400, now).contains("через 5 дней"));
+    }
 
     #[test]
     fn pings_survive_a_restart() {
