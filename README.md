@@ -9,10 +9,8 @@
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-fdebf3?style=flat-square&labelColor=141118">
 </p>
 
-**DUORAY** — десктопный клиент [Xray-core](https://github.com/XTLS/Xray-core) для
-Windows, macOS и Linux. Подписки панели работают целиком, как задумал их автор, а
-весь трафик и DNS устройства идут через сервер благодаря собственному TUN без утечек.
-Приложение написано на Rust, интерфейс — на [Slint](https://slint.dev).
+**DUORAY** — клиент [Xray-core](https://github.com/XTLS/Xray-core) для Windows,
+macOS и Linux, сделанный с упором на защиту от утечек DNS.
 
 <p align="center">
   <img src="docs/images/screenshot.png" alt="Окно DUORAY" width="820">
