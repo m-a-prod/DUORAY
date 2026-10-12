@@ -181,8 +181,9 @@ def store(report):
     install = clip(report.get("install_id"), 64)
     now = int(time.time())
     with _db_lock, db() as conn:
-        # An error that keeps repeating: the report from minutes ago stands for it.
-        if install:
+        # An error that keeps repeating: the report from minutes ago stands for
+        # it. Not for reports people send themselves: each one is meant.
+        if install and kind != "user_report":
             row = conn.execute(
                 "SELECT id FROM reports WHERE signature=? AND install_id=? AND received>? ORDER BY received DESC LIMIT 1",
                 (signature, install, now - DEDUP_SECONDS),
