@@ -182,8 +182,10 @@ pub const GAMES: &[Game] = &[
     Game {
         id: "steam",
         title: "Steam и CS2",
-        subtitle: "Магазин, загрузки, матчи CS2 и Dota 2",
-        geosite: &["steam"],
+        subtitle: "Матчи CS2 и Dota 2 (серверы Valve)",
+        // Game traffic only. The store, community and CDNs stay in the VPN:
+        // their Russian Akamai edges block IPs that send many requests.
+        geosite: &[],
         ips: Some("valve"),
     },
     Game { id: "faceit", title: "FACEIT", subtitle: "Клиент и серверы FACEIT", geosite: &["faceit"], ips: None },
@@ -575,10 +577,10 @@ mod tests {
         assert_eq!(rules[2]["ip"], json!(["geoip:private"]));
         assert_eq!(rules[3]["domain"][0], "geosite:category-ru");
         assert_eq!(rules[4]["ip"], json!(["geoip:ru"]));
-        assert_eq!(rules[5]["domain"], json!(["geosite:steam"]));
-        assert!(rules[6]["ip"].as_array().unwrap().len() > 20, "valve IPs");
-        assert!(rules[2..7].iter().all(|r| r["outboundTag"] == DIRECT_TAG));
-        assert_eq!(rules[7]["domain"], json!(["domain:vk.com"]), "panel rules kept after ours");
+        assert!(rules[5]["ip"].as_array().unwrap().len() > 20, "valve IPs");
+        assert!(rules[5]["domain"].is_null(), "no Steam store or CDN domains");
+        assert!(rules[2..6].iter().all(|r| r["outboundTag"] == DIRECT_TAG));
+        assert_eq!(rules[6]["domain"], json!(["domain:vk.com"]), "panel rules kept after ours");
         assert_eq!(rules.last().unwrap()["balancerTag"], "B");
         let tags: Vec<_> = c["outbounds"].as_array().unwrap().iter().map(|o| o["tag"].clone()).collect();
         assert!(tags.contains(&json!(DIRECT_TAG)) && tags.contains(&json!(BLOCK_TAG)));

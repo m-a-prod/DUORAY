@@ -258,7 +258,7 @@ pub fn connect(
                 user: rt.user,
                 pass: rt.pass,
                 bypass: rt.bypass,
-                ipv6: true,
+                ipv6: tun_ipv6(&iface),
                 apps: rt.direct_socks.map(|direct_socks| AppsRequest {
                     only: routing.apps.mode == AppMode::Only,
                     apps: routing.apps.apps.clone(),
@@ -533,15 +533,20 @@ pub fn hidden(cmd: &mut Command) -> &mut Command {
 /// Default-route adapters by preference: (alias, looks like a VPN).
 #[cfg(windows)]
 fn windows_default_aliases() -> Result<Vec<(String, bool)>> {
+    windows_default_aliases_for(windows_sys::Win32::Networking::WinSock::AF_INET)
+}
+
+/// Default routes of one address family (AF_INET, AF_INET6).
+#[cfg(windows)]
+fn windows_default_aliases_for(family: u16) -> Result<Vec<(String, bool)>> {
     // The IP Helper API directly: a PowerShell start costs about two seconds.
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         FreeMibTable, GetIfEntry2, GetIpForwardTable2, GetIpInterfaceEntry, MIB_IF_ROW2, MIB_IPFORWARD_TABLE2,
         MIB_IPINTERFACE_ROW,
     };
-    use windows_sys::Win32::Networking::WinSock::AF_INET;
     let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
     // SAFETY: on success the table is ours until FreeMibTable.
-    let err = unsafe { GetIpForwardTable2(AF_INET, &mut table) };
+    let err = unsafe { GetIpForwardTable2(family, &mut table) };
     if err != 0 {
         bail!("GetIpForwardTable2: error {err}");
     }
@@ -550,7 +555,7 @@ fn windows_default_aliases() -> Result<Vec<(String, bool)>> {
     let wide = |s: &[u16]| String::from_utf16_lossy(&s[..s.iter().position(|&c| c == 0).unwrap_or(s.len())]);
     let mut found: Vec<(u32, String, bool)> = vec![];
     for row in rows.iter().filter(|r| r.DestinationPrefix.PrefixLength == 0) {
-        let mut iface = MIB_IPINTERFACE_ROW { Family: AF_INET, InterfaceLuid: row.InterfaceLuid, ..Default::default() };
+        let mut iface = MIB_IPINTERFACE_ROW { Family: family, InterfaceLuid: row.InterfaceLuid, ..Default::default() };
         // SAFETY: Family and InterfaceLuid identify the row to fill.
         if unsafe { GetIpInterfaceEntry(&mut iface) } != 0 || !iface.Connected {
             continue;
@@ -580,6 +585,28 @@ fn windows_uplink() -> Result<String> {
         None => bail!("не найден маршрут по умолчанию"),
         Some((a, true)) => bail!("активен другой VPN ({a}). Выключите его и попробуйте снова"),
         Some((a, false)) => Ok(a.clone()),
+    }
+}
+
+/// Whether the TUN should carry IPv6. Windows binds xray's direct sockets to
+/// the uplink only weakly (IP_UNICAST_IF): with no IPv6 route there, an IPv6
+/// dial (a site whose IPv4 does not answer) takes the TUN's IPv6 route back
+/// into xray and loops until the ports run out. Without IPv6 on the uplink
+/// there is nothing to leak, so the TUN stays IPv4 and such dials fail fast.
+fn tun_ipv6(iface: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let v6 = windows_default_aliases_for(windows_sys::Win32::Networking::WinSock::AF_INET6);
+        let has = v6.is_ok_and(|routes| routes.iter().any(|(alias, _)| alias == iface));
+        if !has {
+            crate::diag::log(format!("no IPv6 route on {iface}: TUN IPv4 only"));
+        }
+        has
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = iface;
+        true
     }
 }
 
