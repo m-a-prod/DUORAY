@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+use crate::autostart;
+
 const STATE: &str = "sysproxy.json";
 
 /// Puts the previous settings back when dropped.
@@ -27,7 +29,14 @@ pub fn enable(run_dir: &Path, port: u16) -> Result<(Guard, Option<String>)> {
     let path = run_dir.join(STATE);
     restore_file(&path);
     std::fs::create_dir_all(run_dir)?;
-    let warning = imp::enable(port, |saved| crate::connection::write_private(&path, &serde_json::to_vec(saved)?))?;
+    let warning = imp::enable(port, |saved| {
+        crate::connection::write_private(&path, &serde_json::to_vec(saved)?)?;
+        // Died with the session: the next login restores, even without DUORAY.
+        if let Err(e) = autostart::set_entry(&autostart::RESTORE_PROXY, true) {
+            crate::diag::log(format!("system proxy: login entry: {e:#}"));
+        }
+        Ok(())
+    })?;
     Ok((Guard { path }, warning))
 }
 
@@ -37,7 +46,10 @@ pub fn recover(run_dir: &Path) {
 }
 
 fn restore_file(path: &Path) {
-    let Ok(data) = std::fs::read(path) else { return };
+    let Ok(data) = std::fs::read(path) else {
+        let _ = autostart::set_entry(&autostart::RESTORE_PROXY, false);
+        return;
+    };
     match serde_json::from_slice::<imp::Saved>(&data) {
         Ok(saved) => {
             imp::restore(&saved);
@@ -46,6 +58,7 @@ fn restore_file(path: &Path) {
         Err(e) => crate::diag::log(format!("system proxy: unreadable {}: {e}", path.display())),
     }
     let _ = std::fs::remove_file(path);
+    let _ = autostart::set_entry(&autostart::RESTORE_PROXY, false);
 }
 
 #[cfg(windows)]

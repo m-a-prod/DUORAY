@@ -25,6 +25,8 @@ mod instance;
 mod ping;
 mod routing_ui;
 mod server_edit;
+#[cfg(unix)]
+mod signals;
 mod tray;
 mod support_ui;
 #[cfg(not(target_os = "macos"))]
@@ -152,7 +154,18 @@ fn main() -> anyhow::Result<()> {
     // replacement process waits until this process finishes disconnecting.
     let path = Store::default_path()?;
     let data_dir = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
-    let Some(_instance) = instance::acquire(&data_dir, std::env::args().any(|arg| arg == "--wait-for-instance"))? else {
+    // The login entry proxy mode leaves while it holds the system proxy: a
+    // running DUORAY still owns it, otherwise put the old settings back.
+    #[cfg(not(target_os = "macos"))]
+    if std::env::args().any(|arg| arg == autostart::RESTORE_PROXY_ARG) {
+        if let Some(_instance) = instance::acquire(&data_dir, false)? {
+            sysproxy::recover(&data_dir.join("run"));
+        }
+        return Ok(());
+    }
+    // At login the restore entry above may hold the lock for a moment.
+    let wait = autostart::launched() || std::env::args().any(|arg| arg == "--wait-for-instance");
+    let Some(_instance) = instance::acquire(&data_dir, wait)? else {
         // Already running (maybe hidden in the tray): bring that window up.
         if !instance::signal(&data_dir, deeplink::from_args().as_deref()) {
             instance::already_running();
@@ -774,6 +787,8 @@ fn main() -> anyhow::Result<()> {
     if let Some(link) = deeplink::from_args() {
         open_link(&ui, &link);
     }
+    #[cfg(unix)]
+    signals::quit_on_termination();
     // Not ui.run(): with the tray, hiding the window does not end the app.
     slint::run_event_loop_until_quit()?;
 

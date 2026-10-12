@@ -163,6 +163,11 @@ Section "Uninstall"
   nsExec::Exec 'netsh advfirewall firewall delete rule name="DUORAY DNS guard"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="DUORAY IPv6 guard"'
   DeleteRegKey HKCR "duoray"
+  ; Killed in proxy mode: put the user's proxy settings back, then drop the
+  ; login entries.
+  nsExec::Exec '"$INSTDIR\duoray.exe" --restore-proxy'
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "DUORAY"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "DUORAY-restore-proxy"
 
   Delete "$INSTDIR\duoray.exe"
   Delete "$INSTDIR\duoray-helper.exe"
