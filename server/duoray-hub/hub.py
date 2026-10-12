@@ -42,6 +42,8 @@ LISTEN = os.environ.get("HUB_LISTEN", "127.0.0.1:5090")
 SITE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
 PAGES = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    # Telegram buttons take only http(s): this page opens duoray://add/<url>.
+    "/add": ("add.html", "text/html; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
     "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
     "/og.png": ("og.png", "image/png"),  # link previews (og:image)

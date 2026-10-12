@@ -15,6 +15,7 @@ use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 slint::include_modules!();
 
 mod connection;
+mod deeplink;
 mod diag;
 mod editor_ui;
 mod emoji;
@@ -149,7 +150,7 @@ fn main() -> anyhow::Result<()> {
     let data_dir = path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
     let Some(_instance) = instance::acquire(&data_dir, std::env::args().any(|arg| arg == "--wait-for-instance"))? else {
         // Already running (maybe hidden in the tray): bring that window up.
-        if !instance::signal(&data_dir) {
+        if !instance::signal(&data_dir, deeplink::from_args().as_deref()) {
             instance::already_running();
         }
         return Ok(());
@@ -743,6 +744,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     ui.show()?;
+    // Started by a duoray:// link (the first launch; later ones go through
+    // the instance port).
+    if let Some(link) = deeplink::from_args() {
+        open_link(&ui, &link);
+    }
     // Not ui.run(): with the tray, hiding the window does not end the app.
     slint::run_event_loop_until_quit()?;
 
@@ -757,8 +763,13 @@ fn main() -> anyhow::Result<()> {
 /// The tray icon, closing to it, and later launches showing this window.
 fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
     let ui_weak = ui.as_weak();
-    instance::serve(data_dir, move || {
-        let _ = ui_weak.upgrade_in_event_loop(|ui| show_window(&ui));
+    instance::serve(data_dir, move |link| {
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            show_window(&ui);
+            if let Some(link) = link {
+                open_link(&ui, &link);
+            }
+        });
     });
 
     ui.window().on_close_requested({
@@ -1811,6 +1822,23 @@ fn flash_status(ui: &AppWindow, app: &Shared, st: &mut App, msg: String) {
 }
 
 /// Adds what the user typed or pasted: a subscription URL, or share links.
+/// A `duoray://` link: the "Добавить" dialog with its subscription filled in,
+/// for the user to confirm (a link from anywhere must not add one silently).
+fn open_link(ui: &AppWindow, link: &str) {
+    diag::log("duoray:// link opened");
+    match deeplink::subscription(link) {
+        Some(url) => {
+            ui.set_add_error("".into());
+            ui.set_add_prefill(url.into());
+            ui.set_adding(true);
+        }
+        None => {
+            ui.set_add_error("Ссылка duoray:// не распознана: в ней нет адреса подписки.".into());
+            ui.set_adding(true);
+        }
+    }
+}
+
 fn add_input(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &str, name: &str) -> anyhow::Result<()> {
     if store::looks_like_links(text) {
         let (id, added) = {

@@ -118,6 +118,12 @@ Section "DUORAY" SecMain
   CreateShortcut "$SMPROGRAMS\DUORAY.lnk" "$INSTDIR\duoray.exe" "" "$INSTDIR\duoray.exe" 0
   CreateShortcut "$DESKTOP\DUORAY.lnk" "$INSTDIR\duoray.exe" "" "$INSTDIR\duoray.exe" 0
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+
+  ; duoray:// links (a subscription to add from a bot or a site).
+  WriteRegStr HKCR "duoray" "" "URL:DUORAY"
+  WriteRegStr HKCR "duoray" "URL Protocol" ""
+  WriteRegStr HKCR "duoray\DefaultIcon" "" "$INSTDIR\duoray.exe,0"
+  WriteRegStr HKCR "duoray\shell\open\command" "" '"$INSTDIR\duoray.exe" "%1"'
   nsExec::Exec 'ie4uinit.exe -show'
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -155,6 +161,8 @@ Section "Uninstall"
   nsExec::Exec 'taskkill /IM xray.exe /F'
   ; Leftover firewall rule if the service died mid-session.
   nsExec::Exec 'netsh advfirewall firewall delete rule name="DUORAY DNS guard"'
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="DUORAY IPv6 guard"'
+  DeleteRegKey HKCR "duoray"
 
   Delete "$INSTDIR\duoray.exe"
   Delete "$INSTDIR\duoray-helper.exe"

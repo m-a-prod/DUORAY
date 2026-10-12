@@ -2288,6 +2288,8 @@ export component AppWindow inherits Window {
     in property <bool> busy;
     in property <string> status;
     in-out property <bool> adding;
+    // Filled in once when the dialog opens (a duoray:// link), then cleared.
+    in-out property <string> add-prefill;
     in-out property <string> add-error;
     // Index of the subscription whose delete button awaits confirmation.
     in-out property <int> confirm-remove-index: -1;
@@ -3589,6 +3591,12 @@ export component AppWindow inherits Window {
                 }
                 url-edit := TextField {
                     placeholder: "https://…/sub/…  или  vless://…";
+                    init => {
+                        if root.add-prefill != "" {
+                            self.text = root.add-prefill;
+                            root.add-prefill = "";
+                        }
+                    }
                     accepted => {
                         root.add-subscription(url-edit.text, name-edit.text);
                     }

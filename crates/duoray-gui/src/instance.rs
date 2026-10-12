@@ -25,9 +25,10 @@ pub fn acquire(dir: &Path, wait: bool) -> Result<Option<File>> {
     }
 }
 
-/// The running instance listens on loopback for "show" from later launches;
-/// the port goes to `instance.port` next to the lock.
-pub fn serve(dir: &Path, on_show: impl Fn() + Send + 'static) {
+/// The running instance listens on loopback for "show" (or "open <link>",
+/// a `duoray://` link a later launch was started with); the port goes to
+/// `instance.port` next to the lock.
+pub fn serve(dir: &Path, on_show: impl Fn(Option<String>) + Send + 'static) {
     use std::io::Read;
     let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") else { return };
     let Ok(addr) = listener.local_addr() else { return };
@@ -36,19 +37,23 @@ pub fn serve(dir: &Path, on_show: impl Fn() + Send + 'static) {
     }
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let mut buf = [0; 16];
+            let mut buf = [0; 8192];
             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
             let n = (&stream).read(&mut buf).unwrap_or(0);
-            if buf[..n].starts_with(b"show") {
-                on_show();
+            let msg = String::from_utf8_lossy(&buf[..n]);
+            let msg = msg.trim_end();
+            if msg == "show" {
+                on_show(None);
+            } else if let Some(link) = msg.strip_prefix("open ") {
+                on_show(Some(link.to_string()));
             }
         }
     });
 }
 
-/// Asks the running instance to show its window; false if it did not answer
-/// (an older version, or it is shutting down).
-pub fn signal(dir: &Path) -> bool {
+/// Asks the running instance to show its window (and open `link`); false if
+/// it did not answer (an older version, or it is shutting down).
+pub fn signal(dir: &Path, link: Option<&str>) -> bool {
     use std::io::Write;
     let Some(port) = std::fs::read_to_string(dir.join("instance.port")).ok().and_then(|p| p.trim().parse::<u16>().ok())
     else {
@@ -60,7 +65,11 @@ pub fn signal(dir: &Path) -> bool {
         windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(u32::MAX);
     }
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(2)).and_then(|mut s| s.write_all(b"show\n")).is_ok()
+    std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(2)).and_then(|mut s| {
+        let msg = link.map_or("show\n".to_string(), |l| format!("open {l}\n"));
+        s.write_all(msg.as_bytes())
+    })
+    .is_ok()
 }
 
 pub fn already_running() {
