@@ -29,7 +29,7 @@ macOS и Linux, сделанный с упором на защиту от уте
   устройств; режим совместимости с Happ.
 
 **Подключение**
-- Собственный TUN ([Duotun](https://github.com/m-a-prod/DUOTUN)): весь трафик и DNS
+- Собственный TUN ([DUOTUN](https://github.com/m-a-prod/DUOTUN)): весь трафик и DNS
   идут через сервер, DNS-запросы в обход туннеля блокируются
   (pf, nftables, брандмауэр Windows). IPv6 не уходит мимо туннеля.
 - Режим системного прокси без TUN: HTTP и SOCKS5 на одном локальном порту.
@@ -96,7 +96,7 @@ DUORAY (интерфейс, пользовательские права)
  ├─ Xray-core: SOCKS только на 127.0.0.1, со случайными учётными данными
  └─ локальный сокет / именованный канал
      └─ duoray-helper (системная служба)
-         └─ Duotun: TUN, маршруты, DNS, защита от утечек
+         └─ DUOTUN: TUN, маршруты, DNS, защита от утечек
 ```
 
 Права администратора есть только у помощника. Он доступен только локально (на
@@ -110,7 +110,7 @@ macOS и Linux — только пользователю, установивше
 | `crates/duoray-core` | подписки, разбор ссылок, сборка конфигурации Xray, протокол помощника |
 | `crates/duoray-gui` | приложение `duoray` |
 | `crates/duoray-helper` | системный помощник: LaunchDaemon (macOS), служба systemd / OpenRC / runit (Linux), служба Windows |
-| [Duotun](https://github.com/m-a-prod/DUOTUN) | TUN-туннель и сетевые настройки |
+| [DUOTUN](https://github.com/m-a-prod/DUOTUN) | TUN-туннель и сетевые настройки |
 
 ## Безопасность и приватность
 
@@ -120,7 +120,7 @@ macOS и Linux — только пользователю, установивше
 - Xray-core поставляется из официальных релизов с проверкой SHA-256.
 
 Подробнее — в [docs/telemetry.md](docs/telemetry.md). Сообщения об уязвимостях
-просим направлять в Telegram [@dualizm_vpn](https://t.me/dualizm_vpn), а не в
+просим направлять в Telegram [@dualizm_support](https://t.me/dualizm_support), а не в
 публичные Issues.
 
 ## Для владельцев панелей
@@ -140,7 +140,7 @@ DUORAY показывает описания серверов из панели.
 
 ## Сборка из исходников
 
-Требования: Rust (stable) и репозиторий [Duotun](https://github.com/m-a-prod/DUOTUN)
+Требования: Rust (stable) и репозиторий [DUOTUN](https://github.com/m-a-prod/DUOTUN)
 в соседнем каталоге.
 
 ```sh
