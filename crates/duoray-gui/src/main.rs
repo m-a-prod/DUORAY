@@ -1191,7 +1191,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                         }
                         .into(),
                     );
-                    diag::log(format!("connected via {}", conn.tun));
+                    diag::log(format!("connected via {} {}", conn.tun, conn.timings));
                     st.conn_state = ConnState::Connected { name, tun: conn.tun.clone(), key };
                     st.conn = Some(conn);
                     st.xray_started = Some(std::time::Instant::now());

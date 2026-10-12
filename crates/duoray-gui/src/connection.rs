@@ -61,6 +61,8 @@ pub struct Connection {
     pub warnings: Vec<String>,
     /// The config dials Hysteria somewhere (directly or in a balancer).
     pub hysteria: bool,
+    /// How long connecting took, by stage, for the log.
+    pub timings: String,
     respawn: Respawn,
     /// What the tunnel was set up with: a routing change that keeps these can
     /// be applied by restarting xray alone (see [`Connection::rerouter`]).
@@ -110,6 +112,7 @@ pub fn connect(
     on_failure: impl Fn(String) + Send + Sync + Clone + 'static,
     on_uplink_change: impl Fn() + Send + 'static,
 ) -> Result<Connection, ConnectError> {
+    let started = Instant::now();
     // Proxy mode needs no TUN, and the app sets the system proxy itself,
     // except on macOS: changing it needs root there, so the helper does it.
     let mut helper = if proxy_port.is_none() || cfg!(target_os = "macos") {
@@ -163,6 +166,7 @@ pub fn connect(
         }
         rt.open_proxy(port);
     }
+    let config_done = started.elapsed();
     let mut warnings = rt.warnings.clone();
     if apps_skipped {
         warnings.push("Маршрутизация по приложениям работает только в режиме TUN, в режиме прокси она выключена.".into());
@@ -207,6 +211,7 @@ pub fn connect(
         let _ = child.wait();
         return Err(ConnectError::Other(e.context(log_tail(&log_path))));
     }
+    let xray_done = started.elapsed();
 
     let (socks, user, pass) = (rt.socks, rt.user.clone(), rt.pass.clone());
     let tunnel = TunnelInputs {
@@ -305,7 +310,17 @@ pub fn connect(
         }
     });
 
+    let secs = |d: Duration| format!("{:.1}", d.as_secs_f32());
+    let timings = format!(
+        "in {} s (config {}, xray {}, {} {})",
+        secs(started.elapsed()),
+        secs(config_done),
+        secs(xray_done - config_done),
+        if proxy_port.is_some() { "proxy" } else { "tun" },
+        secs(started.elapsed() - xray_done),
+    );
     Ok(Connection {
+        timings,
         helper,
         #[cfg(not(target_os = "macos"))]
         sysproxy,
