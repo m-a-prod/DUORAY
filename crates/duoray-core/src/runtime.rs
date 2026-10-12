@@ -13,6 +13,7 @@
 //! In proxy mode [`Runtime::open_proxy`] then moves the inbound to a fixed
 //! port without a password: system proxy settings carry no credentials.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs, UdpSocket};
 
 use anyhow::{Context, Result, bail};
@@ -74,7 +75,7 @@ pub fn build_with(
     server: &Server,
     iface: &str,
     routing: Option<Routing>,
-    mut resolve: impl FnMut(&str) -> Result<IpAddr>,
+    resolve: impl Fn(&str) -> Result<IpAddr> + Sync,
 ) -> Result<Runtime> {
     let mut config = match &server.source {
         Source::Json(v) => v.clone(),
@@ -123,6 +124,25 @@ pub fn build_with(
     let Some(outbounds) = config["outbounds"].as_array_mut() else {
         bail!("config has no outbounds");
     };
+    // All server names at once: a balancer can list dozens, one by one that
+    // took seconds before xray could even start.
+    let mut names: Vec<String> = outbounds
+        .iter()
+        .filter(|ob| !SERVICE_PROTOCOLS.contains(&ob["protocol"].as_str().unwrap_or_default()) && ob["protocol"] != "blackhole")
+        .flat_map(|ob| endpoints_of(&ob["settings"]))
+        .filter_map(|ep| ep["address"].as_str())
+        .filter(|a| a.parse::<IpAddr>().is_err())
+        .map(String::from)
+        .collect();
+    names.sort();
+    names.dedup();
+    let resolved: HashMap<String, IpAddr> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = names.iter().map(|n| (n, scope.spawn(|| resolve(n)))).collect();
+        jobs.into_iter()
+            .map(|(n, job)| Ok((n.clone(), job.join().map_err(|_| anyhow::anyhow!("resolving {n} panicked"))??)))
+            .collect::<Result<_>>()
+    })?;
+    let mut resolve = |host: &str| resolved.get(host).copied().with_context(|| format!("cannot resolve {host}"));
     for ob in outbounds.iter_mut() {
         let protocol = ob["protocol"].as_str().unwrap_or_default().to_string();
         if protocol == "blackhole" {
@@ -149,6 +169,16 @@ pub fn build_with(
     Ok(Runtime { config, socks, user, pass, bypass, direct_socks, warnings })
 }
 
+/// An outbound's servers: vnext (vless/vmess), servers (trojan/ss/socks), or
+/// the flat form (hysteria, newer xray).
+fn endpoints_of(settings: &Value) -> Vec<&Value> {
+    match ["vnext", "servers"].into_iter().find(|k| settings[*k].is_array()) {
+        Some(k) => settings[k].as_array().into_iter().flatten().collect(),
+        None if settings.get("address").is_some() => vec![settings],
+        None => vec![],
+    }
+}
+
 /// Replaces hostnames in an outbound's server list with IPs, keeping the name
 /// for TLS SNI and HTTP Host.
 fn pin_endpoints(
@@ -158,7 +188,6 @@ fn pin_endpoints(
 ) -> Result<()> {
     let mut first_name = None;
     let settings = &mut ob["settings"];
-    // vnext (vless/vmess), servers (trojan/ss/socks), or the flat form (hysteria, newer xray).
     let list = ["vnext", "servers"].into_iter().find(|k| settings[*k].is_array());
     let endpoints: Vec<&mut Value> = match list {
         Some(k) => settings[k].as_array_mut().into_iter().flatten().collect(),
@@ -284,6 +313,24 @@ mod tests {
         assert_eq!(rt.config["outbounds"][0]["protocol"], "vless");
         assert_eq!(rt.config["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"], "K");
         assert_eq!(rt.bypass, vec!["5.6.7.8".parse::<IpAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn resolves_server_names_in_parallel() {
+        let outbounds: Vec<Value> = (0..10)
+            .map(|i| json!({"tag": format!("p{i}"), "protocol": "vless",
+                            "settings": {"vnext": [{"address": format!("s{i}.example.com"), "port": 443, "users": [{"id": "u"}]}]}}))
+            .collect();
+        let s = server(json!({ "outbounds": outbounds }));
+        let started = std::time::Instant::now();
+        let rt = build_with(&s, "eth0", None, |h| {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(format!("10.0.0.{}", &h[1..h.find('.').unwrap()]).parse().unwrap())
+        })
+        .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "10 × 300 ms one by one would be 3 s");
+        assert_eq!(rt.config["outbounds"][7]["settings"]["vnext"][0]["address"], "10.0.0.7");
+        assert_eq!(rt.bypass.len(), 10);
     }
 
     #[test]

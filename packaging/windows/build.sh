@@ -37,5 +37,6 @@ fi
 cp "target/$TARGET/release/duoray.exe" "target/$TARGET/release/duoray-helper.exe" "$stage/"
 cp LICENSE "$stage/LICENSE.txt"
 cp LICENSE-EXCEPTION.md THIRD-PARTY-NOTICES.md THIRD-PARTY-CRATES.txt "$stage/"
+cp crates/duoray-gui/assets/fonts/OFL-NotoColorEmoji.txt "$stage/"
 (cd packaging/windows && makensis -V2 -DVERSION="$VERSION" -DARCH="$ARCH" duoray.nsi)
 ls -la dist/

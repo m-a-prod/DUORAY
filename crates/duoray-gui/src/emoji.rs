@@ -1,8 +1,9 @@
 //! Colour emoji in names. The software renderer draws plain outline glyphs
 //! only, so emoji in server and subscription names came out blank. They are
-//! drawn here instead, from the system's colour emoji font (Noto Color Emoji,
-//! Segoe UI Emoji, Apple Color Emoji) with swash, and shown as images between
-//! the text runs.
+//! drawn here instead with swash and shown as images between the text runs.
+//! Fonts: Apple Color Emoji on macOS, the system's (usually Noto) on Linux,
+//! and on Windows a bundled Noto Color Emoji: Segoe UI Emoji's layered
+//! outlines came out broken, and old Windows lacks newer emoji.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -50,32 +51,33 @@ pub fn split(s: &str) -> Vec<Part> {
 }
 
 struct EmojiFont {
-    data: Vec<u8>,
+    data: std::borrow::Cow<'static, [u8]>,
     index: usize,
 }
 
 fn font() -> Option<&'static EmojiFont> {
     static FONT: OnceLock<Option<EmojiFont>> = OnceLock::new();
     FONT.get_or_init(|| {
-        let (path, index) = font_path()?;
-        let data = std::fs::read(path).ok()?;
+        #[cfg(windows)]
+        let (data, index) = (std::borrow::Cow::Borrowed(&include_bytes!("../assets/fonts/NotoColorEmoji.ttf")[..]), 0);
+        #[cfg(not(windows))]
+        let (data, index) = {
+            let (path, index) = font_path()?;
+            (std::borrow::Cow::Owned(std::fs::read(path).ok()?), index)
+        };
         FontRef::from_index(&data, index)?;
         Some(EmojiFont { data, index })
     })
     .as_ref()
 }
 
+#[cfg(not(windows))]
 fn font_path() -> Option<(std::path::PathBuf, usize)> {
-    #[cfg(windows)]
-    {
-        let dir = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-        Some((std::path::Path::new(&dir).join("Fonts").join("seguiemj.ttf"), 0))
-    }
     #[cfg(target_os = "macos")]
     {
         Some(("/System/Library/Fonts/Apple Color Emoji.ttc".into(), 0))
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let out = std::process::Command::new("fc-match").args(["-f", "%{file}\n%{index}", "emoji:color"]).output().ok()?;
         let text = String::from_utf8(out.stdout).ok()?;
@@ -136,22 +138,60 @@ pub fn images(run: &str) -> Vec<Image> {
 }
 
 /// Parts for the UI's RichName, or an empty model when `name` has no emoji
-/// (the plain Text is shown then). Emoji the font lacks are left out.
+/// the font can draw (the plain Text is shown then). Emoji the font lacks
+/// (newer than the system, e.g. 🛜 on Windows 10) are left out, with the gap.
 pub fn name_parts(name: &str) -> ModelRc<crate::NamePart> {
-    let parts = split(name);
-    if !parts.iter().any(|p| matches!(p, Part::Emoji(_))) {
+    if !split(name).iter().any(|p| matches!(p, Part::Emoji(_))) {
         return ModelRc::default();
     }
-    let mut out = vec![];
-    for part in parts {
+    let parts = name_runs(name, images);
+    if !parts.iter().any(|p| matches!(p, Run::Image(_))) {
+        return ModelRc::default();
+    }
+    let out: Vec<crate::NamePart> = parts
+        .into_iter()
+        .map(|p| match p {
+            Run::Text(text) => crate::NamePart { text: text.into(), emoji: Image::default() },
+            Run::Image(emoji) => crate::NamePart { text: "".into(), emoji },
+        })
+        .collect();
+    ModelRc::new(VecModel::from(out))
+}
+
+#[derive(Debug, PartialEq)]
+enum Run<I> {
+    Text(String),
+    Image(I),
+}
+
+/// Text runs and emoji images in order; texts merged and their spaces
+/// collapsed where an emoji was left out, no spaces at the very ends.
+fn name_runs<I>(name: &str, draw: impl Fn(&str) -> Vec<I>) -> Vec<Run<I>> {
+    let mut out: Vec<Run<I>> = vec![];
+    for part in split(name.trim()) {
         match part {
-            Part::Text(text) => out.push(crate::NamePart { text: text.into(), emoji: Image::default() }),
-            Part::Emoji(run) => {
-                out.extend(images(&run).into_iter().map(|emoji| crate::NamePart { text: "".into(), emoji }));
-            }
+            Part::Emoji(run) => out.extend(draw(&run).into_iter().map(Run::Image)),
+            Part::Text(text) => match out.last_mut() {
+                Some(Run::Text(prev)) => prev.push_str(&text),
+                _ => out.push(Run::Text(text)),
+            },
         }
     }
-    ModelRc::new(VecModel::from(out))
+    let last = out.len().saturating_sub(1);
+    for (i, run) in out.iter_mut().enumerate() {
+        if let Run::Text(text) = run {
+            let mut t = text.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+            if i > 0 && text.starts_with(' ') {
+                t.insert(0, ' ');
+            }
+            if i < last && text.ends_with(' ') && !t.is_empty() {
+                t.push(' ');
+            }
+            *text = t;
+        }
+    }
+    out.retain(|r| !matches!(r, Run::Text(t) if t.is_empty()));
+    out
 }
 
 /// `name` without a leading flag (that one is shown as the row's flag image).
@@ -183,6 +223,17 @@ mod tests {
         assert_eq!(split("Германия"), [Part::Text("Германия".into())]);
         assert_eq!(without_leading_flag(" 🇩🇪 Германия 🚀"), "Германия 🚀");
         assert_eq!(without_leading_flag("LTE 🇩🇪"), "LTE 🇩🇪");
+    }
+
+    #[test]
+    fn missing_emoji_leave_no_gap() {
+        // 🛜 is not in the font: it goes, and so does the doubled space.
+        let draw = |run: &str| run.chars().filter(|&c| c != '🛜').map(|c| c.to_string()).collect::<Vec<_>>();
+        assert_eq!(name_runs("🛜 Wi-Fi • Авто", draw), [Run::Text("Wi-Fi • Авто".into())]);
+        assert_eq!(
+            name_runs("LTE 🛜 x1 🚀 Fast", draw),
+            [Run::Text("LTE x1 ".into()), Run::Image("🚀".to_string()), Run::Text(" Fast".into())]
+        );
     }
 
     /// Needs a colour emoji font (skipped without one). DUORAY_EMOJI_PNG=dir

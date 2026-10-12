@@ -461,6 +461,8 @@ component RichName inherits HorizontalLayout {
     in property <int> font-weight;
     in property <brush> color: Palette.foreground;
     alignment: start;
+    // A hair of air around emoji, also where the name has no space ("📱LTE").
+    spacing: 2px;
     for part in root.parts: HorizontalLayout {
         if part.text != "": Text {
             text: part.text;

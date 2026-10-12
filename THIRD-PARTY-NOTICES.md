@@ -19,6 +19,7 @@ built from, the following third-party work.
 | [Duotun](https://github.com/m-a-prod/DUOTUN) | MIT | TUN tunnel, by DUALIZM. |
 | Rust crates | MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, MPL-2.0 and others | Full list with every license text: `THIRD-PARTY-CRATES.txt` (`packaging/licenses/generate.sh`). |
 | [Material Design Icons](https://github.com/google/material-design-icons) | Apache-2.0 | `crates/duoray-gui/ui/icons/`. © Google. |
+| [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) 2.051 (Windows build only) | OFL-1.1 | `crates/duoray-gui/assets/fonts/`, colour emoji in names. © Google. License: `crates/duoray-gui/assets/fonts/OFL-NotoColorEmoji.txt`. |
 | Flag images from [Twemoji](https://github.com/jdecked/twemoji) 17.0.3 | CC-BY 4.0 | `crates/duoray-gui/assets/flags/`, renamed to ISO 3166 codes. © Twitter, Inc and other contributors. |
 | `whitelist-domains.txt` from [hxehex/russia-mobile-internet-whitelist](https://github.com/hxehex/russia-mobile-internet-whitelist) | MIT | © 2025 hxehex.real. See `crates/duoray-core/assets/routing/NOTICE.md`. |
 | Valve / Riot / Blizzard address lists | public data | Steam Web API `GetSDRConfig`, prefixes announced by AS32590, AS6507, AS57976 (RIPEstat). |
