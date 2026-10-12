@@ -737,10 +737,13 @@ pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration) ->
         if let Some(status) = child.try_wait()? {
             bail!("xray завершился при старте ({status})");
         }
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok() {
+        // Short probes: Windows does not refuse a connection to a closed
+        // loopback port, it retries the SYN, so a 500 ms probe made every
+        // connect wait ~0.6 s for an xray that was ready in tens of ms.
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(10));
     }
     // Tells apart "xray never listened" from "something blocks loopback
     // connections" (antivirus, firewall filters) in reports.
