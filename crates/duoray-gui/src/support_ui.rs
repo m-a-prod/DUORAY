@@ -237,7 +237,7 @@ fn apply(ui: &AppWindow, app: &Shared) {
             st.update = UpdateState::Notify(f);
         }
         UpdateState::Ready(f, file) => {
-            let quits = matches!(f.install, Install::Setup | Install::AppImage(_));
+            let quits = matches!(f.install, Install::Setup | Install::AppImage(_) | Install::Package(_));
             diag::log(format!("installing update {}", f.version));
             // Bring the network back before the installer stops this app.
             let conn = if quits { st.conn.take() } else { None };

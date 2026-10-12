@@ -63,6 +63,13 @@ names = {
     f"DUORAY-{version}-aarch64.AppImage": "linux-aarch64-appimage",
     f"DUORAY-{version}-macos-aarch64.dmg": "macos-aarch64-dmg",
     f"DUORAY-{version}-macos-x86_64.dmg": "macos-x86_64-dmg",
+    # Package installs upgrade through their package manager (pkexec).
+    f"duoray-{version}-1.x86_64.rpm": "linux-x86_64-rpm",
+    f"duoray-{version}-1.aarch64.rpm": "linux-aarch64-rpm",
+    f"duoray_{version}-1_amd64.deb": "linux-x86_64-deb",
+    f"duoray_{version}-1_arm64.deb": "linux-aarch64-deb",
+    f"duoray-{version}-1-x86_64.pkg.tar.zst": "linux-x86_64-pacman",
+    f"duoray-{version}-1-aarch64.pkg.tar.zst": "linux-aarch64-pacman",
 }
 assets = {}
 for name, key in names.items():
@@ -89,10 +96,9 @@ with open(os.path.join(out, "manifest.json"), "w") as f:
     json.dump(manifest, f, ensure_ascii=False, indent=2)
 for key, a in assets.items():
     print(f"  {key:<24} {a['file']}  {a['size'] // 1024 // 1024} MB")
-# Packages for package managers: plain downloads (AUR uses the tarballs),
-# not in the manifest - those installs update through their package manager.
+# Tarballs: plain downloads (the AUR package uses them).
 for name in sorted(os.listdir("dist")):
-    if version in name and name.endswith((".rpm", ".deb", ".tar.gz")):
+    if version in name and name.endswith(".tar.gz"):
         shutil.copy(os.path.join("dist", name), os.path.join(out, name))
         print(f"  {'(download)':<24} {name}")
 EOF

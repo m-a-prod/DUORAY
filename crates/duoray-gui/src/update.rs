@@ -6,9 +6,10 @@
 //! manifest's SHA-256 and size, so a compromised server cannot push code.
 //!
 //! Install per platform: the Windows installer runs silently (one UAC prompt)
-//! and starts the new version; an AppImage replaces itself; anything else
-//! (macOS disk images, Linux installs from install.sh) is downloaded, verified
-//! and opened, or the release page is shown.
+//! and starts the new version; an AppImage replaces itself; an rpm, deb or
+//! pacman install hands the package to its package manager through pkexec;
+//! anything else (macOS disk images, Linux installs from install.sh) is
+//! downloaded, verified and opened, or the release page is shown.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -54,10 +55,80 @@ pub enum Install {
     Setup,
     /// Replace this AppImage file.
     AppImage(PathBuf),
+    /// Installed by a package manager: upgrade through it.
+    Package(Package),
     /// Download, verify and open (macOS .dmg).
     Open,
     /// Only point to the release page.
     Notify,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub enum Package {
+    Rpm,
+    Deb,
+    Pacman,
+}
+
+impl Package {
+    fn key(self) -> &'static str {
+        match self {
+            Package::Rpm => "rpm",
+            Package::Deb => "deb",
+            Package::Pacman => "pacman",
+        }
+    }
+
+    /// The package that owns this executable, if it is our `duoray`.
+    #[cfg(target_os = "linux")]
+    fn of_this_install() -> Option<Package> {
+        let exe = std::env::current_exe().ok()?;
+        let exe = exe.to_str()?;
+        let owner = |program: &str, args: &[&str]| {
+            let out = std::process::Command::new(program).args(args).output().ok()?;
+            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        };
+        if owner("pacman", &["-Qqo", exe]).as_deref() == Some("duoray") {
+            Some(Package::Pacman)
+        } else if owner("rpm", &["-qf", "--qf", "%{NAME}", exe]).as_deref() == Some("duoray") {
+            Some(Package::Rpm)
+        } else if owner("dpkg-query", &["-S", exe]).is_some_and(|o| o.starts_with("duoray:")) {
+            Some(Package::Deb)
+        } else {
+            None
+        }
+    }
+
+    /// The root command that installs `file`, in the first package manager
+    /// found (dnf resolves new dependencies, rpm alone does not).
+    fn command(self, file: &Path) -> Vec<String> {
+        let file = file.display().to_string();
+        let found = |name: &str| which(name).is_some();
+        let args: &[&str] = match self {
+            Package::Rpm if found("dnf") => &["dnf", "install", "-y"],
+            Package::Rpm if found("zypper") => &["zypper", "--non-interactive", "install", "--allow-unsigned-rpm"],
+            Package::Rpm => &["rpm", "-U", "--replacepkgs"],
+            Package::Deb if found("apt-get") => &["apt-get", "install", "-y"],
+            Package::Deb => &["dpkg", "-i"],
+            Package::Pacman => &["pacman", "-U", "--noconfirm"],
+        };
+        args.iter().map(|a| a.to_string()).chain([file]).collect()
+    }
+}
+
+/// Full path of a program on PATH (pkexec wants one).
+fn which(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|p| p.is_file())
+}
+
+/// Shell quoting for the command shown to the user.
+fn shell_quote(arg: &str) -> String {
+    if arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=".contains(c)) {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
 }
 
 /// A newer version for this platform.
@@ -81,9 +152,22 @@ pub fn platform() -> (String, Install) {
         (format!("macos-{arch}-dmg"), Install::Open)
     } else if let Some(path) = std::env::var_os("APPIMAGE").filter(|p| !p.is_empty()) {
         (format!("linux-{arch}-appimage"), Install::AppImage(PathBuf::from(path)))
+    } else if let Some(package) = installed_package() {
+        (format!("linux-{arch}-{}", package.key()), Install::Package(package))
     } else {
         (format!("linux-{arch}-appimage"), Install::Notify)
     }
+}
+
+/// Asked once: it runs the package manager.
+fn installed_package() -> Option<Package> {
+    #[cfg(target_os = "linux")]
+    {
+        static FOUND: std::sync::OnceLock<Option<Package>> = std::sync::OnceLock::new();
+        *FOUND.get_or_init(Package::of_this_install)
+    }
+    #[cfg(not(target_os = "linux"))]
+    None
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -245,12 +329,45 @@ pub fn install(file: &Path, how: &Install) -> Result<()> {
             std::process::Command::new(current).arg("--wait-for-instance").spawn().context("запуск новой версии")?;
             Ok(())
         }
+        Install::Package(package) => install_package(*package, file),
         Install::Open => {
             crate::open_path(file);
             Ok(())
         }
         Install::Notify => Ok(()),
     }
+}
+
+/// The package manager upgrades in place, then the new version is started
+/// (`/usr/bin/duoray` from the package, this executable's path may be gone).
+/// Without polkit, or when the prompt is dismissed, the command goes to the
+/// clipboard to paste into a terminal.
+fn install_package(package: Package, file: &Path) -> Result<()> {
+    let command = package.command(file);
+    let shown = format!("sudo {}", command.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" "));
+    let fallback = |why: String| {
+        let copied = arboard::Clipboard::new().and_then(|mut c| c.set_text(shown.clone())).is_ok();
+        let tail = if copied { "команда скопирована, вставьте её в терминал" } else { "выполните в терминале" };
+        anyhow::anyhow!("{why}; {tail}: {shown}")
+    };
+    let (Some(pkexec), Some(program)) = (which("pkexec"), which(&command[0])) else {
+        return Err(fallback("нет pkexec".into()));
+    };
+    let status = std::process::Command::new(pkexec)
+        .arg(program)
+        .args(&command[1..])
+        .status()
+        .context("запуск pkexec")?;
+    match status.code() {
+        Some(0) => {}
+        // pkexec: 126 the password prompt was dismissed, 127 no polkit agent.
+        Some(126 | 127) => return Err(fallback("нет прав администратора".into())),
+        _ => return Err(fallback(format!("{} завершился с ошибкой ({status})", command[0]))),
+    }
+    let program = ["/usr/bin/duoray", "/usr/lib/duoray/duoray"].into_iter().map(Path::new).find(|p| p.exists());
+    let program = program.map(Path::to_path_buf).or_else(|| std::env::current_exe().ok()).context("путь к DUORAY")?;
+    std::process::Command::new(program).arg("--wait-for-instance").spawn().context("запуск новой версии")?;
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -354,6 +471,23 @@ mod tests {
         assert!(select(rebuilt.clone(), "0.4.0", "abc", win.clone()).is_some());
         assert!(select(rebuilt.clone(), "0.4.0", "def", win.clone()).is_none(), "re-uploaded same build");
         assert!(select(rebuilt, "0.5.0", "abc", win).is_none(), "never a downgrade");
+    }
+
+    #[test]
+    fn package_commands() {
+        let file = Path::new("/home/u/.local/share/duoray/updates/duoray_0.4.0-1_amd64.deb");
+        let deb = Package::Deb.command(file);
+        assert_eq!(deb.last().map(String::as_str), Some(file.to_str().unwrap()));
+        assert!(matches!(deb[0].as_str(), "apt-get" | "dpkg"));
+        assert_eq!(Package::Pacman.command(file)[..3], ["pacman", "-U", "--noconfirm"]);
+        assert_eq!(shell_quote("/tmp/a b/it's.rpm"), "'/tmp/a b/it'\\''s.rpm'");
+        assert_eq!(shell_quote("/usr/x-1.rpm"), "/usr/x-1.rpm");
+        let m: Manifest = serde_json::from_str(
+            r#"{"version":"0.4.0","assets":{"linux-x86_64-rpm":{"file":"duoray-0.4.0-1.x86_64.rpm","sha256":"00","size":1}}}"#,
+        )
+        .unwrap();
+        let rpm = ("linux-x86_64-rpm".to_string(), Install::Package(Package::Rpm));
+        assert_eq!(select(m, "0.3.6", "abc", rpm).unwrap().install, Install::Package(Package::Rpm));
     }
 
     #[test]
