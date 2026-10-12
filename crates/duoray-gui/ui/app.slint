@@ -2979,11 +2979,11 @@ export component AppWindow inherits Window {
                             }
                             Button {
                                 text: root.conn-state == "connected" || root.conn-state == "blocked" ? "Отключиться"
-                                    : root.conn-state == "connecting" ? "Подключение…"
+                                    : root.conn-state == "connecting" ? "Отменить"
                                     : root.conn-state == "disconnecting" ? "Отключение…"
                                     : root.can-connect ? "Подключиться" : "Выберите сервер";
                                 primary: root.conn-state != "connected" && root.conn-state != "blocked";
-                                enabled: root.conn-state == "connected" || root.conn-state == "blocked" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
+                                enabled: root.conn-state == "connected" || root.conn-state == "blocked" || root.conn-state == "connecting" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
                                 clicked => {
                                     root.toggle-connection();
                                 }

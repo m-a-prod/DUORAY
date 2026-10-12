@@ -1201,6 +1201,17 @@ fn toggle_connection(ui: &AppWindow, app: &Shared) {
             drop(st);
             start_connect(ui, app);
         }
+        // "Отменить": a connect that hangs (xray not answering) can be stopped.
+        ConnState::Connecting { .. } => {
+            diag::log("connect cancelled");
+            st.conn_gen += 1;
+            st.conn_state = ConnState::Idle;
+            let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
+            render(ui, &st);
+            // Ends the wait for xray at once; a TUN already up is taken down
+            // when the connect returns (its generation is stale).
+            std::thread::spawn(move || connection::kill_stale_xray(&run_dir));
+        }
         _ => {}
     }
 }
@@ -1261,6 +1272,11 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Connecting { .. });
+            // Cancelled meanwhile: drop whatever came back (a connection that
+            // made it is taken down below), and do not report the abort.
+            if !still_wanted && result.is_err() {
+                return;
+            }
             match result {
                 Ok(conn) if still_wanted => {
                     ui.set_routing_warnings(

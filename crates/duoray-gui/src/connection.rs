@@ -802,7 +802,7 @@ pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration) ->
 }
 
 /// An xray left over from a crashed session would keep the port and the old config.
-fn kill_stale_xray(run_dir: &Path) {
+pub fn kill_stale_xray(run_dir: &Path) {
     let pidfile = run_dir.join("xray.pid");
     let Some(pid) = std::fs::read_to_string(&pidfile).ok().and_then(|p| p.trim().parse::<u32>().ok()) else {
         return;
