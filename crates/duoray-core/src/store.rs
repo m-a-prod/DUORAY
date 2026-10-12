@@ -58,6 +58,10 @@ pub struct Settings {
     pub proxy_mode: bool,
     /// Loopback port of that proxy (HTTP and SOCKS5 on one port).
     pub proxy_port: u16,
+    /// Start at login, hidden in the tray.
+    pub autostart: bool,
+    /// Connect to the last server when DUORAY starts.
+    pub autoconnect: bool,
 }
 
 impl Default for Settings {
@@ -82,6 +86,8 @@ impl Default for Settings {
             hide_buy: false,
             proxy_mode: false,
             proxy_port: 10808,
+            autostart: false,
+            autoconnect: false,
         }
     }
 }

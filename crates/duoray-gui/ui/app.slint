@@ -730,6 +730,8 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> show-server-type: true;
     in-out property <bool> close-to-tray: true;
     in-out property <bool> proxy-mode;
+    in-out property <bool> autostart;
+    in-out property <bool> autoconnect;
     in-out property <string> proxy-port: "10808";
     in property <bool> tray-available;
     in property <string> duoray-version;
@@ -1056,6 +1058,15 @@ component SettingsPage inherits Rectangle {
                 }
                 Divider { }
                 ToggleRow {
+                    title: "Запускать при входе в систему";
+                    description: "DUORAY запускается вместе с компьютером и сразу прячется в трей.";
+                    checked <=> root.autostart;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
+                ToggleRow {
                     title: "Показывать тип сервера";
                     description: "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.";
                     checked <=> root.show-server-type;
@@ -1070,6 +1081,15 @@ component SettingsPage inherits Rectangle {
                 text: "ПОДКЛЮЧЕНИЕ";
             }
             SettingsCard {
+                ToggleRow {
+                    title: "Подключаться при запуске";
+                    description: "Сразу после запуска DUORAY подключается к последнему выбранному серверу.";
+                    checked <=> root.autoconnect;
+                    toggled => {
+                        root.changed();
+                    }
+                }
+                Divider { }
                 ToggleRow {
                     title: "Режим прокси вместо TUN";
                     description: "DUORAY не создаёт VPN-туннель, а включает системный прокси 127.0.0.1 без логина и пароля (HTTP и SOCKS5 на одном порту). Через VPN идут программы, которые следуют системным настройкам прокси: браузеры и большинство приложений. Маршрутизация по приложениям в этом режиме не работает.";
@@ -2355,6 +2375,8 @@ export component AppWindow inherits Window {
     in-out property <bool> show-server-type <=> settings-page.show-server-type;
     in-out property <bool> close-to-tray <=> settings-page.close-to-tray;
     in-out property <bool> proxy-mode <=> settings-page.proxy-mode;
+    in-out property <bool> autostart <=> settings-page.autostart;
+    in-out property <bool> autoconnect <=> settings-page.autoconnect;
     in-out property <string> proxy-port <=> settings-page.proxy-port;
     in property <bool> tray-available <=> settings-page.tray-available;
     in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;

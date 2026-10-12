@@ -14,6 +14,7 @@ use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 
 slint::include_modules!();
 
+mod autostart;
 mod connection;
 mod deeplink;
 mod diag;
@@ -408,6 +409,8 @@ fn main() -> anyhow::Result<()> {
             ui.set_auto_update(st.store.settings.auto_update);
             ui.set_switch_on_select(st.store.settings.switch_on_select);
             ui.set_close_to_tray(st.store.settings.close_to_tray);
+            ui.set_autostart(st.store.settings.autostart);
+            ui.set_autoconnect(st.store.settings.autoconnect);
             ui.set_proxy_mode(st.store.settings.proxy_mode);
             ui.set_proxy_port(st.store.settings.proxy_port.to_string().into());
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
@@ -743,7 +746,23 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    ui.show()?;
+    // At login: straight to the tray (the window appears if there is none).
+    let hidden = autostart::launched() && app.lock().unwrap().store.settings.close_to_tray;
+    if !hidden {
+        ui.show()?;
+    }
+    {
+        let st = app.lock().unwrap();
+        // The entry carries the program path, which updates can change.
+        if st.store.settings.autostart
+            && let Err(e) = autostart::set(true)
+        {
+            diag::log(format!("autostart: {e:#}"));
+        }
+        if st.store.settings.autoconnect && deeplink::from_args().is_none() {
+            autoconnect(&ui, &app, 0);
+        }
+    }
     // Started by a duoray:// link (the first launch; later ones go through
     // the instance port).
     if let Some(link) = deeplink::from_args() {
@@ -799,6 +818,10 @@ fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
         });
         diag::log(format!("tray: {}", if started { "on" } else { "not available" }));
         ui.set_tray_available(started);
+        // Started hidden at login, but there is no tray to bring it back from.
+        if !started && !ui.window().is_visible() {
+            show_window(&ui);
+        }
     });
 }
 
@@ -1114,6 +1137,34 @@ fn switch_connection(ui: &AppWindow, app: &Shared, force: bool) {
             c.disconnect();
         }
         let _ = ui_weak.upgrade_in_event_loop(move |ui| start_connect(&ui, &app));
+    });
+}
+
+/// "Подключаться при запуске": the last server, a moment after start. Right
+/// after login the network may not be up yet: two more tries 10 s apart.
+fn autoconnect(ui: &AppWindow, app: &Shared, attempt: u32) {
+    let delay = if attempt == 0 { 1500 } else { 10_000 };
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    slint::Timer::single_shot(std::time::Duration::from_millis(delay), move || {
+        let Some(ui) = ui_weak.upgrade() else { return };
+        let ready = {
+            let st = app.lock().unwrap();
+            matches!(st.conn_state, ConnState::Idle | ConnState::Failed(_)) && selected_server(&ui, &st).is_some()
+        };
+        if !ready {
+            return;
+        }
+        diag::log(format!("autoconnect (try {})", attempt + 1));
+        start_connect(&ui, &app);
+        if attempt < 2 {
+            let (ui_weak, app) = (ui.as_weak(), app.clone());
+            slint::Timer::single_shot(std::time::Duration::from_secs(15), move || {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                if matches!(app.lock().unwrap().conn_state, ConnState::Failed(_)) {
+                    autoconnect(&ui, &app, attempt + 1);
+                }
+            });
+        }
     });
 }
 
@@ -1694,6 +1745,14 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.switch_on_select = ui.get_switch_on_select();
     st.store.settings.show_server_type = ui.get_show_server_type();
     st.store.settings.close_to_tray = ui.get_close_to_tray();
+    st.store.settings.autoconnect = ui.get_autoconnect();
+    if ui.get_autostart() != st.store.settings.autostart {
+        st.store.settings.autostart = ui.get_autostart();
+        if let Err(e) = autostart::set(st.store.settings.autostart) {
+            diag::log(format!("autostart: {e:#}"));
+            st.status = format!("Не удалось настроить автозапуск: {e:#}");
+        }
+    }
     let mode = (st.store.settings.proxy_mode, st.store.settings.proxy_port);
     st.store.settings.proxy_mode = ui.get_proxy_mode();
     if let Some(port) = ui.get_proxy_port().trim().parse::<u16>().ok().filter(|&p| p > 0) {
