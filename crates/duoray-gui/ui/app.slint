@@ -1,4 +1,4 @@
-import { ListView, Palette, Spinner, ScrollView } from "std-widgets.slint";
+import { ListView, Palette, Spinner, ScrollView, TextEdit } from "std-widgets.slint";
 
 // A run of a name: text, or (text empty) a colour emoji image.
 export struct NamePart {
@@ -712,6 +712,7 @@ component SettingsPage inherits Rectangle {
     in property <string> duoray-ua;
     in property <string> duoray-hwid;
     in property <string> helper-status;
+    in property <bool> helper-installed: true;
     in property <bool> helper-busy;
     // 0 HTTP GET, 1 HTTP HEAD, 2 TCP, 3 ICMP
     in-out property <int> ping-mode-index;
@@ -1177,13 +1178,13 @@ component SettingsPage inherits Rectangle {
                         HorizontalLayout {
                             spacing: 8px;
                             Button {
-                                text: "Переустановить";
+                                text: root.helper-installed ? "Переустановить" : "Установить";
                                 enabled: !root.helper-busy;
                                 clicked => {
                                     root.reinstall-helper();
                                 }
                             }
-                            Button {
+                            if root.helper-installed: Button {
                                 text: "Удалить";
                                 enabled: !root.helper-busy;
                                 clicked => {
@@ -1752,7 +1753,7 @@ component RoutingPage inherits Rectangle {
                 }
                 Text {
                     text: root.app-mode == 0 ? "Все программы идут по правилам выше."
-                        : root.app-mode == 1 ? "Выбранные программы работают с вашим обычным IP: например, Steam и игры, банковские приложения, торренты."
+                        : root.app-mode == 1 ? "Выбранные программы работают с вашим обычным IP: например, Steam и игры, торрент-клиенты, рабочие программы."
                         : "Через VPN идут только выбранные программы, всё остальное — напрямую.";
                     font-size: Theme.fs-small;
                     color: Theme.muted;
@@ -2376,6 +2377,7 @@ export component AppWindow inherits Window {
     in-out property <string> duoray-ua <=> settings-page.duoray-ua;
     in-out property <string> duoray-hwid <=> settings-page.duoray-hwid;
     in-out property <string> settings-helper-status <=> settings-page.helper-status;
+    in-out property <bool> settings-helper-installed <=> settings-page.helper-installed;
     in-out property <bool> settings-helper-busy <=> settings-page.helper-busy;
     in-out property <int> ping-mode-index <=> settings-page.ping-mode-index;
     in-out property <string> ping-threads <=> settings-page.ping-threads;
@@ -2722,7 +2724,9 @@ export component AppWindow inherits Window {
                                 }
                                 sub-layout := VerticalLayout {
                                     padding: 12px;
-                                    padding-right: 48px;
+                                    // Room for the delete button only while it shows: the
+                                    // name, traffic and bar used to stop 36 px short.
+                                    padding-right: sub-touch.has-hover || del-touch.has-hover || del.confirming ? 48px : 12px;
                                     spacing: 5px;
                                     if sub.name-parts.length == 0: Text {
                                         text: sub.name;
@@ -3757,12 +3761,13 @@ export component AppWindow inherits Window {
                         color: Theme.muted;
                         wrap: word-wrap;
                     }
-                    TextField {
+                    // Several lines, wrapped: people write more than a line here.
+                    TextEdit {
                         text <=> root.report-note;
-                        placeholder: "Например: не подключается к Нидерландам после обновления";
-                        accepted => {
-                            root.report-send();
-                        }
+                        placeholder-text: "Например: не подключается к Нидерландам после обновления";
+                        wrap: word-wrap;
+                        min-height: 96px;
+                        font-size: Theme.fs-body;
                     }
                     if root.report-preview != "": Rectangle {
                         height: 220px;

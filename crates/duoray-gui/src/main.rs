@@ -402,6 +402,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_duoray_ua(identity::DUORAY_USER_AGENT.into());
             ui.set_duoray_hwid(device.hwid.clone().into());
             ui.set_settings_helper_status(helper::describe().into());
+            ui.set_settings_helper_installed(helper::installed());
             let st = app.lock().unwrap();
             load_happ(&ui, &st.store.settings.happ);
             load_ping(&ui, &st.store.settings.ping);
@@ -471,6 +472,7 @@ fn main() -> anyhow::Result<()> {
                 let result = if uninstall { helper::uninstall() } else { helper::install_and_wait() };
                 let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                     ui.set_settings_helper_busy(false);
+                    ui.set_settings_helper_installed(helper::installed());
                     let status = helper::describe();
                     ui.set_settings_helper_status(
                         match result {

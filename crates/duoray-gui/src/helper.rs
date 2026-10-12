@@ -416,6 +416,11 @@ pub use install_impl::{install, uninstall};
 pub use crate::windows_helper::{install, uninstall};
 
 /// Human-readable helper state for the settings window.
+/// Whether a helper (of any version) answers.
+pub fn installed() -> bool {
+    !matches!(HelperSession::open(), Err(OpenError::Missing))
+}
+
 pub fn describe() -> String {
     match HelperSession::open() {
         Ok(s) => format!("Установлен, версия {}. Подключение не требует пароля администратора.", s.version),
