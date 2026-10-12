@@ -1811,6 +1811,9 @@ fn humanize(e: &str) -> String {
         ("status: 404", "Подписка не найдена (404)."),
         ("status: 403", "Доступ к подписке запрещён (403). Возможно, поможет Happ Spoof в настройках."),
     ];
+    if let Some((_, note)) = e.split_once("a note instead of servers: ") {
+        return format!("Серверов нет, панель пишет: «{note}»");
+    }
     for (needle, text) in map {
         if e.contains(needle) {
             return text.to_string();

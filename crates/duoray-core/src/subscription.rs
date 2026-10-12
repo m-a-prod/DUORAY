@@ -161,6 +161,13 @@ fn get(agent: &ureq::Agent, url: &str, headers: &[(String, String)]) -> Result<F
     info.new_domain = header("new-domain");
     let (servers, skipped, json) = parse_body(&body)?;
     if servers.is_empty() {
+        // Panels answer an expired or disabled user with one dummy link whose
+        // name is the message ("Подписка истекла").
+        if let [only] = skipped.as_slice()
+            && let Some((_, note)) = only.split_once(NOTE)
+        {
+            bail!("the panel sent a note instead of servers: {note}");
+        }
         match skipped.first() {
             Some(why) => bail!("no usable servers ({} skipped, e.g. {why})", skipped.len()),
             None => bail!("subscription is empty"),
@@ -201,10 +208,23 @@ pub fn parse_body(body: &str) -> Result<(Vec<Server>, Vec<String>, bool)> {
     for line in text.lines().map(str::trim).filter(|l| l.contains("://")) {
         match link::parse(line) {
             Ok(p) => servers.push(Server::from_link(p)),
-            Err(e) => skipped.push(format!("{e:#}")),
+            Err(e) => skipped.push(match remark(line) {
+                Some(name) => format!("{e:#}{NOTE}{name}"),
+                None => format!("{e:#}"),
+            }),
         }
     }
     Ok((servers, skipped, false))
+}
+
+/// Separates a skipped link's reason from its name.
+const NOTE: &str = ", named: ";
+
+/// The `#name` of a share link, decoded.
+fn remark(line: &str) -> Option<String> {
+    let (_, name) = line.split_once('#')?;
+    let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy().trim().to_string();
+    (!name.is_empty()).then_some(name)
 }
 
 fn parse_json(body: &str) -> Result<(Vec<Server>, Vec<String>)> {
@@ -303,6 +323,13 @@ pub fn replacement_url(info: &SubInfo, current: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dummy_link_keeps_its_note() {
+        let (servers, skipped, _) = parse_body("vless://@0.0.0.0:1?type=tcp#%D0%9F%D0%BE%D0%B4%D0%BF%D0%B8%D1%81%D0%BA%D0%B0%20%D0%B8%D1%81%D1%82%D0%B5%D0%BA%D0%BB%D0%B0").unwrap();
+        assert!(servers.is_empty());
+        assert_eq!(skipped[0].split_once(NOTE).map(|(_, n)| n), Some("Подписка истекла"));
+    }
     use base64::engine::general_purpose::STANDARD;
 
     const LINKS: &str = "vless://00000000-1111-2222-3333-444444444444@1.2.3.4:443?type=tcp&security=reality&pbk=K&sni=a.b#One\n\
