@@ -2444,6 +2444,7 @@ export component AppWindow inherits Window {
     // Server context menu and editor.
     callback ping-server(int);
     callback edit-server(int);
+    callback copy-server-link(int);
     callback reset-server(int);
     in-out property <bool> editor-open;
     in property <int> editor-mode;
@@ -3357,6 +3358,13 @@ export component AppWindow inherits Window {
                                             clicked => {
                                                 row-menu.close();
                                                 root.ping-server(i);
+                                            }
+                                        }
+                                        MenuItem {
+                                            text: srv.proxies > 1 ? "Скопировать ссылки" : "Скопировать ссылку";
+                                            clicked => {
+                                                row-menu.close();
+                                                root.copy-server-link(i);
                                             }
                                         }
                                         MenuItem {

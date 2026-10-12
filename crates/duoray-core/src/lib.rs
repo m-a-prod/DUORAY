@@ -9,6 +9,7 @@ pub mod link;
 pub mod routing;
 pub mod runtime;
 pub mod server;
+pub mod share;
 pub mod store;
 pub mod subscription;
 pub mod xray;

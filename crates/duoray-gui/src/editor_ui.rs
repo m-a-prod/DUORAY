@@ -62,6 +62,29 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
 
+    // vless:// and friends for another client; one per server of a balancer.
+    ui.on_copy_server_link({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move |row| {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some((sub, index)) = server_at(&ui, &st, row) else { return };
+            let links = duoray_core::share::links(&sub.servers[index]);
+            let msg = if links.is_empty() {
+                "У этого сервера нет ссылки: его протокол передаётся только конфигом".to_string()
+            } else {
+                let n = links.len();
+                match arboard::Clipboard::new().and_then(|mut c| c.set_text(links.join("\n"))) {
+                    Ok(()) if n > 1 => format!("Скопировано ссылок: {n}"),
+                    Ok(()) => "Ссылка скопирована".into(),
+                    Err(e) => format!("Не удалось скопировать: {e}"),
+                }
+            };
+            crate::flash_status(&ui, &app, &mut st, msg);
+            crate::render(&ui, &st);
+        }
+    });
+
     ui.on_edit_server({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move |row| open(&ui_weak.unwrap(), &app, row)
