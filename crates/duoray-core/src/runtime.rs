@@ -85,6 +85,7 @@ pub fn build_with(
         Some(r) => routing::apply(&mut config, r.settings, r.geo),
         None => vec![],
     };
+    quiet_log(&mut config);
 
     let port = free_port()?;
     let socks = SocketAddr::from(([127, 0, 0, 1], port));
@@ -167,6 +168,20 @@ pub fn build_with(
     bypass.dedup();
 
     Ok(Runtime { config, socks, user, pass, bypass, direct_socks, warnings })
+}
+
+/// No access log and nothing chattier than warnings: panels often turn them
+/// on, and a line per connection buried xray's own error (why it stopped)
+/// under thousands of "accepted" lines in the log tail of reports.
+fn quiet_log(config: &mut Value) {
+    if !config["log"].is_object() {
+        config["log"] = json!({});
+    }
+    config["log"]["access"] = json!("none");
+    let level = config["log"]["loglevel"].as_str().unwrap_or("warning");
+    if matches!(level, "debug" | "info") {
+        config["log"]["loglevel"] = json!("warning");
+    }
 }
 
 /// An outbound's servers: vnext (vless/vmess), servers (trojan/ss/socks), or
@@ -275,7 +290,8 @@ mod tests {
                 {"tag": "block", "protocol": "blackhole"},
                 {"tag": "dns-out", "protocol": "dns"}
             ],
-            "routing": {"balancers": [{"tag": "b", "selector": ["proxy"]}]}
+            "routing": {"balancers": [{"tag": "b", "selector": ["proxy"]}]},
+            "log": {"access": "", "loglevel": "debug"}
         }));
         let rt = build_with(&s, "en0", None, |h| {
             assert_eq!(h, "se.example.com");
@@ -283,6 +299,7 @@ mod tests {
         })
         .unwrap();
         let c = &rt.config;
+        assert_eq!(c["log"], json!({"access": "none", "loglevel": "warning"}), "quiet log");
         let obs = c["outbounds"].as_array().unwrap();
 
         assert_eq!(c["inbounds"].as_array().unwrap().len(), 1);
