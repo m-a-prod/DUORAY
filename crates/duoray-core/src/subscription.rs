@@ -127,11 +127,23 @@ pub fn json_endpoint(url: &str) -> Option<String> {
 }
 
 fn get(agent: &ureq::Agent, url: &str, headers: &[(String, String)]) -> Result<Fetched> {
-    let mut req = agent.get(url);
-    for (k, v) in headers {
-        req = req.header(k, v);
+    // Redirects by hand: some panels send apps on to their own deep link.
+    let mut url = url.to_string();
+    let mut resp = None;
+    for _ in 0..10 {
+        let mut req = agent.get(&url).config().max_redirects(0).build();
+        for (k, v) in headers {
+            req = req.header(k, v);
+        }
+        let r = req.call().with_context(|| format!("GET {url}"))?;
+        if !r.status().is_redirection() {
+            resp = Some(r);
+            break;
+        }
+        let location = r.headers().get("location").and_then(|v| v.to_str().ok()).context("redirect without a Location")?;
+        url = redirect_target(&url, location)?;
     }
-    let mut resp = req.call().with_context(|| format!("GET {url}"))?;
+    let mut resp = resp.context("too many redirects")?;
 
     let body = resp
         .body_mut()
@@ -174,6 +186,24 @@ fn get(agent: &ureq::Agent, url: &str, headers: &[(String, String)]) -> Result<F
         }
     }
     Ok(Fetched { info, servers, skipped, json })
+}
+
+/// Where a redirect leads. A panel may answer with an app's deep link
+/// (`incy://…`, `happ://add/https://…`): the subscription URL inside it is
+/// fetched instead.
+fn redirect_target(base: &str, location: &str) -> Result<String> {
+    let next = Url::parse(base)?.join(location.trim()).context("bad redirect")?;
+    if matches!(next.scheme(), "http" | "https") {
+        return Ok(next.to_string());
+    }
+    let decoded = percent_encoding::percent_decode_str(location).decode_utf8_lossy();
+    if let Some(start) = decoded.find("https://").or_else(|| decoded.find("http://")) {
+        let inner = decoded[start..].split(char::is_whitespace).next().unwrap_or_default();
+        if Url::parse(inner).is_ok() {
+            return Ok(inner.to_string());
+        }
+    }
+    bail!("the panel redirects to the {} app instead of sending a subscription", next.scheme())
 }
 
 /// Accepts an xray JSON array/object, share links, or either base64-encoded.
@@ -323,6 +353,43 @@ pub fn replacement_url(info: &SubInfo, current: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follows_redirects_by_hand() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for (i, conn) in listener.incoming().take(2).enumerate() {
+                let mut conn = conn.unwrap();
+                let mut buf = [0u8; 4096];
+                let _ = conn.read(&mut buf);
+                let reply = if i == 0 {
+                    format!("HTTP/1.1 302 Found\r\nLocation: incy://import/http%3A%2F%2F127.0.0.1%3A{port}%2Freal\r\nContent-Length: 0\r\n\r\n")
+                } else {
+                    let body = "trojan://pw@t.example:443#Two\n";
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len())
+                };
+                conn.write_all(reply.as_bytes()).unwrap();
+            }
+        });
+        let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
+        let f = get(&agent, &format!("http://127.0.0.1:{port}/sub"), &[]).unwrap();
+        assert_eq!(f.servers.len(), 1);
+    }
+
+    #[test]
+    fn redirects_into_app_links() {
+        let base = "https://panel.example/sub/abc";
+        assert_eq!(redirect_target(base, "/sub/abc?x=1").unwrap(), "https://panel.example/sub/abc?x=1");
+        assert_eq!(redirect_target(base, "happ://add/https://panel.example/sub/abc").unwrap(), "https://panel.example/sub/abc");
+        assert_eq!(
+            redirect_target(base, "incy://import/https%3A%2F%2Fpanel.example%2Fsub%2Fabc").unwrap(),
+            "https://panel.example/sub/abc"
+        );
+        let err = redirect_target(base, "incy://crypt/AbCd").unwrap_err().to_string();
+        assert!(err.contains("redirects to the incy app"), "{err}");
+    }
 
     #[test]
     fn dummy_link_keeps_its_note() {
