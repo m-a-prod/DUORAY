@@ -214,7 +214,7 @@ fn http(
     }
     let mut child = connection::hidden(&mut cmd).spawn().context("запуск xray")?;
     let result = (|| {
-        connection::wait_listening(rt.socks, &mut child, Duration::from_secs(5))?;
+        connection::wait_listening(rt.socks, &mut child, Duration::from_secs(5), None)?;
         via_socks(rt.socks, &rt.user, &rt.pass, url, head, timeout)
     })();
     let _ = child.kill();

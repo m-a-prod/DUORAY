@@ -87,6 +87,8 @@ struct App {
     conn_state: ConnState,
     /// Incremented per connect attempt; stale failure reports are ignored.
     conn_gen: u64,
+    /// "Отменить" sets it for the attempt in progress.
+    conn_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Connect again once the helper is installed.
     connect_after_install: bool,
     /// Latest ping per server key: (label, level) as shown in the row.
@@ -214,6 +216,7 @@ fn main() -> anyhow::Result<()> {
         conn: None,
         conn_state: ConnState::Idle,
         conn_gen: 0,
+        conn_cancel: Default::default(),
         connect_after_install: false,
         ping_results: pings,
         sort_by_ping: false,
@@ -1223,11 +1226,10 @@ fn toggle_connection(ui: &AppWindow, app: &Shared) {
             diag::log("connect cancelled");
             st.conn_gen += 1;
             st.conn_state = ConnState::Idle;
-            let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
+            // The attempt stops at its next step (the wait for xray at once)
+            // and takes down whatever it started before the next one runs.
+            st.conn_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
             render(ui, &st);
-            // Ends the wait for xray at once; a TUN already up is taken down
-            // when the connect returns (its generation is stale).
-            std::thread::spawn(move || connection::kill_stale_xray(&run_dir));
         }
         _ => {}
     }
@@ -1244,6 +1246,8 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     diag::log(format!("connect: {} {}/{}, {} outbound(s)", server.protocol, server.network, server.security, server.proxies));
     st.conn_gen += 1;
     let generation = st.conn_gen;
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    st.conn_cancel = cancel.clone();
     st.conn_state = ConnState::Connecting { name: name.clone() };
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
     let routing = st.store.settings.routing.clone();
@@ -1282,7 +1286,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
             &run_dir,
             &routing,
             &geo,
-            connection::Options { proxy_port, kill_switch },
+            connection::Options { proxy_port, kill_switch, cancel },
             on_failure,
             on_uplink_change,
         );
@@ -1811,6 +1815,12 @@ fn humanize(e: &str) -> String {
         ("status: 404", "Подписка не найдена (404)."),
         ("status: 403", "Доступ к подписке запрещён (403). Возможно, поможет Happ Spoof в настройках."),
     ];
+    if let Some((_, app)) = e.split_once("the panel redirects to the ") {
+        let app = app.split(' ').next().unwrap_or_default();
+        return format!(
+            "Панель отдала ссылку для приложения {app}, а не подписку. Скопируйте ссылку на подписку (https://…) в личном кабинете."
+        );
+    }
     if let Some((_, note)) = e.split_once("a note instead of servers: ") {
         return format!("Серверов нет, панель пишет: «{note}»");
     }

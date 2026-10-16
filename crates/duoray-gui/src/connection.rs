@@ -4,6 +4,7 @@
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -91,12 +92,25 @@ struct Respawn {
 }
 
 /// How to connect.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct Options {
     /// Proxy mode: no TUN; the system proxy points at xray on this port.
     pub proxy_port: Option<u16>,
     /// Keep the tunnel and restart xray if it dies (see [`connect`]).
     pub kill_switch: bool,
+    /// Set by "Отменить": the attempt stops at its next step and undoes
+    /// what it already started.
+    pub cancel: Arc<AtomicBool>,
+}
+
+/// One attempt at a time touches what attempts share: the xray pid file and
+/// port, and the helper session. A cancelled attempt that wakes up late (stuck
+/// resolving the server) would otherwise kill the next attempt's xray or hold
+/// the helper ("another DUORAY session is active").
+static ATTEMPT: Mutex<()> = Mutex::new(());
+
+fn cancelled_error() -> ConnectError {
+    ConnectError::Other(anyhow::anyhow!("подключение отменено"))
 }
 
 /// Per-app routing works through the TUN only: proxy mode goes without it.
@@ -124,7 +138,8 @@ pub fn connect(
     on_failure: impl Fn(String, bool) + Send + Sync + Clone + 'static,
     on_uplink_change: impl Fn() + Send + 'static,
 ) -> Result<Connection, ConnectError> {
-    let Options { proxy_port, kill_switch } = options;
+    let Options { proxy_port, kill_switch, cancel } = options;
+    let cancelled = || cancel.load(Ordering::SeqCst);
     let started = Instant::now();
     // Proxy mode needs no TUN, and the app sets the system proxy itself,
     // except on macOS: changing it needs root there, so the helper does it.
@@ -159,6 +174,11 @@ pub fn connect(
     let geo_data = GeoData::load(assets.as_deref(), Some(&geo.lists()));
     let mut rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
         .context("preparing xray config")?;
+    // Held until this attempt returns, connected or not.
+    let _attempt = ATTEMPT.lock().unwrap_or_else(|e| e.into_inner());
+    if cancelled() {
+        return Err(cancelled_error());
+    }
     // Before the port check: our own xray from a previous run may hold it.
     std::fs::create_dir_all(run_dir)?;
     kill_stale_xray(run_dir);
@@ -219,9 +239,12 @@ pub fn connect(
         socks: rt.socks,
     };
 
-    if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(20)) {
+    if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(20), Some(&cancel)) {
         let _ = child.kill();
         let _ = child.wait();
+        if cancelled() {
+            return Err(cancelled_error());
+        }
         return Err(ConnectError::Other(e.context(log_tail(&log_path))));
     }
     let xray_done = started.elapsed();
@@ -276,6 +299,18 @@ pub fn connect(
             return Err(ConnectError::Other(e));
         }
     };
+    // Cancelled while the tunnel came up: take it down before the next
+    // attempt gets the lock.
+    if cancelled() {
+        if let Some(h) = helper.as_mut() {
+            let _ = h.stop();
+        }
+        #[cfg(not(target_os = "macos"))]
+        drop(sysproxy);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(cancelled_error());
+    }
 
     let xray = Arc::new(Mutex::new(child));
     let helper = helper.map(|h| Arc::new(Mutex::new(h)));
@@ -373,7 +408,7 @@ impl Connection {
             let _ = child.wait();
             let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
             let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
-            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(20));
+            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(20), None);
             // Keep it even if not ready yet: the watchdog reports a dead one.
             *child = fresh;
             ready.map_err(|e| e.context(log_tail(&r.log)))
@@ -414,7 +449,7 @@ impl Connection {
             let _ = child.wait();
             let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
             let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
-            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(20));
+            let ready = wait_listening(r.socks, &mut fresh, Duration::from_secs(20), None);
             *child = fresh;
             ready.map_err(|e| e.context(log_tail(&r.log)))?;
             Ok(Some(rt.warnings))
@@ -449,7 +484,7 @@ fn restart_xray(xray: &Mutex<Child>, r: &Respawn, closing: &std::sync::atomic::A
         }
         let Ok(mut fresh) = spawn_xray(&r.config, &r.log, r.assets.as_deref()) else { continue };
         let _ = std::fs::write(&r.pid_file, fresh.id().to_string());
-        if wait_listening(r.socks, &mut fresh, Duration::from_secs(10)).is_ok() {
+        if wait_listening(r.socks, &mut fresh, Duration::from_secs(10), None).is_ok() {
             *xray.lock().unwrap() = fresh;
             return true;
         }
@@ -804,9 +839,12 @@ mod linux_spawn {
     }
 }
 
-pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration) -> Result<()> {
+pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration, cancel: Option<&AtomicBool>) -> Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
+        if cancel.is_some_and(|c| c.load(Ordering::SeqCst)) {
+            bail!("cancelled");
+        }
         if let Some(status) = child.try_wait()? {
             bail!("xray завершился при старте ({status})");
         }
