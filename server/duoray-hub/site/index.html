@@ -45,6 +45,7 @@
 :root {
   --bg: #141118;
   --bg-2: #1c1822;
+  --bg-3: #0e0c11;
   --line: #ffffff14;
   --line-2: #ffffff24;
   --text: #f6eef3;
@@ -56,6 +57,7 @@
   --gutter: clamp(16px, 5vw, 80px);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
   --display: Unbounded, "Arial Black", sans-serif;
+  --ease: cubic-bezier(.2,.8,.2,1);
 }
 * { box-sizing: border-box; margin: 0; }
 html { background: var(--bg); color: var(--text); scroll-behavior: smooth; }
@@ -86,15 +88,18 @@ a { color: inherit; }
 }
 
 /* ---------- header ---------- */
-header .wrap { display: flex; align-items: center; justify-content: space-between; padding-top: 28px; padding-bottom: 28px; }
-.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; font: 800 18px var(--display); letter-spacing: .02em; }
+header .wrap { display: flex; align-items: center; justify-content: space-between; padding-top: 22px; padding-bottom: 22px; }
+.brand { display: flex; align-items: center; gap: 12px; padding: 6px 0; text-decoration: none; font: 800 18px var(--display); letter-spacing: .02em; }
 .brand svg { width: 38px; height: auto; }
-header nav { display: flex; gap: 28px; font-weight: 500; }
-header nav a { text-decoration: none; color: var(--muted); }
-header nav a:hover { color: var(--text); }
+header nav { display: flex; gap: 8px; font-weight: 500; }
+header nav a { padding: 10px 12px; border-radius: 10px; text-decoration: none; color: var(--muted); transition: color .2s, background .2s; }
+header nav a:hover { color: var(--text); background: #ffffff0a; }
 
 /* ---------- hero ---------- */
-.hero { display: grid; grid-template-columns: 1.15fr .85fr; align-items: center; gap: 40px; min-height: min(760px, calc(100vh - 100px)); padding-bottom: 72px; }
+.hero { padding-top: 40px; padding-bottom: 96px; }
+.hero-copy { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); align-items: end; gap: 24px 56px; }
+.hero-copy .sub { margin-top: 0; }
+.hero .shot { margin-top: 72px; }
 .pill {
   display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px;
   background: #f4c2d714; border: 1px solid #f4c2d745; color: var(--pink);
@@ -106,10 +111,10 @@ h1 .name {
   display: block; font: 800 clamp(52px, 8vw, 112px)/.95 var(--display); letter-spacing: -.02em;
   background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.lead { display: block; margin-top: 24px; font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--display); letter-spacing: -.01em; max-width: 26ch; }
-.sub { margin-top: 16px; color: var(--muted); font-size: clamp(17px, 1.5vw, 20px); max-width: 42ch; }
+.lead { display: block; margin-top: 22px; font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--display); letter-spacing: -.01em; max-width: 24ch; }
+.sub { margin-top: 16px; color: var(--muted); font-size: clamp(17px, 1.4vw, 19px); max-width: 40ch; }
 
-.cta { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.cta { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 .btn {
   position: relative; display: inline-flex; align-items: center; gap: 12px;
   padding: 18px 28px; border-radius: 16px; text-decoration: none;
@@ -122,40 +127,157 @@ h1 .name {
 .btn svg { width: 20px; height: 20px; flex: none; }
 .hint { margin-top: 14px; color: var(--muted); font: 500 14px var(--mono); }
 
-/* the mark: two halves that come together and light up, like the app */
-.mark { position: relative; display: grid; place-items: center; }
-.mark button {
-  all: unset; cursor: pointer; display: grid; place-items: center; gap: 28px;
-  border-radius: 24px; padding: 12px;
+/* ---------- the app window, drawn after the real one ---------- */
+.shot { position: relative; container-type: inline-size; }
+.shot::before {
+  content: ""; position: absolute; inset: 8% -6% -10% 4%; z-index: -1; border-radius: 40px;
+  background: radial-gradient(closest-side, #f4c2d74d, transparent); filter: blur(30px);
+  opacity: .35; transition: opacity 1.2s;
 }
-.mark button:focus-visible { outline: 2px solid var(--pink); outline-offset: 8px; }
-.mark svg { width: min(380px, 30vw); height: auto; overflow: visible; filter: drop-shadow(0 0 0 transparent); transition: filter .8s; }
-.mark .half { transition: transform 1s cubic-bezier(.2,.8,.2,1); }
-.mark .l { transform: translateX(-26px); }
-.mark .r { transform: translateX(26px); }
-.mark stop { transition: stop-color .8s; }
-.mark .on svg { filter: drop-shadow(0 0 60px #f4c2d755); }
-.mark .on .l, .mark .on .r { transform: none; }
-.status {
-  display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 999px;
-  background: #ffffff0a; border: 1px solid var(--line-2); font: 500 15px var(--mono); color: var(--muted);
-  transition: color .6s, border-color .6s;
+.shot.on::before { opacity: 1; }
+.win {
+  --a-side: #1d1b20; --a-main: #2a282e; --a-card: #201e24; --a-tonal: #4a4458;
+  --a-accent: #d0bcff; --a-on-accent: #381e72; --a-text: #e6e1e5; --a-muted: #e6e1e59e;
+  --a-border: #ffffff3d; --a-ok: #30a46c; --a-warn: #f5a524;
+  display: grid; grid-template-columns: 260px 1fr;
+  border-radius: 18px; overflow: hidden; border: 1px solid #ffffff1f;
+  background: var(--a-main); color: var(--a-text); font-size: 13px; line-height: 1.35;
+  box-shadow: 0 40px 120px -40px #000, 0 0 0 1px #00000066;
+  user-select: none;
 }
-.status .dot { background: #71717a; box-shadow: none; transition: background .6s, box-shadow .6s; }
-.on .status { color: var(--pink); border-color: #f4c2d755; }
-.on .status .dot { background: var(--pink); box-shadow: 0 0 12px var(--pink); }
+.w-side { display: flex; flex-direction: column; gap: 14px; padding: 18px 14px 14px; background: var(--a-side); }
+.w-brand { display: flex; align-items: center; gap: 10px; padding: 0 4px 6px; font: 600 17px Onest, sans-serif; letter-spacing: .04em; }
+.w-logo { position: relative; width: 30px; height: 25px; }
+.w-logo svg { position: absolute; inset: 0; width: 100%; height: 100%; transition: opacity .8s, filter .8s; }
+.w-logo .lit { opacity: 0; }
+.on .w-logo .lit { opacity: 1; filter: drop-shadow(0 0 8px #f4c2d799); }
+.w-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.w-group { padding: 4px 6px; }
+.w-group b, .w-sub b { display: block; font-size: 14px; font-weight: 600; }
+.w-group small, .w-sub small { color: var(--a-muted); font-size: 12px; }
+.w-plus { width: 16px; height: 16px; color: var(--a-accent); flex: none; }
+.w-label { padding: 6px 6px 0; color: var(--a-muted); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+.w-sub { padding: 12px; border-radius: 12px; background: var(--a-tonal); }
+.w-status { margin-top: auto; padding: 12px; border-radius: 12px; background: var(--a-card); }
+.w-st { display: flex; align-items: center; gap: 8px; }
+.w-st b { font-size: 14px; font-weight: 600; }
+.w-dot { width: 10px; height: 10px; border-radius: 50%; background: #79747e; flex: none; transition: background .4s, box-shadow .4s; }
+.wait .w-dot { background: var(--a-warn); }
+.on .w-dot { background: var(--a-ok); box-shadow: 0 0 0 3px #30a46c33; }
+.w-status small { display: block; margin: 2px 0 10px 18px; color: var(--a-muted); font-size: 12px; }
+.w-btn {
+  display: block; width: 100%; padding: 9px 12px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--a-accent); color: var(--a-on-accent); font: 600 13px Onest, sans-serif; text-align: center;
+  transition: background .3s, color .3s;
+}
+.on .w-btn.toggle, .wait .w-btn.toggle, .w-btn.flat { background: var(--a-tonal); color: var(--a-text); }
+.w-btn.toggle:hover { filter: brightness(1.1); }
+.w-btn.toggle:focus-visible { outline: 2px solid var(--pink); outline-offset: 3px; }
+.w-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.w-nav .w-btn { cursor: default; }
+.w-main { display: flex; flex-direction: column; gap: 10px; padding: 14px; min-width: 0; }
+.w-head { padding: 14px 16px; border-radius: 14px; background: var(--a-card); }
+.w-head b { font: 800 19px Onest, sans-serif; letter-spacing: .02em; }
+.w-icons { display: flex; gap: 14px; color: var(--a-text); }
+.w-icons svg { width: 16px; height: 16px; }
+.w-head small { display: block; margin-top: 2px; color: var(--a-muted); font-size: 12px; }
+.w-traffic { margin-top: 12px; padding: 3px; border-radius: 999px; border: 1px solid var(--a-border); text-align: center; font-size: 11.5px; font-weight: 600; }
+.w-list { list-style: none; padding: 0; display: grid; gap: 2px; }
+.w-list li { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 12px; }
+.w-list li.sel { background: var(--a-tonal); }
+.flag { width: 26px; height: 18px; flex: none; border-radius: 3px; overflow: hidden; }
+.w-name { flex: 1; min-width: 0; }
+.w-name b { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-name small { display: block; color: var(--a-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ping { min-width: 52px; padding: 3px 8px; border-radius: 6px; text-align: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ping.ok { color: var(--a-ok); background: #30a46c24; }
+.ping.warn { color: var(--a-warn); background: #f5a52424; }
+.tag { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--a-border); color: var(--a-muted); font-size: 12px; white-space: nowrap; }
+.w-st .ping { min-width: 0; opacity: 0; transition: opacity .4s; }
+.on .w-st .ping { opacity: 1; }
 
-/* ---------- features ---------- */
+@container (max-width: 860px) {
+  .tag { display: none; }
+}
+@container (max-width: 640px) {
+  .win { grid-template-columns: 1fr; }
+  .w-side { order: 2; padding: 0 12px 12px; background: var(--a-main); }
+  .w-side > :not(.w-status) { display: none; }
+  .w-main { padding: 12px 12px 0; }
+  .w-list li:nth-child(n+5) { display: none; }
+}
+
+/* ---------- sections ---------- */
 section { position: relative; }
 .sec { padding: 96px 0; border-top: 1px solid var(--line); }
 .eyebrow { font: 500 14px var(--mono); color: var(--pink); letter-spacing: .08em; text-transform: uppercase; }
 h2 { margin-top: 14px; font: 800 clamp(30px, 4.4vw, 56px)/1.05 var(--display); letter-spacing: -.02em; max-width: 18ch; }
-.features { margin-top: 56px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line-2); }
-.feature { padding: 28px 28px 8px 0; }
-.feature + .feature { padding-left: 28px; border-left: 1px solid var(--line); }
-.num { font: 500 14px var(--mono); color: var(--pink-lo); }
-.feature h3 { margin-top: 18px; font: 600 20px/1.25 var(--display); letter-spacing: -.01em; }
-.feature p { margin-top: 12px; color: var(--muted); font-size: 16px; }
+
+/* ---------- features ---------- */
+.features { margin-top: 56px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.feature {
+  display: flex; flex-direction: column; padding: 14px 14px 28px; border-radius: 24px;
+  background: var(--bg-2); border: 1px solid var(--line); transition: border-color .3s;
+}
+.feature:hover { border-color: #f4c2d740; }
+.viz {
+  position: relative; display: grid; place-items: center; height: 220px; padding: 20px; overflow: hidden;
+  border-radius: 16px; background: var(--bg-3); border: 1px solid var(--line);
+}
+.viz::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: linear-gradient(#ffffff06 1px, transparent 1px), linear-gradient(90deg, #ffffff06 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(closest-side, #000, transparent); mask-image: radial-gradient(closest-side, #000, transparent);
+}
+.viz > * { position: relative; }
+.f-text { padding: 0 14px; }
+.num { display: block; margin-top: 24px; font: 500 14px var(--mono); color: var(--pink-lo); }
+.feature h3 { margin-top: 10px; font: 600 22px/1.25 var(--display); letter-spacing: -.01em; }
+.feature p { margin-top: 10px; color: var(--muted); font-size: 16px; max-width: 48ch; }
+
+/* 01: a subscription as the panel built it */
+.v-sub { width: 100%; max-width: 380px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips span { padding: 5px 10px; border-radius: 8px; background: #f4c2d714; border: 1px solid #f4c2d740; color: var(--pink); font: 500 12px var(--mono); }
+.tree { list-style: none; margin-top: 16px; padding: 0; font: 500 13px/1.9 var(--mono); }
+.tree li { display: flex; justify-content: space-between; gap: 12px; white-space: nowrap; }
+.tree span { color: #e9dce4; }
+.tree i { font-style: normal; color: var(--pink-lo); }
+.tree em { font-style: normal; color: var(--muted); }
+
+/* 02: everything goes through the tunnel, nothing around it */
+.v-tun { width: 100%; max-width: 400px; height: auto; overflow: visible; }
+.v-tun text { font: 500 12px Onest, sans-serif; fill: var(--muted); }
+.v-tun .lbl { font: 500 11px var(--mono); fill: var(--pink); }
+.v-tun .node { fill: #1c1822; stroke: #ffffff2e; }
+.v-tun .hub { fill: #f4c2d714; stroke: #f4c2d780; }
+.v-tun .ico { fill: none; stroke: var(--text); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.v-tun .pipe { fill: none; stroke: #f4c2d7; stroke-width: 2; stroke-dasharray: 6 8; }
+.v-tun .leak { fill: none; stroke: #ffffff2e; stroke-width: 1.6; stroke-dasharray: 3 6; }
+.v-tun .x { stroke: #f4a3a3; stroke-width: 2.2; stroke-linecap: round; }
+.v-tun .pkt { fill: var(--pink-hi); }
+
+/* 03: what goes past the VPN, what goes through it */
+.routes { list-style: none; padding: 0; width: 100%; max-width: 420px; display: grid; gap: 10px; }
+.routes li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.routes .what { white-space: nowrap; }
+.routes .wire { flex: 1; min-width: 16px; height: 1px; background: repeating-linear-gradient(90deg, #ffffff40 0 4px, transparent 4px 8px); }
+.routes .to { padding: 3px 9px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--muted); font: 500 12px var(--mono); white-space: nowrap; }
+.routes .vpn .what { color: var(--pink); font-weight: 600; }
+.routes .vpn .wire { background: linear-gradient(90deg, #f4c2d733, var(--pink)); }
+.routes .vpn .to { color: #2a1220; background: var(--grad); border-color: transparent; }
+
+/* 04: updates arrive by themselves */
+.toasts { width: 100%; max-width: 340px; display: grid; gap: 10px; }
+.toast { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 14px; background: #1c1822; border: 1px solid var(--line-2); box-shadow: 0 16px 40px -20px #000; }
+.toast svg { width: 22px; height: 22px; flex: none; color: var(--pink); }
+.toast > div { flex: 1; min-width: 0; }
+.toast b { display: block; font-size: 14px; font-weight: 600; }
+.toast small { display: block; color: var(--muted); font-size: 13px; }
+.toast .bar { margin-top: 8px; height: 4px; border-radius: 4px; background: #ffffff14; overflow: hidden; }
+.toast .bar i { display: block; height: 100%; width: 100%; border-radius: inherit; background: var(--grad); }
+.toast.dim { opacity: .6; }
 
 /* ---------- downloads ---------- */
 .os { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
@@ -164,32 +286,32 @@ h2 { margin-top: 14px; font: 800 clamp(30px, 4.4vw, 56px)/1.05 var(--display); l
   transition: border-color .3s;
 }
 .os-col.mine { border-color: #f4c2d766; box-shadow: 0 0 0 1px #f4c2d733, 0 30px 80px -40px #f4c2d766; }
-.os-col .tag { position: absolute; top: 24px; right: 24px; font: 500 12px var(--mono); color: var(--pink); letter-spacing: .06em; text-transform: uppercase; display: none; }
-.os-col.mine .tag { display: block; }
+.os-col .yours { position: absolute; top: 24px; right: 24px; font: 500 12px var(--mono); color: var(--pink); letter-spacing: .06em; text-transform: uppercase; display: none; }
+.os-col.mine .yours { display: block; }
 .os-col h3 { display: flex; align-items: center; gap: 12px; font: 800 24px var(--display); }
 .os-col h3 svg { width: 26px; height: 26px; color: var(--pink); }
 .files { list-style: none; padding: 0; margin-top: 20px; }
 .files a {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 0; border-top: 1px solid var(--line); text-decoration: none; font-weight: 600;
+  display: flex; align-items: center; gap: 12px; min-height: 52px;
+  padding: 12px 0; border-top: 1px solid var(--line); text-decoration: none; font-weight: 600;
 }
-.files a span { color: var(--muted); font: 500 13px var(--mono); }
-.files a::after { content: "↓"; color: var(--pink); font-weight: 600; margin-left: 4px; }
+.files a span { margin-left: auto; color: var(--muted); font: 500 13px var(--mono); white-space: nowrap; }
+.files a::after { content: "↓"; color: var(--pink); font-weight: 600; }
 .files a:hover { color: var(--pink); }
 .note { margin-top: 14px; color: var(--muted); font-size: 14px; }
-.note a { color: var(--pink); }
+.note a { color: var(--pink); display: inline-block; padding: 4px 2px; }
 
 .arch { margin-top: 20px; padding: 28px; border-radius: 24px; background: var(--bg-2); border: 1px solid var(--line); }
 .arch-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
 .arch h3 { font: 800 20px var(--display); }
 .arch p { color: var(--muted); font-size: 15px; }
-.code { position: relative; margin-top: 18px; border-radius: 16px; background: #0e0c11; border: 1px solid var(--line); }
+.code { position: relative; margin-top: 18px; border-radius: 16px; background: var(--bg-3); border: 1px solid var(--line); }
 pre { overflow-x: auto; padding: 20px 22px; font: 500 14px/1.75 var(--mono); color: #e9dce4; }
 .code.has-copy pre { padding-right: 140px; }
 .copy {
   position: absolute; top: 12px; right: 12px; cursor: pointer;
   font: 500 13px var(--mono); color: var(--pink); background: #f4c2d714; border: 1px solid #f4c2d745;
-  border-radius: 10px; padding: 8px 14px;
+  border-radius: 10px; padding: 10px 14px;
 }
 .copy:hover { background: #f4c2d726; }
 
@@ -200,35 +322,49 @@ footer a, .src a { color: var(--text); text-decoration-color: #f4c2d766; text-un
 footer a:hover, .src a:hover { color: var(--pink); }
 .src { margin-top: 28px; color: var(--muted); font-size: 15px; }
 
-/* ---------- reveal ---------- */
+/* ---------- motion ---------- */
 @media (prefers-reduced-motion: no-preference) {
-  .js .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s cubic-bezier(.2,.8,.2,1); }
+  .js .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s var(--ease); }
   .js .reveal.in { opacity: 1; transform: none; }
+  .js .shot.reveal { transform: translateY(32px) scale(.98); transition-duration: 1.1s; }
+  .js .shot.reveal.in { transform: none; }
   .btn, .copy, .files a { transition: box-shadow .25s, background .2s, color .2s; }
+
+  .v-tun .pipe { animation: flow 1.2s linear infinite; }
+  .v-tun .pkt { offset-path: path("M58 60 H342"); animation: pkt 2.6s var(--ease) infinite; }
+  .js .feature .tree li, .js .feature .routes li { opacity: 0; transform: translateX(-8px); transition: opacity .5s, transform .5s var(--ease); }
+  .js .feature.in .tree li, .js .feature.in .routes li { opacity: 1; transform: none; }
+  .feature li:nth-child(2) { transition-delay: .12s; } .feature li:nth-child(3) { transition-delay: .24s; } .feature li:nth-child(4) { transition-delay: .36s; }
+  .js .toast .bar i { transform: scaleX(0); transform-origin: left; }
+  .js .feature.in .toast .bar i { animation: fill 2.4s .3s var(--ease) forwards; }
 }
+@keyframes flow { to { stroke-dashoffset: -28; } }
+@keyframes pkt { 0% { offset-distance: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+@keyframes fill { to { transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .mark .half, .mark stop, .mark svg, .status, .status .dot { transition: none; }
+  .v-tun .pkt { display: none; }
+  .shot::before, .w-logo svg, .w-dot, .w-btn, .w-st .ping { transition: none; }
 }
 
 /* ---------- responsive ---------- */
 @media (max-width: 980px) {
-  .hero { grid-template-columns: 1fr; min-height: 0; padding-top: 24px; }
-  .mark { order: -1; }
-  .mark svg { width: min(260px, 60vw); }
-  .features { grid-template-columns: 1fr 1fr; }
-  .feature:nth-child(3) { padding-left: 0; border-left: 0; }
-  .feature:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .hero { padding-top: 16px; padding-bottom: 72px; }
+  .hero-copy { grid-template-columns: 1fr; }
+  .hero .shot { margin-top: 48px; }
+  .features { grid-template-columns: 1fr; }
   .os { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   header nav a:not(:last-child) { display: none; }
-  .features { grid-template-columns: 1fr; }
-  .feature, .feature + .feature { padding: 24px 0 4px; border-left: 0; }
-  .feature + .feature { border-top: 1px solid var(--line); }
   .btn { width: 100%; justify-content: center; }
   .sec { padding: 72px 0; }
   .os-col, .arch { padding: 22px; }
-  .code.has-copy pre { padding-right: 22px; padding-top: 60px; }
+  .viz { height: 200px; padding: 16px; }
+  .f-text { padding: 0 8px; }
+  .code.has-copy pre { padding-right: 22px; padding-top: 64px; }
+}
+@media (max-width: 400px) {
+  .tree em { display: none; }
 }
 </style>
 </head>
@@ -252,9 +388,12 @@ footer a:hover, .src a:hover { color: var(--pink); }
 
   <main>
     <div class="wrap hero">
-      <div>
-        <span class="pill"><span class="dot" aria-hidden="true"></span>Приложение для компьютера</span>
-        <h1><span class="name">DUORAY</span> <span class="lead">Ваш VPN на&nbsp;компьютере в&nbsp;одну кнопку</span></h1>
+      <div class="hero-copy">
+        <div>
+          <span class="pill"><span class="dot" aria-hidden="true"></span>Приложение для компьютера</span>
+          <h1><span class="name">DUORAY</span> <span class="lead">Ваш VPN на&nbsp;компьютере в&nbsp;одну кнопку</span></h1>
+        </div>
+        <div>
         <p class="sub">Windows, macOS и Linux. Ваша подписка работает целиком: все серверы, маршруты и&nbsp;настройки.</p>
         <div class="cta">
           <a class="btn btn-main" id="primary" href="#download">
@@ -264,21 +403,81 @@ footer a:hover, .src a:hover { color: var(--pink); }
           <a class="btn btn-ghost" href="#download">Все платформы</a>
         </div>
         <p class="hint" id="primary-note">Windows · macOS · Linux</p>
+        </div>
       </div>
 
-      <div class="mark">
-        <button type="button" id="power" aria-pressed="false">
-          <span class="vh">Демонстрация подключения:</span>
-          <svg viewBox="-4 -4 206 169" aria-hidden="true">
-            <defs><linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="0" y1="161" x2="198" y2="0">
-              <stop offset="0" stop-color="#3f3f46"/><stop offset=".5" stop-color="#71717a"/><stop offset="1" stop-color="#d4d4d8"/>
-            </linearGradient></defs>
-            <path class="half l" fill-rule="evenodd" fill="url(#gm)" d="M0 0H47.5A80.5 80.5 0 0 1 47.5 161H0ZM17.71 17.71H47.5A62.79 62.79 0 0 1 47.5 143.29H17.71Z"/>
-            <path class="half r" fill-rule="evenodd" fill="url(#gm)" opacity=".5" d="M198 0H150.5A80.5 80.5 0 0 0 150.5 161H198ZM180.29 17.71H150.5A62.79 62.79 0 0 0 150.5 143.29H180.29Z"/>
-          </svg>
-          <span class="status"><span class="dot" aria-hidden="true"></span><span id="status-text">Отключено</span></span>
-        </button>
-      </div>
+      <figure class="shot reveal" id="shot" aria-label="Окно DUORAY: подписка DUALIZM, список серверов с пингом и кнопка подключения">
+        <div class="win">
+          <div class="w-side">
+            <div class="w-brand" aria-hidden="true">
+              <span class="w-logo">
+                <svg viewBox="-4 -4 206 169"><defs><linearGradient id="wg0" gradientUnits="userSpaceOnUse" x1="0" y1="161" x2="198" y2="0"><stop offset="0" stop-color="#52525b"/><stop offset=".5" stop-color="#71717a"/><stop offset="1" stop-color="#d4d4d8"/></linearGradient></defs><path fill-rule="evenodd" fill="url(#wg0)" d="M0 0H47.5A80.5 80.5 0 0 1 47.5 161H0ZM17.71 17.71H47.5A62.79 62.79 0 0 1 47.5 143.29H17.71Z"/><path fill-rule="evenodd" fill="url(#wg0)" opacity=".5" d="M198 0H150.5A80.5 80.5 0 0 0 150.5 161H198ZM180.29 17.71H150.5A62.79 62.79 0 0 0 150.5 143.29H180.29Z"/></svg>
+                <svg class="lit" viewBox="-4 -4 206 169"><path fill-rule="evenodd" fill="url(#gb)" d="M0 0H47.5A80.5 80.5 0 0 1 47.5 161H0ZM17.71 17.71H47.5A62.79 62.79 0 0 1 47.5 143.29H17.71Z"/><path fill-rule="evenodd" fill="url(#gb)" opacity=".5" d="M198 0H150.5A80.5 80.5 0 0 0 150.5 161H198ZM180.29 17.71H150.5A62.79 62.79 0 0 0 150.5 143.29H180.29Z"/></svg>
+              </span>
+              DUORAY
+            </div>
+            <div class="w-group w-row" aria-hidden="true">
+              <div><b>Мои серверы</b><small>Нет серверов</small></div>
+              <svg class="w-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+            <div class="w-label w-row" aria-hidden="true">Подписки <svg class="w-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+            <div class="w-sub" aria-hidden="true"><b>DUALIZM</b><small>66 серверов · безлимит</small></div>
+            <div class="w-status">
+              <div class="w-st" aria-hidden="true"><span class="w-dot"></span><b id="w-state">Отключено</b><span class="ping ok" data-base="38">38 мс</span></div>
+              <small aria-hidden="true">Wi-Fi • Авто-выбор</small>
+              <button class="w-btn toggle" type="button" id="w-toggle" aria-pressed="false"><span class="vh">Демонстрация: </span><span id="w-toggle-text">Подключиться</span></button>
+            </div>
+            <div class="w-nav" aria-hidden="true"><span class="w-btn flat">Маршрутизация</span><span class="w-btn flat">Настройки</span></div>
+          </div>
+
+          <div class="w-main" aria-hidden="true">
+            <div class="w-head">
+              <div class="w-row">
+                <b>DUALIZM</b>
+                <span class="w-icons">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h6"/></svg>
+                  <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                </span>
+              </div>
+              <small>Автообновление — 1 ч · 66 серверов</small>
+              <div class="w-traffic">107.0 ГБ / ∞</div>
+            </div>
+            <ul class="w-list">
+              <li class="sel">
+                <svg class="flag" viewBox="0 0 26 18"><rect width="26" height="18" fill="#003399"/><circle cx="13" cy="9" r="5" fill="none" stroke="#ffcc00" stroke-width="1.4" stroke-dasharray="1.2 1.42"/></svg>
+                <span class="w-name"><b>Wi-Fi • Авто-выбор</b><small>Балансировщик, 43 сервера</small></span>
+                <span class="ping ok" data-base="38">38 мс</span><span class="tag">VLESS</span><span class="tag">xhttp · reality</span>
+              </li>
+              <li>
+                <svg class="flag" viewBox="0 0 26 18"><rect width="26" height="18" fill="#003399"/><circle cx="13" cy="9" r="5" fill="none" stroke="#ffcc00" stroke-width="1.4" stroke-dasharray="1.2 1.42"/></svg>
+                <span class="w-name"><b>LTE x1 • Авто-выбор</b><small>Для мобильного интернета</small></span>
+                <span class="ping ok" data-base="64">64 мс</span><span class="tag">VLESS</span><span class="tag">xhttp · reality</span>
+              </li>
+              <li>
+                <svg class="flag" viewBox="0 0 26 18"><rect width="26" height="6" fill="#000"/><rect y="6" width="26" height="6" fill="#dd0000"/><rect y="12" width="26" height="6" fill="#ffce00"/></svg>
+                <span class="w-name"><b>Германия (Франкфурт)</b><small>Безлимитный</small></span>
+                <span class="ping ok" data-base="47">47 мс</span><span class="tag">VLESS</span><span class="tag">xhttp · reality</span>
+              </li>
+              <li>
+                <svg class="flag" viewBox="0 0 26 18"><rect width="26" height="6" fill="#ae1c28"/><rect y="6" width="26" height="6" fill="#fff"/><rect y="12" width="26" height="6" fill="#21468b"/></svg>
+                <span class="w-name"><b>Нидерланды (Амстердам)</b><small>Безлимитный</small></span>
+                <span class="ping ok" data-base="52">52 мс</span><span class="tag">VLESS</span><span class="tag">xhttp · reality</span>
+              </li>
+              <li>
+                <svg class="flag" viewBox="0 0 26 18"><rect width="26" height="18" fill="#fff"/><rect x="7" width="5" height="18" fill="#002f6c"/><rect y="6.5" width="26" height="5" fill="#002f6c"/></svg>
+                <span class="w-name"><b>Финляндия (Хельсинки)</b><small>Безлимитный</small></span>
+                <span class="ping ok" data-base="71">71 мс</span><span class="tag">VLESS</span><span class="tag">xhttp · reality</span>
+              </li>
+              <li>
+                <svg class="flag" viewBox="0 0 26 18"><rect width="26" height="18" fill="#b22234"/><path d="M0 2.1h26M0 4.9h26M0 7.6h26M0 10.4h26M0 13.1h26M0 15.9h26" stroke="#fff" stroke-width="1.4"/><rect width="11" height="9.7" fill="#3c3b6e"/></svg>
+                <span class="w-name"><b>США (Нью-Йорк)</b><small>Безлимитный</small></span>
+                <span class="ping warn" data-base="163">163 мс</span><span class="tag">VLESS</span><span class="tag">xhttp · reality</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </figure>
     </div>
   </main>
 </div>
@@ -288,26 +487,85 @@ footer a:hover, .src a:hover { color: var(--pink); }
     <p class="eyebrow">Почему DUORAY</p>
     <h2 id="f-title" class="reveal">Подстраивается под&nbsp;вас, а&nbsp;не&nbsp;наоборот</h2>
     <div class="features">
-      <div class="feature reveal">
-        <span class="num">01</span>
-        <h3>Подписка целиком</h3>
-        <p>Полные конфиги Xray из панели: балансировщики, мосты и маршруты работают как задумано. Ссылки VLESS, VMess, Trojan и Shadowsocks тоже подходят.</p>
-      </div>
-      <div class="feature reveal">
-        <span class="num">02</span>
-        <h3>Без утечек</h3>
-        <p>Свой TUN: весь трафик и DNS идут через сервер, а не мимо него.</p>
-      </div>
-      <div class="feature reveal">
-        <span class="num">03</span>
-        <h3>Продвинутая маршрутизация</h3>
-        <p>Игры (Steam, CS2, FACEIT), сайты из белого списка и локальная сеть идут в&nbsp;обход VPN. Для остального&nbsp;— свои правила по&nbsp;доменам, IP и&nbsp;приложениям.</p>
-      </div>
-      <div class="feature reveal">
-        <span class="num">04</span>
-        <h3>Поставил и забыл</h3>
-        <p>Пароль администратора нужен один раз. Обновления приходят сами.</p>
-      </div>
+      <article class="feature reveal">
+        <div class="viz" aria-hidden="true">
+          <div class="v-sub">
+            <div class="chips"><span>VLESS</span><span>VMess</span><span>Trojan</span><span>Shadowsocks</span></div>
+            <ul class="tree">
+              <li><span>DUALIZM</span><em>подписка</em></li>
+              <li><span><i>├─</i> Wi-Fi • Авто-выбор</span><em>балансировщик</em></li>
+              <li><span><i>├─</i> LTE x1 • Авто-выбор</span><em>мосты</em></li>
+              <li><span><i>└─</i> Все серверы</span><em>маршруты</em></li>
+            </ul>
+          </div>
+        </div>
+        <div class="f-text">
+          <span class="num">01</span>
+          <h3>Подписка целиком</h3>
+          <p>Полные конфиги Xray из панели: балансировщики, мосты и маршруты работают как задумано. Ссылки VLESS, VMess, Trojan и Shadowsocks тоже подходят.</p>
+        </div>
+      </article>
+      <article class="feature reveal">
+        <div class="viz" aria-hidden="true">
+          <svg class="v-tun" viewBox="0 0 400 150">
+            <path class="pipe" d="M58 60 H342"/>
+            <circle class="pkt" r="4" cx="0" cy="0"/>
+            <path class="leak" d="M40 88 C 80 140, 320 140, 360 88"/>
+            <path class="x" d="M193 117 l14 14 M207 117 l-14 14"/>
+            <rect class="node" x="10" y="32" width="58" height="56" rx="14"/>
+            <path class="ico" d="M27 50h24v15H27zM34 72h10M39 65v7"/>
+            <rect class="node hub" x="164" y="32" width="72" height="56" rx="14"/>
+            <path class="ico" d="M188 50h24v20h-24zM188 60h24M193 55h.01M193 65h.01"/>
+            <rect class="node" x="332" y="32" width="58" height="56" rx="14"/>
+            <circle class="ico" cx="361" cy="60" r="11"/><path class="ico" d="M350 60h22M361 49c-5 6-5 16 0 22M361 49c5 6 5 16 0 22"/>
+            <text x="39" y="108" text-anchor="middle">Вы</text>
+            <text x="200" y="22" text-anchor="middle">Сервер</text>
+            <text x="361" y="108" text-anchor="middle">Сайты</text>
+            <text class="lbl" x="116" y="50" text-anchor="middle">TUN</text>
+            <text class="lbl" x="288" y="50" text-anchor="middle">DNS</text>
+            <text x="200" y="148" text-anchor="middle">мимо сервера</text>
+          </svg>
+        </div>
+        <div class="f-text">
+          <span class="num">02</span>
+          <h3>Без утечек</h3>
+          <p>Свой TUN: весь трафик и DNS идут через сервер, а не мимо него.</p>
+        </div>
+      </article>
+      <article class="feature reveal">
+        <div class="viz" aria-hidden="true">
+          <ul class="routes">
+            <li><span class="what">Steam, CS2, FACEIT</span><span class="wire"></span><span class="to">напрямую</span></li>
+            <li><span class="what">Белый список сайтов</span><span class="wire"></span><span class="to">напрямую</span></li>
+            <li><span class="what">Локальная сеть</span><span class="wire"></span><span class="to">напрямую</span></li>
+            <li class="vpn"><span class="what">Всё остальное</span><span class="wire"></span><span class="to">через VPN</span></li>
+          </ul>
+        </div>
+        <div class="f-text">
+          <span class="num">03</span>
+          <h3>Продвинутая маршрутизация</h3>
+          <p>Игры (Steam, CS2, FACEIT), сайты из белого списка и локальная сеть идут в&nbsp;обход VPN. Для остального&nbsp;— свои правила по&nbsp;доменам, IP и&nbsp;приложениям.</p>
+        </div>
+      </article>
+      <article class="feature reveal">
+        <div class="viz" aria-hidden="true">
+          <div class="toasts">
+            <div class="toast dim">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              <div><b>Пароль администратора</b><small>Только при первом запуске</small></div>
+            </div>
+            <div class="toast">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+              <div><b>DUORAY обновился</b><small>Новая версия поставилась сама</small><div class="bar"><i></i></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="f-text">
+          <span class="num">04</span>
+          <h3>Поставил и забыл</h3>
+          <p>Пароль администратора нужен один раз. Обновления приходят сами.</p>
+        </div>
+      </article>
     </div>
   </div>
 </section>
@@ -319,7 +577,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
 
     <div class="os">
       <div class="os-col reveal" data-os="win">
-        <span class="tag">Ваша система</span>
+        <span class="yours">Ваша система</span>
         <h3><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.5v7H3zM11.5 4.4 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z"/></svg>Windows</h3>
         <ul class="files">
           <li><a href="/download/windows">Windows 10 и 11 <span>64-бит · exe</span></a></li>
@@ -327,7 +585,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
         </ul>
       </div>
       <div class="os-col reveal" data-os="mac">
-        <span class="tag">Ваша система</span>
+        <span class="yours">Ваша система</span>
         <h3><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.8-3.5.8-.7 0-1.8-.8-3-.8-1.6 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.6zM14.1 5.6c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>macOS</h3>
         <ul class="files">
           <li><a href="/download/macos">Apple M1 и новее <span>dmg</span></a></li>
@@ -336,7 +594,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
         <p class="note">Первый запуск: правый клик по приложению → «Открыть».</p>
       </div>
       <div class="os-col reveal" data-os="linux">
-        <span class="tag">Ваша система</span>
+        <span class="yours">Ваша система</span>
         <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-5-6-5M12 19h8"/></svg>Linux</h3>
         <ul class="files">
           <li><a href="/download/linux">Любой дистрибутив <span>AppImage</span></a></li>
@@ -394,19 +652,47 @@ sudo pacman -Sy duoray</code></pre>
     if (col) col.classList.add("mine");
   }
 
-  // The mark "connects" like the app: halves meet, grey turns pink.
-  var power = document.getElementById("power");
-  var stops = power.querySelectorAll("stop");
-  var off = ["#3f3f46", "#71717a", "#d4d4d8"], on = ["#c97fa3", "#f4c2d7", "#fdebf3"];
-  var statusText = document.getElementById("status-text");
-  function setOn(v) {
-    power.classList.toggle("on", v);
-    power.setAttribute("aria-pressed", String(v));
-    stops.forEach(function (s, i) { s.setAttribute("stop-color", (v ? on : off)[i]); });
-    statusText.textContent = v ? "Подключено" : "Отключено";
+  // The window connects like the app does: grey logo, "Подключение…", then lit up.
+  var shot = document.getElementById("shot");
+  var toggle = document.getElementById("w-toggle");
+  var stateText = document.getElementById("w-state");
+  var toggleText = document.getElementById("w-toggle-text");
+  var pending = 0;
+  function setState(s) {
+    shot.classList.toggle("wait", s === "wait");
+    shot.classList.toggle("on", s === "on");
+    toggle.setAttribute("aria-pressed", String(s !== "off"));
+    stateText.textContent = s === "on" ? "Подключено" : s === "wait" ? "Подключение…" : "Отключено";
+    toggleText.textContent = s === "off" ? "Подключиться" : "Отключиться";
   }
-  power.addEventListener("click", function () { setOn(power.getAttribute("aria-pressed") !== "true"); });
-  setTimeout(function () { setOn(true); }, reduce ? 0 : 700);
+  function connect(delay) {
+    clearTimeout(pending);
+    if (reduce) return setState("on");
+    pending = setTimeout(function () {
+      setState("wait");
+      pending = setTimeout(function () { setState("on"); }, 900);
+    }, delay);
+  }
+  toggle.addEventListener("click", function () {
+    if (toggle.getAttribute("aria-pressed") === "true") { clearTimeout(pending); setState("off"); }
+    else connect(0);
+  });
+  connect(900);
+
+  // Pings drift a little while connected and on screen, like live measurements.
+  var pings = shot.querySelectorAll(".ping[data-base]");
+  var visible = true;
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(function (e) { visible = e[0].isIntersecting; }).observe(shot);
+  }
+  if (!reduce) setInterval(function () {
+    if (!visible || document.hidden || !shot.classList.contains("on")) return;
+    pings.forEach(function (p) {
+      var base = +p.dataset.base, ms = Math.max(1, Math.round(base + (Math.random() - .5) * base * .12));
+      p.textContent = ms + " мс";
+      p.className = "ping " + (ms < 100 ? "ok" : "warn");
+    });
+  }, 2200);
 
   // Glow follows the pointer in the hero.
   var stage = document.getElementById("stage");
