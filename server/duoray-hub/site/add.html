@@ -7,10 +7,13 @@
 <meta name="referrer" content="no-referrer">
 <title>Добавить подписку в DUORAY</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600&family=Onest:wght@400;600&display=swap" rel="stylesheet">
+<link rel="preload" href="/fonts/unbounded-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+@font-face { font-family: "Unbounded"; font-weight: 600 800; font-display: swap; src: url(/fonts/unbounded-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Unbounded"; font-weight: 600 800; font-display: swap; src: url(/fonts/unbounded-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Onest"; font-weight: 400 600; font-display: swap; src: url(/fonts/onest-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Onest"; font-weight: 400 600; font-display: swap; src: url(/fonts/onest-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 :root { --bg: #141118; --bg-2: #1c1822; --line: #ffffff24; --text: #f6eef3; --muted: #b9abb4;
   --grad: linear-gradient(100deg, #fdebf3 0%, #f4c2d7 45%, #c97fa3 100%); }
 * { box-sizing: border-box; margin: 0; }

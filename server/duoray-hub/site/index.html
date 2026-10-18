@@ -38,10 +38,17 @@
   "sameAs": ["https://github.com/m-a-prod/DUORAY"]
 }
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="preload" href="/fonts/unbounded-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/unbounded-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+@font-face { font-family: "Unbounded"; font-weight: 600 800; font-display: swap; src: url(/fonts/unbounded-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Unbounded"; font-weight: 600 800; font-display: swap; src: url(/fonts/unbounded-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Onest"; font-weight: 400 600; font-display: swap; src: url(/fonts/onest-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Onest"; font-weight: 400 600; font-display: swap; src: url(/fonts/onest-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-display: swap; src: url(/fonts/jetbrains-mono-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-display: swap; src: url(/fonts/jetbrains-mono-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 :root {
   --bg: #141118;
   --bg-2: #1c1822;
@@ -75,9 +82,13 @@ a { color: inherit; }
 .stage::before {
   content: ""; position: absolute; inset: 0; z-index: -2;
   background:
-    radial-gradient(900px 640px at var(--mx, 78%) var(--my, 40%), #f4c2d726, transparent 60%),
     radial-gradient(700px 520px at 100% 100%, #c97fa32e, transparent 60%),
     radial-gradient(640px 420px at 0% 0%, #6750a422, transparent 60%);
+}
+.glow {
+  position: absolute; z-index: -2; left: 0; top: 0; width: 1800px; height: 1280px; margin: -640px 0 0 -900px;
+  background: radial-gradient(closest-side, #f4c2d726, transparent);
+  transform: translate(78vw, 40vh); will-change: transform; pointer-events: none;
 }
 .stage::after {
   content: ""; position: absolute; inset: 0; z-index: -1;
@@ -108,7 +119,8 @@ header nav a:hover { color: var(--text); background: #ffffff0a; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pink); box-shadow: 0 0 12px var(--pink); }
 h1 { margin-top: 32px; }
 h1 .name {
-  display: block; font: 800 clamp(52px, 8vw, 112px)/.95 var(--display); letter-spacing: -.02em;
+  display: inline-block; padding-right: .08em; margin-right: -.08em;
+  font: 800 clamp(52px, 7.4vw, 100px)/.95 var(--display); letter-spacing: -.02em;
   background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .lead { display: block; margin-top: 22px; font: 600 clamp(20px, 2.4vw, 30px)/1.25 var(--display); letter-spacing: -.01em; max-width: 24ch; }
@@ -131,7 +143,7 @@ h1 .name {
 .shot { position: relative; container-type: inline-size; }
 .shot::before {
   content: ""; position: absolute; inset: 8% -6% -10% 4%; z-index: -1; border-radius: 40px;
-  background: radial-gradient(closest-side, #f4c2d74d, transparent); filter: blur(30px);
+  background: radial-gradient(closest-side, #f4c2d740, #f4c2d714 60%, transparent);
   opacity: .35; transition: opacity 1.2s;
 }
 .shot.on::before { opacity: 1; }
@@ -142,8 +154,8 @@ h1 .name {
   display: grid; grid-template-columns: 260px 1fr;
   border-radius: 18px; overflow: hidden; border: 1px solid #ffffff1f;
   background: var(--a-main); color: var(--a-text); font-size: 13px; line-height: 1.35;
-  box-shadow: 0 40px 120px -40px #000, 0 0 0 1px #00000066;
-  user-select: none;
+  box-shadow: 0 40px 100px -40px #000, 0 0 0 1px #00000066;
+  user-select: none; contain: paint;
 }
 .w-side { display: flex; flex-direction: column; gap: 14px; padding: 18px 14px 14px; background: var(--a-side); }
 .w-brand { display: flex; align-items: center; gap: 10px; padding: 0 4px 6px; font: 600 17px Onest, sans-serif; letter-spacing: .04em; }
@@ -338,6 +350,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
   .js .toast .bar i { transform: scaleX(0); transform-origin: left; }
   .js .feature.in .toast .bar i { animation: fill 2.4s .3s var(--ease) forwards; }
 }
+.viz:not(.play) * { animation-play-state: paused !important; }
 @keyframes flow { to { stroke-dashoffset: -28; } }
 @keyframes pkt { 0% { offset-distance: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
 @keyframes fill { to { transform: none; } }
@@ -372,6 +385,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
 <a class="skip" href="#download">К загрузкам</a>
 
 <div class="stage" id="stage">
+  <div class="glow" id="glow" aria-hidden="true"></div>
   <header>
     <div class="wrap">
       <a class="brand" href="/">
@@ -697,10 +711,14 @@ sudo pacman -Sy duoray</code></pre>
   // Glow follows the pointer in the hero.
   var stage = document.getElementById("stage");
   if (!reduce && window.matchMedia("(pointer: fine)").matches) {
+    var glow = document.getElementById("glow"), gx = 0, gy = 0, frame = 0;
     stage.addEventListener("pointermove", function (e) {
       var r = stage.getBoundingClientRect();
-      stage.style.setProperty("--mx", ((e.clientX - r.left) / r.width * 100) + "%");
-      stage.style.setProperty("--my", ((e.clientY - r.top) / r.height * 100) + "%");
+      gx = e.clientX - r.left; gy = e.clientY - r.top;
+      if (!frame) frame = requestAnimationFrame(function () {
+        frame = 0;
+        glow.style.transform = "translate(" + gx + "px," + gy + "px)";
+      });
     });
   }
 
@@ -713,6 +731,16 @@ sudo pacman -Sy duoray</code></pre>
     items.forEach(function (el, i) { el.style.transitionDelay = (i % 4) * 80 + "ms"; io.observe(el); });
   } else {
     items.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  // Looping visuals only run while on screen.
+  if ("IntersectionObserver" in window) {
+    var vio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { en.target.classList.toggle("play", en.isIntersecting); });
+    });
+    document.querySelectorAll(".viz").forEach(function (el) { vio.observe(el); });
+  } else {
+    document.querySelectorAll(".viz").forEach(function (el) { el.classList.add("play"); });
   }
 
   // Copy the Arch commands.

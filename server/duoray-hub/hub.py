@@ -24,6 +24,7 @@ self-updates and Arch packages. Daily totals only, no cookies or scripts.
   GET  /health
 """
 
+import gzip
 import hashlib
 import json
 import os
@@ -50,6 +51,17 @@ PAGES = {
     "/robots.txt": ("robots.txt", "text/plain; charset=utf-8"),
     "/sitemap.xml": ("sitemap.xml", "application/xml"),
 }
+# Fonts live here, not on Google: one origin less before the first paint,
+# and visitors' addresses stay with us. Names never change, so cached for good.
+FONTS = (
+    "unbounded-latin", "unbounded-cyrillic", "onest-latin", "onest-cyrillic",
+    "jetbrains-mono-latin", "jetbrains-mono-cyrillic",
+)
+PAGES.update({f"/fonts/{n}.woff2": (f"fonts/{n}.woff2", "font/woff2") for n in FONTS})
+FOREVER = "public, max-age=31536000, immutable"
+# Site files worth compressing; the pages are ~45 KB, gzipped ~10 KB.
+COMPRESS = ("text/", "image/svg+xml", "application/xml")
+_gz_cache = {}  # path -> (mtime, size, gzipped bytes)
 
 MAX_BODY = 64 * 1024  # the largest real report so far is ~18 KB
 RETENTION_DAYS = 90
@@ -227,6 +239,21 @@ def purge_forever():
         time.sleep(6 * 3600)
 
 
+def gzipped(path):
+    """The file gzipped, recompressed only when it changes on disk."""
+    try:
+        st = os.stat(path)
+        hit = _gz_cache.get(path)
+        if hit and hit[:2] == (st.st_mtime_ns, st.st_size):
+            return hit[2]
+        with open(path, "rb") as f:
+            body = gzip.compress(f.read(), 9, mtime=0)
+    except OSError:
+        return None
+    _gz_cache[path] = (st.st_mtime_ns, st.st_size, body)
+    return body
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "duoray-hub"
     sys_version = ""
@@ -289,7 +316,8 @@ class Handler(BaseHTTPRequestHandler):
             ua = self.user_agent().lower()
             if get and page[0] == "index.html" and ua and not any(b in ua for b in BOTS):
                 count("visit", self.client_ip())
-            return self.send_file(os.path.join(SITE, page[0]), page[1], {"Cache-Control": "no-cache"})
+            cache = FOREVER if page[0].startswith("fonts/") else "no-cache"
+            return self.send_file(os.path.join(SITE, page[0]), page[1], {"Cache-Control": cache}, site=True)
         names = {
             "/v1/update/manifest.json": ("manifest.json", "application/json"),
             "/v1/update/manifest.sig": ("manifest.sig", "text/plain"),
@@ -340,7 +368,14 @@ class Handler(BaseHTTPRequestHandler):
 
     do_HEAD = do_GET
 
-    def send_file(self, path, ctype, extra):
+    def send_file(self, path, ctype, extra, site=False):
+        if site and ctype.startswith(COMPRESS):
+            body = gzipped(path)
+            if body is None:
+                return self.reply_json(404, {"error": "not found"})
+            extra = dict(extra, Vary="Accept-Encoding")
+            if "gzip" in self.headers.get("Accept-Encoding", ""):
+                return self.reply(200, body, ctype, dict(extra, **{"Content-Encoding": "gzip"}))
         try:
             f = open(path, "rb")
         except OSError:
