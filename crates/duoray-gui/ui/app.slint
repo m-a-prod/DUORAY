@@ -236,6 +236,7 @@ global Icons {
     out property <image> expand-more: @image-url("icons/expand-more.svg");
     out property <image> expand-less: @image-url("icons/expand-less.svg");
     out property <image> sort: @image-url("icons/sort.svg");
+    out property <image> filter: @image-url("icons/filter.svg");
     out property <image> add: @image-url("icons/add.svg");
     out property <image> arrow-up: @image-url("icons/arrow-up.svg");
     out property <image> arrow-down: @image-url("icons/arrow-down.svg");
@@ -881,6 +882,7 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> auto-update: true;
     in-out property <bool> switch-on-select: true;
     in-out property <bool> show-server-type: true;
+    in-out property <bool> filter-enabled;
     in-out property <bool> close-to-tray: true;
     in-out property <bool> proxy-mode;
     in-out property <bool> autostart;
@@ -1168,6 +1170,15 @@ component SettingsPage inherits Rectangle {
                         title: "Показывать тип сервера";
                         description: "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.";
                         checked <=> root.show-server-type;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Фильтр серверов";
+                        description: "Кнопка фильтра над списком: оставить или скрыть серверы по регулярному выражению, например (lte|обход|россия).";
+                        checked <=> root.filter-enabled;
                         toggled => {
                             root.changed();
                         }
@@ -2582,6 +2593,7 @@ export component AppWindow inherits Window {
     in-out property <bool> send-device-info <=> settings-page.send-device-info;
     in-out property <bool> switch-on-select <=> settings-page.switch-on-select;
     in-out property <bool> show-server-type <=> settings-page.show-server-type;
+    in-out property <bool> filter-enabled <=> settings-page.filter-enabled;
     in-out property <bool> close-to-tray <=> settings-page.close-to-tray;
     in-out property <bool> proxy-mode <=> settings-page.proxy-mode;
     in-out property <bool> autostart <=> settings-page.autostart;
@@ -2642,6 +2654,11 @@ export component AppWindow inherits Window {
     // The sort button appears once this subscription has been pinged.
     in property <bool> has-ping-results;
     in property <bool> sort-by-ping;
+    // Server list filter (regular expression); the row shows while open or set.
+    in-out property <string> filter-text;
+    in-out property <bool> filter-exclude;
+    in-out property <bool> filter-open;
+    in property <string> filter-error;
 
     // Connection: "idle" | "connecting" | "connected" | "disconnecting" | "failed" | "blocked"
     in property <string> conn-state: "idle";
@@ -2669,6 +2686,7 @@ export component AppWindow inherits Window {
     callback ping-current();
     callback cancel-ping();
     callback toggle-sort();
+    callback filter-changed();
     callback toggle-announce();
     callback add-from-clipboard();
     callback remove-sub(int);
@@ -3439,6 +3457,18 @@ export component AppWindow inherits Window {
                                     }
                                 }
                             }
+                            if root.filter-enabled: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: Icons.filter;
+                                    // Highlighted while a filter hides servers.
+                                    tint: root.filter-text != "" ? Theme.accent : Theme.fg;
+                                    background: root.filter-text != "" ? Theme.accent.with-alpha(0.18) : transparent;
+                                    clicked => {
+                                        root.filter-open = !root.filter-open;
+                                    }
+                                }
+                            }
                             if root.has-ping-results: VerticalLayout {
                                 alignment: center;
                                 IconButton {
@@ -3473,6 +3503,35 @@ export component AppWindow inherits Window {
                             }
                         }
     
+                        if root.filter-enabled && (root.filter-open || root.filter-text != ""): VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                TextField {
+                                    text <=> root.filter-text;
+                                    placeholder: "Фильтр, например (lte|обход|россия)";
+                                    edited => {
+                                        root.filter-changed();
+                                    }
+                                }
+                                ComboBox {
+                                    width: 140px;
+                                    height: 36px;
+                                    model: ["Оставить", "Исключить"];
+                                    current-index: root.filter-exclude ? 1 : 0;
+                                    selected => {
+                                        root.filter-exclude = self.current-index == 1;
+                                        root.filter-changed();
+                                    }
+                                }
+                            }
+                            if root.filter-error != "": Text {
+                                text: root.filter-error;
+                                font-size: Theme.fs-caption;
+                                color: Theme.danger;
+                            }
+                        }
+
                         if root.show-usage-row: HorizontalLayout {
                             spacing: 10px;
                             VerticalLayout {

@@ -69,6 +69,8 @@ struct App {
     /// reported: a single one is mostly the network not up yet after sleep
     /// or at login, and the retry 10 minutes later fixes it.
     fetch_failures: std::collections::HashMap<String, u32>,
+    /// From settings.server_filter; a broken pattern leaves it off.
+    filter: ServerFilter,
     status: String,
     conn: Option<Connection>,
     conn_state: ConnState,
@@ -194,12 +196,15 @@ fn main() -> anyhow::Result<()> {
         Err(e) => (Store::default(), format!("Не удалось прочитать данные: {e:#}")),
     };
     let pings = load_pings(&path);
+    let s = &store.settings;
+    let filter = active_filter(s.server_filter_enabled, &s.server_filter, s.server_filter_exclude);
     let app: Shared = Arc::new(Mutex::new(App {
         store,
         path,
         refreshing: HashSet::new(),
         last_attempt: Default::default(),
         fetch_failures: Default::default(),
+        filter,
         status,
         conn: None,
         conn_state: ConnState::Idle,
@@ -534,6 +539,31 @@ fn main() -> anyhow::Result<()> {
             };
             let sub = &mut st.store.subscriptions[i];
             sub.announce_hidden = !sub.announce_hidden;
+            save(&mut st);
+            render(&ui, &st);
+        }
+    });
+    ui.set_filter_text(app.lock().unwrap().store.settings.server_filter.clone().into());
+    ui.set_filter_exclude(app.lock().unwrap().store.settings.server_filter_exclude);
+    ui.on_filter_changed({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let (pattern, exclude) = (ui.get_filter_text().to_string(), ui.get_filter_exclude());
+            match ServerFilter::new(&pattern, exclude) {
+                Ok(f) => {
+                    st.filter = f;
+                    ui.set_filter_error("".into());
+                }
+                Err(e) => {
+                    // Show everything until the pattern is fixed.
+                    st.filter = ServerFilter { re: None, exclude };
+                    ui.set_filter_error(e.into());
+                }
+            }
+            st.store.settings.server_filter = pattern;
+            st.store.settings.server_filter_exclude = exclude;
             save(&mut st);
             render(&ui, &st);
         }
@@ -910,16 +940,58 @@ fn diag_context(ui: &AppWindow, st: &App) -> serde_json::Value {
 
 /// Indices into `sub.servers` in the order the list shows them. Row numbers in
 /// the UI always refer to this order.
+/// The server list filter: a case-insensitive regular expression over the
+/// server's name and description, keeping only the matches or hiding them.
+struct ServerFilter {
+    re: Option<regex::Regex>,
+    exclude: bool,
+}
+
+impl ServerFilter {
+    /// A blank pattern is no filter; a broken one is an error to show.
+    fn new(pattern: &str, exclude: bool) -> Result<Self, String> {
+        let pattern = pattern.trim();
+        let re = if pattern.is_empty() {
+            None
+        } else {
+            Some(regex::RegexBuilder::new(pattern).case_insensitive(true).build().map_err(|e| match e {
+                regex::Error::Syntax(_) => "Ошибка в выражении".to_string(),
+                other => other.to_string(),
+            })?)
+        };
+        Ok(Self { re, exclude })
+    }
+
+    fn shows(&self, name: &str, description: &str) -> bool {
+        self.re.as_ref().is_none_or(|re| (re.is_match(name) || re.is_match(description)) != self.exclude)
+    }
+}
+
+/// The filter the list applies: none while the feature is off or the pattern is broken.
+fn active_filter(enabled: bool, pattern: &str, exclude: bool) -> ServerFilter {
+    if !enabled {
+        return ServerFilter { re: None, exclude };
+    }
+    ServerFilter::new(pattern, exclude).unwrap_or(ServerFilter { re: None, exclude })
+}
+
 fn display_order(st: &App, sub: &Subscription) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..sub.servers.len()).collect();
+    let connected = match &st.conn_state {
+        ConnState::Connected { key, .. } => Some(key.as_str()),
+        _ => None,
+    };
+    let mut order: Vec<usize> = (0..sub.servers.len())
+        .filter(|&i| {
+            let s = &sub.servers[i];
+            // The connected server never disappears from the list.
+            st.filter.shows(&s.name, s.description.as_deref().unwrap_or_default())
+                || connected == Some(key_of(sub, s).as_str())
+        })
+        .collect();
     if st.sort_by_ping {
         // The connected server stays on top: it would jump up and down as
         // pings come in. Stable: equal pings keep the panel's order.
         // Unmeasured and failed go last.
-        let connected = match &st.conn_state {
-            ConnState::Connected { key, .. } => Some(key.as_str()),
-            _ => None,
-        };
         order.sort_by_key(|&i| {
             let key = key_of(sub, &sub.servers[i]);
             (connected != Some(key.as_str()), st.ping_results.get(&key).map_or(u128::MAX, |p| p.2))
@@ -1884,6 +1956,10 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.auto_update = ui.get_auto_update();
     st.store.settings.switch_on_select = ui.get_switch_on_select();
     st.store.settings.show_server_type = ui.get_show_server_type();
+    st.store.settings.server_filter_enabled = ui.get_filter_enabled();
+    // Off: the list shows every server; the pattern is kept for later.
+    let s = &st.store.settings;
+    st.filter = active_filter(s.server_filter_enabled, &s.server_filter, s.server_filter_exclude);
     st.store.settings.close_to_tray = ui.get_close_to_tray();
     st.store.settings.autoconnect = ui.get_autoconnect();
     st.store.settings.kill_switch = ui.get_kill_switch();
@@ -1913,6 +1989,8 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.font = if font == SYSTEM_FONT { String::new() } else { font };
     apply_appearance(ui, &st.store.settings);
     save(&mut st);
+    // The filter switch changes which servers the list shows.
+    render(ui, &st);
     drop(st);
     if mode_changed {
         reconnect(ui, app);
@@ -2056,6 +2134,7 @@ fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
     ui.global::<Theme>().set_text_scale(s.text_scale.clamp(80, 150) as f32 / 100.0);
     ui.set_font_family(s.font.clone().into());
     ui.set_show_server_type(s.show_server_type);
+    ui.set_filter_enabled(s.server_filter_enabled);
 }
 
 fn restart_hysteria_if_due(ui: &AppWindow, app: &Shared) {
@@ -2264,6 +2343,22 @@ fn ping_jobs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_filter() {
+        let keep = ServerFilter::new("(lte|обход|россия)", false).unwrap();
+        assert!(keep.shows("🇷🇺 Россия (Москва 0x)", ""), "case-insensitive, Cyrillic");
+        assert!(keep.shows("🇪🇪 LTE #1 (1x)", ""));
+        assert!(keep.shows("Германия", "Для обхода ограничений"), "matches the description too");
+        assert!(!keep.shows("Германия (Бавария 0x)", "Безлимитный"));
+
+        let hide = ServerFilter::new("(lte|обход|россия)", true).unwrap();
+        assert!(!hide.shows("LTE #2 (1x)", ""));
+        assert!(hide.shows("Германия (Бавария 0x)", "Безлимитный"));
+
+        assert!(ServerFilter::new("   ", false).unwrap().re.is_none(), "blank: no filter");
+        assert!(ServerFilter::new("(lte", false).is_err(), "a broken pattern is an error, not a filter");
+    }
 
     #[test]
     fn expiry_reminder() {

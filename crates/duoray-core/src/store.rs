@@ -31,8 +31,15 @@ pub struct Settings {
     pub text_scale: u32,
     /// Font family; empty means the system font.
     pub font: String,
-    /// "dark" (default), "light" or "system".
+    /// Theme id (see THEMES in the GUI); "dark" by default.
     pub theme: String,
+    /// Show the server list filter (a button in the list header); off by default.
+    pub server_filter_enabled: bool,
+    /// Server list filter: a regular expression over server names and
+    /// descriptions, case-insensitive; empty shows every server.
+    pub server_filter: String,
+    /// The filter hides the matching servers instead of keeping only them.
+    pub server_filter_exclude: bool,
     pub routing: crate::routing::RoutingSettings,
     /// Restart xray every `hysteria_restart_minutes` while connected through
     /// Hysteria (it can stall after a while; a fresh xray revives it).
@@ -77,6 +84,9 @@ impl Default for Settings {
             text_scale: 100,
             font: String::new(),
             theme: "dark".into(),
+            server_filter_enabled: false,
+            server_filter: String::new(),
+            server_filter_exclude: false,
             routing: Default::default(),
             hysteria_restart: false,
             hysteria_restart_minutes: 5,
