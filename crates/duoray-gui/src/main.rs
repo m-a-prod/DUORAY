@@ -82,6 +82,10 @@ struct App {
     refreshing: HashSet<String>,
     /// When each subscription was last fetched (successfully or not), for auto-update pacing.
     last_attempt: std::collections::HashMap<String, std::time::Instant>,
+    /// Failed fetches in a row per subscription. Only a repeated failure is
+    /// reported: a single one is mostly the network not up yet after sleep
+    /// or at login, and the retry 10 minutes later fixes it.
+    fetch_failures: std::collections::HashMap<String, u32>,
     status: String,
     conn: Option<Connection>,
     conn_state: ConnState,
@@ -212,6 +216,7 @@ fn main() -> anyhow::Result<()> {
         path,
         refreshing: HashSet::new(),
         last_attempt: Default::default(),
+        fetch_failures: Default::default(),
         status,
         conn: None,
         conn_state: ConnState::Idle,
@@ -1464,8 +1469,19 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
             let mut st = app.lock().unwrap();
             st.refreshing.remove(&id);
             match &result {
-                Ok(f) => diag::log(format!("subscription updated: {} servers, {} skipped", f.servers.len(), f.skipped.len())),
-                Err(e) => diag::auto("subscription", e),
+                Ok(f) => {
+                    st.fetch_failures.remove(&id);
+                    diag::log(format!("subscription updated: {} servers, {} skipped", f.servers.len(), f.skipped.len()));
+                }
+                Err(e) => {
+                    let failures = st.fetch_failures.entry(id.clone()).or_default();
+                    *failures += 1;
+                    if *failures >= 2 {
+                        diag::auto("subscription", e);
+                    } else {
+                        diag::log(format!("subscription: {} (will retry)", first_line(e)));
+                    }
+                }
             }
             st.store.apply(&id, result);
             save(&mut st);

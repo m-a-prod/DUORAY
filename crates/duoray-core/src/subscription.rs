@@ -219,7 +219,17 @@ pub fn parse_body(body: &str) -> Result<(Vec<Server>, Vec<String>, bool)> {
     let text = if body.contains("://") {
         body.to_string()
     } else {
-        let compact: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+        // `#profile-title:`-style lines may sit above the base64 (see
+        // body_comments); they are not part of it.
+        let compact: String = body
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .flat_map(str::chars)
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        if compact.is_empty() {
+            return Ok((vec![], vec![], false));
+        }
         let bytes = STANDARD_NO_PAD_INDIFFERENT
             .decode(&compact)
             .or_else(|_| URL_SAFE_NO_PAD_INDIFFERENT.decode(&compact))
@@ -408,6 +418,16 @@ mod tests {
         let (s, k, json) = parse_body(&STANDARD.encode(LINKS)).unwrap();
         assert_eq!((s.len(), k.len(), json), (2, 1, false));
         assert_eq!(s[0].name, "One");
+    }
+
+    #[test]
+    fn comment_lines_before_base64() {
+        // Some panels put `#profile-title:`-style lines above a base64 body.
+        let body = format!("#profile-title: base64:{}\n#profile-update-interval: 12\n{}", STANDARD.encode("Моя"), STANDARD.encode(LINKS));
+        let (s, k, json) = parse_body(&body).unwrap();
+        assert_eq!((s.len(), k.len(), json), (2, 1, false));
+        // Only the headers, no servers: an empty list, not a base64 error.
+        assert!(parse_body("#announce: Подписка истекла\n").unwrap().0.is_empty());
     }
 
     #[test]
