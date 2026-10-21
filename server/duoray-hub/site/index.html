@@ -82,13 +82,25 @@ a { color: inherit; }
 .stage::before {
   content: ""; position: absolute; inset: 0; z-index: -2;
   background:
+    radial-gradient(900px 640px at 78% 40%, #f4c2d726, transparent 60%),
     radial-gradient(700px 520px at 100% 100%, #c97fa32e, transparent 60%),
     radial-gradient(640px 420px at 0% 0%, #6750a422, transparent 60%);
 }
-.glow {
-  position: absolute; z-index: -2; left: 0; top: 0; width: 1800px; height: 1280px; margin: -640px 0 0 -900px;
-  background: radial-gradient(closest-side, #f4c2d726, transparent);
-  transform: translate(78vw, 40vh); will-change: transform; pointer-events: none;
+/* With a mouse the glow follows the pointer on its own layer. Touch screens
+   keep it painted into the backdrop: a layer that size costs phones ~60 MB
+   of GPU memory and drags a page-sized layer along, and scrolling stutters. */
+.glow { display: none; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .stage::before {
+    background:
+      radial-gradient(700px 520px at 100% 100%, #c97fa32e, transparent 60%),
+      radial-gradient(640px 420px at 0% 0%, #6750a422, transparent 60%);
+  }
+  .glow {
+    display: block; position: absolute; z-index: -2; left: 0; top: 0; width: 1800px; height: 1280px; margin: -640px 0 0 -900px;
+    background: radial-gradient(closest-side, #f4c2d726, transparent);
+    transform: translate(78vw, 40vh); will-change: transform; pointer-events: none;
+  }
 }
 .stage::after {
   content: ""; position: absolute; inset: 0; z-index: -1;
@@ -348,18 +360,23 @@ footer a:hover, .src a:hover { color: var(--pink); }
 
 /* ---------- motion ---------- */
 @media (prefers-reduced-motion: no-preference) {
+  .btn, .copy, .files a { transition: box-shadow .25s, background .2s, color .2s; }
+  .v-tun .pipe { animation: flow 1.2s linear infinite; }
+  .v-tun .pkt { offset-path: path("M58 60 H342"); animation: pkt 2.6s var(--ease) infinite; }
+}
+/* Entrances on scroll only with a mouse. While a block slides in, Chrome
+   gives it a layer and, by overlap, everything below it another one the
+   size of the page; phones re-raster those on every block and scrolling
+   on Android stutters. There the blocks are simply in place. */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .js .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s var(--ease); }
   .js .reveal.in { opacity: 1; transform: none; }
   .js .shot.reveal { transform: translateY(32px) scale(.98); transition-duration: 1.1s; }
   .js .shot.reveal.in { transform: none; }
-  .btn, .copy, .files a { transition: box-shadow .25s, background .2s, color .2s; }
-
-  .v-tun .pipe { animation: flow 1.2s linear infinite; }
-  .v-tun .pkt { offset-path: path("M58 60 H342"); animation: pkt 2.6s var(--ease) infinite; }
   .js .feature .tree li, .js .feature .toggles li { opacity: 0; transform: translateX(-8px); transition: opacity .5s, transform .5s var(--ease); }
   .js .feature.in .tree li, .js .feature.in .toggles li { opacity: 1; transform: none; }
-  .feature li:nth-child(5) { transition-delay: .48s; }
   .feature li:nth-child(2) { transition-delay: .12s; } .feature li:nth-child(3) { transition-delay: .24s; } .feature li:nth-child(4) { transition-delay: .36s; }
+  .feature li:nth-child(5) { transition-delay: .48s; }
   .js .toast .bar i { transform: scaleX(0); transform-origin: left; }
   .js .feature.in .toast .bar i { animation: fill 2.4s .3s var(--ease) forwards; }
 }
@@ -724,7 +741,7 @@ sudo pacman -Sy duoray</code></pre>
 
   // Glow follows the pointer in the hero.
   var stage = document.getElementById("stage");
-  if (!reduce && window.matchMedia("(pointer: fine)").matches) {
+  if (!reduce && window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
     var glow = document.getElementById("glow"), gx = 0, gy = 0, frame = 0;
     stage.addEventListener("pointermove", function (e) {
       var r = stage.getBoundingClientRect();
