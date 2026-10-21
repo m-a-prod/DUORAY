@@ -1,0 +1,48 @@
+# A test build for old Intel Macs (macOS 10.15 Catalina), started by hand.
+# Not part of releases: the bundled xray is built with a Go that officially
+# wants macOS 11, so whether it runs on 10.15 is what this build checks.
+name: macos-legacy
+
+on:
+  workflow_dispatch:
+    inputs:
+      macos_min:
+        description: Oldest macOS to build for
+        default: "10.15"
+
+jobs:
+  macos-legacy:
+    timeout-minutes: 60
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: DUORAY }
+      - uses: actions/checkout@v7
+        with:
+          repository: m-a-prod/DUOTUN
+          path: DUOTUN
+          ssh-key: ${{ secrets.DUOTUN_SSH_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: DUORAY
+          key: macos-legacy
+      - name: Build app and disk image
+        working-directory: DUORAY
+        env:
+          MACOS_MIN: ${{ inputs.macos_min }}
+        run: packaging/macos/build.sh x86_64
+      - name: What the binaries require
+        working-directory: DUORAY
+        run: |
+          for f in packaging/macos/work-x86_64/DUORAY.app/Contents/MacOS/*; do
+            [ -x "$f" ] || continue
+            echo "$(basename "$f"): $(otool -l "$f" | grep -A3 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' | grep -E 'minos|version' | head -1 | xargs)"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-legacy-x86_64
+          path: DUORAY/dist/*.dmg
+          if-no-files-found: error

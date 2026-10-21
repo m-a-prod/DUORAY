@@ -5,6 +5,8 @@
 # notarized: on first start the user opens it with right click → Open.
 #
 # Usage: packaging/macos/build.sh [aarch64|x86_64]   (default: this machine)
+# MACOS_MIN=10.15 builds for an older macOS (a test build for old Intel Macs;
+# the bundled xray is built with a Go that officially wants macOS 11).
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -20,10 +22,15 @@ TARGET=$ARCH-apple-darwin
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/duoray-gui/Cargo.toml | head -1)
 WORK=packaging/macos/work-$ARCH
 APP=$WORK/DUORAY.app
-OUT=dist/DUORAY-$VERSION-macos-$ARCH.dmg
+MACOS_MIN=${MACOS_MIN:-11.0}
+if [ "$MACOS_MIN" = 11.0 ]; then
+    OUT=dist/DUORAY-$VERSION-macos-$ARCH.dmg
+else
+    OUT=dist/DUORAY-$VERSION-macos$MACOS_MIN-$ARCH.dmg
+fi
 
 # Match the oldest macOS we claim in Info.plist.
-export MACOSX_DEPLOYMENT_TARGET=11.0
+export MACOSX_DEPLOYMENT_TARGET=$MACOS_MIN
 cargo build --release --target "$TARGET" -p duoray-gui -p duoray-helper
 BIN=target/$TARGET/release
 
@@ -63,7 +70,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleExecutable</key><string>duoray</string>
     <key>CFBundleIconFile</key><string>duoray</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>LSMinimumSystemVersion</key><string>11.0</string>
+    <key>LSMinimumSystemVersion</key><string>$MACOS_MIN</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>© 2026 DUALIZM. GNU GPL v3.</string>
