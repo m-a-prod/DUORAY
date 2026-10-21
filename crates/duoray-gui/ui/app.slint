@@ -85,6 +85,7 @@ export global Theme {
     in-out property <color> c-tonal;
     in-out property <color> c-on-tonal;
     in-out property <color> c-track;
+    in-out property <color> c-outline;
     // Resolved scheme, also when following the system (color-scheme is then
     // "unknown"): the Material light background is the tell.
     out property <bool> light: custom ? c-light : Palette.background == #f8f3f9;
@@ -101,6 +102,8 @@ export global Theme {
     out property <color> on-tonal: custom ? c-on-tonal : light ? #1e192b : #e8def8;
     out property <color> selection: accent.with-alpha(0.3);
     out property <color> track: custom ? c-track : light ? #e7e0ec : #36343b;
+    // Hairline around cards and along panel edges; transparent unless the theme sets one.
+    out property <color> outline: custom ? c-outline : transparent;
     // Status tones: bright on dark, deeper on light so text keeps contrast.
     out property <brush> danger: light ? #ce2c31 : #e5484d;
     out property <brush> muted: fg.with-alpha(0.62);
@@ -708,12 +711,141 @@ component FieldLabel inherits Text {
 component SettingsCard inherits Rectangle {
     background: Theme.card;
     border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.outline;
     height: card-layout.preferred-height;
     card-layout := VerticalLayout {
         padding: 16px;
         spacing: 14px;
         alignment: start;
         @children
+    }
+}
+
+// A theme as its tile in Settings shows it: a two-column app in miniature.
+// "Как в системе" sets split and shows its light and dark halves.
+export struct ThemeSwatch {
+    name: string,
+    bg: color,
+    card: color,
+    fg: color,
+    accent: color,
+    split: bool,
+    bg2: color,
+    card2: color,
+    fg2: color,
+    accent2: color,
+}
+
+component SwatchHalf inherits Rectangle {
+    in property <color> bg;
+    in property <color> card;
+    in property <color> fg;
+    in property <color> accent;
+    background: bg;
+    Rectangle {
+        x: 0;
+        width: parent.width * 0.3;
+        background: root.card;
+    }
+    Rectangle {
+        x: parent.width * 0.4;
+        y: 12px;
+        width: parent.width * 0.45;
+        height: 6px;
+        border-radius: 3px;
+        background: root.fg.with-alpha(0.75);
+    }
+    Rectangle {
+        x: parent.width * 0.4;
+        y: 24px;
+        width: parent.width * 0.3;
+        height: 6px;
+        border-radius: 3px;
+        background: root.fg.with-alpha(0.35);
+    }
+    Rectangle {
+        x: parent.width * 0.4;
+        y: parent.height - 18px;
+        width: parent.width * 0.4;
+        height: 10px;
+        border-radius: 5px;
+        background: root.accent;
+    }
+}
+
+component ThemeTile inherits Rectangle {
+    in property <ThemeSwatch> swatch;
+    in property <bool> selected;
+    callback clicked();
+    VerticalLayout {
+        spacing: 6px;
+        Rectangle {
+            vertical-stretch: 1;
+            border-radius: 10px;
+            clip: true;
+            HorizontalLayout {
+                SwatchHalf {
+                    bg: root.swatch.bg;
+                    card: root.swatch.card;
+                    fg: root.swatch.fg;
+                    accent: root.swatch.accent;
+                }
+                if root.swatch.split: SwatchHalf {
+                    bg: root.swatch.bg2;
+                    card: root.swatch.card2;
+                    fg: root.swatch.fg2;
+                    accent: root.swatch.accent2;
+                }
+            }
+            // Drawn over the preview so it stays visible on any colors.
+            Rectangle {
+                border-radius: 10px;
+                border-width: root.selected ? 2px : 1px;
+                border-color: root.selected ? Theme.accent : touch.has-hover ? Theme.line : Theme.line.with-alpha(0.35);
+            }
+        }
+        Text {
+            text: root.swatch.name;
+            font-size: Theme.fs-small;
+            font-weight: root.selected ? 700 : 400;
+            color: root.selected ? Theme.fg : Theme.muted;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A section in the Settings list.
+component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+    height: max(36px, label.preferred-height + 14px);
+    border-radius: 8px;
+    background: root.selected ? Theme.tonal : touch.has-hover ? Theme.fg.with-alpha(0.06) : transparent;
+    label := Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.text;
+        font-size: Theme.fs-body;
+        font-weight: root.selected ? 700 : 500;
+        color: root.selected ? Theme.on-tonal : Theme.fg;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
     }
 }
 
@@ -742,7 +874,7 @@ component SettingsPage inherits Rectangle {
     in-out property <string> font-choice: "Системный";
     in-out property <string> theme-choice: "Тёмная";
     in property <[string]> font-choices: ["Системный"];
-    in property <[string]> theme-choices: ["Тёмная"];
+    in property <[ThemeSwatch]> theme-swatches;
     in-out property <bool> hysteria-restart;
     in-out property <string> hysteria-minutes: "5";
     in-out property <bool> telemetry-enabled;
@@ -771,70 +903,246 @@ component SettingsPage inherits Rectangle {
     callback check-update();
     callback open-link(string);
 
-    ScrollView {
-        content-width: max(self.visible-width, settings-content.min-width);
-        // Scroll the full natural content height, not the layout's minimum height.
-        content-height: max(self.visible-height, settings-content.preferred-height);
-        settings-content := VerticalLayout {
-            padding: 24px;
-            spacing: 12px;
-            // Pack sections at the top; spare height must not stretch the cards.
-            alignment: start;
+    // Section on the right; the list on the left picks it.
+    in-out property <int> section: 0;
+    property <[string]> sections: ["Основные", "Подключение", "Внешний вид", "Пинг", "Подписки", "Отчёты и обновления", "О DUORAY"];
+    changed section => {
+        scroll.viewport-y = 0;
+    }
 
-            Text {
-                text: "Настройки";
-                font-size: Theme.fs-display;
-                font-weight: 800;
+    HorizontalLayout {
+        // ── Section list ──
+        Rectangle {
+            width: 200px;
+            background: Theme.card;
+            // Edge line, for themes with an outline.
+            Rectangle {
+                x: parent.width - 1px;
+                width: 1px;
+                background: Theme.outline;
             }
-
-            // ── Subscription requests ──
-            SectionLabel {
-                text: "ЗАПРОСЫ ПОДПИСОК";
-            }
-            SettingsCard {
-                ToggleRow {
-                    title: "Отправлять HWID и данные устройства";
-                    description: "Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent.";
-                    checked <=> root.send-device-info;
-                    toggled => {
-                        root.changed();
+            VerticalLayout {
+                padding: 16px;
+                padding-top: 24px;
+                spacing: 2px;
+                alignment: start;
+                Text {
+                    text: "Настройки";
+                    font-size: Theme.fs-display;
+                    font-weight: 800;
+                }
+                Rectangle {
+                    height: 14px;
+                }
+                for item[i] in root.sections: NavItem {
+                    text: item;
+                    selected: root.section == i;
+                    clicked => {
+                        root.section = i;
                     }
                 }
-                Divider { }
-                ToggleRow {
-                    title: "Happ Spoof";
-                    description: "Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию DUORAY представляется собой.";
-                    checked <=> root.happ-enabled;
-                    toggled => {
-                        root.changed();
+            }
+        }
+
+        // ── Section content ──
+        scroll := ScrollView {
+            content-width: max(self.visible-width, settings-content.width);
+            // Scroll the full natural content height, not the layout's minimum height.
+            content-height: max(self.visible-height, settings-content.preferred-height);
+            settings-content := VerticalLayout {
+                // Readable width: on a wide window fields and switches would
+                // otherwise sit a whole screen apart from their labels.
+                width: max(self.min-width, min(scroll.visible-width, 880px));
+                // An element with its own width is centered by default; keep it left.
+                x: 0;
+                padding: 24px;
+                spacing: 12px;
+                // Pack the cards at the top; spare height must not stretch them.
+                alignment: start;
+
+                Text {
+                    text: root.sections[root.section];
+                    font-size: Theme.fs-display;
+                    font-weight: 800;
+                }
+
+                // ── Основные ──
+                if root.section == 0: SettingsCard {
+                    ToggleRow {
+                        title: "Запускать при входе в систему";
+                        description: "DUORAY запускается вместе с компьютером и сразу прячется в трей.";
+                        checked <=> root.autostart;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Сворачивать в трей при закрытии";
+                        description: root.tray-available
+                            ? "Крестик прячет окно, VPN продолжает работать. Открыть окно или выйти — через значок DUORAY в трее."
+                            : "Значок в трее недоступен в этом окружении (в GNOME нужно расширение AppIndicator), поэтому крестик закрывает DUORAY.";
+                        checked <=> root.close-to-tray;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Подключаться при запуске";
+                        description: "Сразу после запуска DUORAY подключается к последнему выбранному серверу.";
+                        checked <=> root.autoconnect;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Переключаться при выборе сервера";
+                        description: "Если VPN подключён, выбор другого сервера в списке сразу переключает подключение на него. Если выключить, новый сервер применится при следующем подключении.";
+                        checked <=> root.switch-on-select;
+                        toggled => {
+                            root.changed();
+                        }
                     }
                 }
 
-                if root.happ-enabled: VerticalLayout {
-                    height: self.preferred-height;
-                    spacing: 10px;
-                    HorizontalLayout {
+                // ── Подключение ──
+                if root.section == 1: SettingsCard {
+                    ToggleRow {
+                        title: "Аварийная блокировка (kill switch)";
+                        description: "Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться».";
+                        checked <=> root.kill-switch;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Режим прокси вместо TUN";
+                        description: "DUORAY не создаёт VPN-туннель, а включает системный прокси 127.0.0.1 без логина и пароля (HTTP и SOCKS5 на одном порту). Через VPN идут программы, которые следуют системным настройкам прокси: браузеры и большинство приложений. Маршрутизация по приложениям в этом режиме не работает.";
+                        checked <=> root.proxy-mode;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    if root.proxy-mode: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Версия Happ";
+                            text: "Порт прокси";
                         }
                         TextField {
-                            text <=> root.app-version;
+                            text <=> root.proxy-port;
+                            placeholder: "10808";
                             edited => {
                                 root.changed();
                             }
                         }
                     }
-                    HorizontalLayout {
+                    Divider { }
+                    ToggleRow {
+                        title: "Перезапускать Hysteria2";
+                        description: "Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения.";
+                        checked <=> root.hysteria-restart;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    if root.hysteria-restart: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "ОС";
+                            text: "Каждые, минут";
                         }
                         ComboBox {
                             height: 36px;
-                            model: ["macOS", "Windows", "iOS", "Android"];
+                            model: ["1", "2", "3", "5", "10", "15", "30", "60"];
                             by-value: true;
-                            current-value <=> root.os;
+                            current-value <=> root.hysteria-minutes;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    Divider { }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text {
+                                text: "Помощник TUN";
+                                font-size: Theme.fs-title;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: root.helper-status;
+                                font-size: Theme.fs-small;
+                                color: Theme.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Button {
+                                    text: root.helper-installed ? "Переустановить" : "Установить";
+                                    enabled: !root.helper-busy;
+                                    clicked => {
+                                        root.reinstall-helper();
+                                    }
+                                }
+                                if root.helper-installed: Button {
+                                    text: "Удалить";
+                                    enabled: !root.helper-busy;
+                                    clicked => {
+                                        root.uninstall-helper();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Внешний вид ──
+                if root.section == 2: SettingsCard {
+                    Text {
+                        text: "Тема";
+                        font-size: Theme.fs-title;
+                        font-weight: 700;
+                    }
+                    // Tiles in as many columns as fit, each drawn in its theme's colors.
+                    themes := Rectangle {
+                        property <length> gap: 12px;
+                        property <length> tile-height: 96px;
+                        property <int> cols: max(1, floor((self.width + self.gap) / (150px + self.gap)));
+                        property <length> tile-width: (self.width - (self.cols - 1) * self.gap) / self.cols;
+                        height: ceil(root.theme-swatches.length / self.cols) * (self.tile-height + self.gap) - self.gap;
+                        for t[i] in root.theme-swatches: ThemeTile {
+                            x: mod(i, themes.cols) * (themes.tile-width + themes.gap);
+                            y: floor(i / themes.cols) * (themes.tile-height + themes.gap);
+                            width: themes.tile-width;
+                            height: themes.tile-height;
+                            swatch: t;
+                            selected: root.theme-choice == t.name;
+                            clicked => {
+                                root.theme-choice = t.name;
+                                root.changed();
+                            }
+                        }
+                    }
+                }
+                if root.section == 2: SettingsCard {
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Размер текста";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["90%", "100%", "110%", "120%", "130%"];
+                            by-value: true;
+                            current-value <=> root.text-scale-choice;
                             selected => {
                                 root.changed();
                             }
@@ -843,11 +1151,41 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Версия ОС";
+                            text: "Шрифт";
                         }
-                        TextField {
-                            text <=> root.os-version;
-                            edited => {
+                        ComboBox {
+                            height: 36px;
+                            model: root.font-choices;
+                            by-value: true;
+                            current-value <=> root.font-choice;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Показывать тип сервера";
+                        description: "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.";
+                        checked <=> root.show-server-type;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                }
+
+                // ── Пинг ──
+                if root.section == 3: SettingsCard {
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Способ";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["HTTP GET — через сам сервер", "HTTP HEAD — через сервер, легче", "TCP — соединение с сервером", "ICMP — обычный ping"];
+                            current-index <=> root.ping-mode-index;
+                            selected => {
                                 root.changed();
                             }
                         }
@@ -855,497 +1193,336 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Модель";
+                            text: "Потоков";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["1", "2", "4", "8", "16"];
+                            by-value: true;
+                            current-value <=> root.ping-threads;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    if root.ping-mode-index <= 1: HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Адрес проверки";
                         }
                         TextField {
-                            text <=> root.model;
+                            text <=> root.ping-url;
+                            placeholder: "http://cp.cloudflare.com/generate_204";
                             edited => {
                                 root.changed();
                             }
                         }
                     }
-                    HorizontalLayout {
-                        spacing: 12px;
-                        FieldLabel {
-                            text: "Язык";
+                    Text {
+                        text: root.ping-mode-index == 0
+                            ? "HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ."
+                            : root.ping-mode-index == 1
+                            ? "HTTP HEAD: как GET, но без тела ответа — чуть быстрее и легче для сервера."
+                            : root.ping-mode-index == 2
+                            ? "TCP: время подключения к порту сервера. Быстро и без xray, но не проверяет, что прокси работает."
+                            : "ICMP: обычный ping. Многие серверы на него не отвечают — будет «—», хотя сервер рабочий.";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: "1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их.";
+                        font-size: Theme.fs-small;
+                        color: Theme.warn;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // ── Подписки ──
+                if root.section == 4: SettingsCard {
+                    ToggleRow {
+                        title: "Отправлять HWID и данные устройства";
+                        description: "Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent.";
+                        checked <=> root.send-device-info;
+                        toggled => {
+                            root.changed();
                         }
-                        TextField {
-                            text <=> root.locale;
-                            edited => {
-                                root.changed();
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Happ Spoof";
+                        description: "Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию DUORAY представляется собой.";
+                        checked <=> root.happ-enabled;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+
+                    if root.happ-enabled: VerticalLayout {
+                        height: self.preferred-height;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "Версия Happ";
                             }
+                            TextField {
+                                text <=> root.app-version;
+                                edited => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "ОС";
+                            }
+                            ComboBox {
+                                height: 36px;
+                                model: ["macOS", "Windows", "iOS", "Android"];
+                                by-value: true;
+                                current-value <=> root.os;
+                                selected => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "Версия ОС";
+                            }
+                            TextField {
+                                text <=> root.os-version;
+                                edited => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "Модель";
+                            }
+                            TextField {
+                                text <=> root.model;
+                                edited => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "Язык";
+                            }
+                            TextField {
+                                text <=> root.locale;
+                                edited => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "User ID";
+                            }
+                            TextField {
+                                text <=> root.user-id;
+                                edited => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            FieldLabel {
+                                text: "HWID";
+                            }
+                            TextField {
+                                text <=> root.hwid;
+                                edited => {
+                                    root.changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            padding-left: 162px;
+                            Button {
+                                text: "Новые ID";
+                                clicked => {
+                                    root.randomize-ids();
+                                }
+                            }
+                            Button {
+                                text: "Случайное устройство";
+                                clicked => {
+                                    root.randomize-device();
+                                }
+                            }
+                            Button {
+                                text: "Сбросить";
+                                clicked => {
+                                    root.reset();
+                                }
+                            }
+                        }
+                    }
+
+                    Divider { }
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Будет отправлено";
+                            font-size: Theme.fs-small;
+                            font-weight: 700;
+                            color: Theme.muted;
+                        }
+                        Text {
+                            text: "User-Agent: " + (root.happ-enabled ? "Happ/" + root.app-version + "/" + root.os + "/" + root.user-id : root.duoray-ua);
+                            font-size: Theme.fs-small;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: root.send-device-info
+                                ? "x-hwid: " + (root.happ-enabled ? root.hwid : root.duoray-hwid)
+                                : "HWID и данные устройства не отправляются";
+                            font-size: Theme.fs-small;
+                            color: root.send-device-info ? Theme.fg : Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                // ── Отчёты и обновления ──
+                if root.section == 5: SettingsCard {
+                    ToggleRow {
+                        title: "Отправлять отчёты об ошибках";
+                        description: "Версия, ОС, текст ошибки и журнал последних действий — чтобы мы могли найти и исправить проблему. Ссылки подписок, адреса и названия серверов, ключи и UUID вырезаются и не отправляются.";
+                        checked <=> root.telemetry-enabled;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Проверять обновления";
+                        description: "Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию.";
+                        checked <=> root.auto-update;
+                        toggled => {
+                            root.changed();
                         }
                     }
                     HorizontalLayout {
                         spacing: 12px;
-                        FieldLabel {
-                            text: "User ID";
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.update-info != "" ? root.update-info : "Установлена версия " + root.duoray-version + ".";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
                         }
-                        TextField {
-                            text <=> root.user-id;
-                            edited => {
-                                root.changed();
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: "Проверить";
+                                clicked => {
+                                    root.check-update();
+                                }
                             }
                         }
                     }
+                    Divider { }
                     HorizontalLayout {
                         spacing: 12px;
-                        FieldLabel {
-                            text: "HWID";
-                        }
-                        TextField {
-                            text <=> root.hwid;
-                            edited => {
-                                root.changed();
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text {
+                                text: "Сообщить о проблеме";
+                                font-size: Theme.fs-title;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: "Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку.";
+                                font-size: Theme.fs-small;
+                                color: Theme.muted;
+                                wrap: word-wrap;
                             }
                         }
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: "Написать";
+                                clicked => {
+                                    root.report-problem();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── О DUORAY (GPL "Appropriate Legal Notices") ──
+                if root.section == 6: SettingsCard {
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text {
+                                text: "DUORAY " + root.duoray-version;
+                                font-size: Theme.fs-title;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: "Разработчик — DUALIZM. Новости и поддержка — в Telegram-канале @dualizm_vpn.";
+                                font-size: Theme.fs-small;
+                                color: Theme.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: "@dualizm_vpn";
+                                clicked => {
+                                    root.open-link("https://t.me/dualizm_vpn");
+                                }
+                            }
+                        }
+                    }
+                    Divider { }
+                    Text {
+                        text: "© 2026 DUALIZM. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Учебный эксперимент, код написан с помощью ИИ-ассистента.";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        wrap: word-wrap;
                     }
                     HorizontalLayout {
                         spacing: 8px;
                         alignment: start;
-                        padding-left: 162px;
                         Button {
-                            text: "Новые ID";
+                            text: "Исходный код";
                             clicked => {
-                                root.randomize-ids();
-                            }
-                        }
-                        Button {
-                            text: "Случайное устройство";
-                            clicked => {
-                                root.randomize-device();
+                                root.open-link("https://github.com/m-a-prod/DUORAY");
                             }
                         }
                         Button {
-                            text: "Сбросить";
+                            text: "Лицензия";
                             clicked => {
-                                root.reset();
+                                root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/LICENSE");
                             }
                         }
-                    }
-                }
-
-                Divider { }
-                VerticalLayout {
-                    spacing: 4px;
-                    Text {
-                        text: "Будет отправлено";
-                        font-size: Theme.fs-small;
-                        font-weight: 700;
-                        color: Theme.muted;
-                    }
-                    Text {
-                        text: "User-Agent: " + (root.happ-enabled ? "Happ/" + root.app-version + "/" + root.os + "/" + root.user-id : root.duoray-ua);
-                        font-size: Theme.fs-small;
-                        wrap: word-wrap;
-                    }
-                    Text {
-                        text: root.send-device-info
-                            ? "x-hwid: " + (root.happ-enabled ? root.hwid : root.duoray-hwid)
-                            : "HWID и данные устройства не отправляются";
-                        font-size: Theme.fs-small;
-                        color: root.send-device-info ? Theme.fg : Theme.muted;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-
-            // ── Ping ──
-            SectionLabel {
-                text: "ПИНГ";
-            }
-            SettingsCard {
-                HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Способ";
-                    }
-                    ComboBox {
-                        height: 36px;
-                        model: ["HTTP GET — через сам сервер", "HTTP HEAD — через сервер, легче", "TCP — соединение с сервером", "ICMP — обычный ping"];
-                        current-index <=> root.ping-mode-index;
-                        selected => {
-                            root.changed();
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Потоков";
-                    }
-                    ComboBox {
-                        height: 36px;
-                        model: ["1", "2", "4", "8", "16"];
-                        by-value: true;
-                        current-value <=> root.ping-threads;
-                        selected => {
-                            root.changed();
-                        }
-                    }
-                }
-                if root.ping-mode-index <= 1: HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Адрес проверки";
-                    }
-                    TextField {
-                        text <=> root.ping-url;
-                        placeholder: "http://cp.cloudflare.com/generate_204";
-                        edited => {
-                            root.changed();
-                        }
-                    }
-                }
-                Text {
-                    text: root.ping-mode-index == 0
-                        ? "HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ."
-                        : root.ping-mode-index == 1
-                        ? "HTTP HEAD: как GET, но без тела ответа — чуть быстрее и легче для сервера."
-                        : root.ping-mode-index == 2
-                        ? "TCP: время подключения к порту сервера. Быстро и без xray, но не проверяет, что прокси работает."
-                        : "ICMP: обычный ping. Многие серверы на него не отвечают — будет «—», хотя сервер рабочий.";
-                    font-size: Theme.fs-small;
-                    color: Theme.muted;
-                    wrap: word-wrap;
-                }
-                Text {
-                    text: "1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их.";
-                    font-size: Theme.fs-small;
-                    color: Theme.warn;
-                    wrap: word-wrap;
-                }
-            }
-
-            // ── Interface ──
-            SectionLabel {
-                text: "ИНТЕРФЕЙС";
-            }
-            SettingsCard {
-                HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Тема";
-                    }
-                    ComboBox {
-                        height: 36px;
-                        model: root.theme-choices;
-                        by-value: true;
-                        current-value <=> root.theme-choice;
-                        selected => {
-                            root.changed();
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Размер текста";
-                    }
-                    ComboBox {
-                        height: 36px;
-                        model: ["90%", "100%", "110%", "120%", "130%"];
-                        by-value: true;
-                        current-value <=> root.text-scale-choice;
-                        selected => {
-                            root.changed();
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Шрифт";
-                    }
-                    ComboBox {
-                        height: 36px;
-                        model: root.font-choices;
-                        by-value: true;
-                        current-value <=> root.font-choice;
-                        selected => {
-                            root.changed();
-                        }
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Сворачивать в трей при закрытии";
-                    description: root.tray-available
-                        ? "Крестик прячет окно, VPN продолжает работать. Открыть окно или выйти — через значок DUORAY в трее."
-                        : "Значок в трее недоступен в этом окружении (в GNOME нужно расширение AppIndicator), поэтому крестик закрывает DUORAY.";
-                    checked <=> root.close-to-tray;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Запускать при входе в систему";
-                    description: "DUORAY запускается вместе с компьютером и сразу прячется в трей.";
-                    checked <=> root.autostart;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Показывать тип сервера";
-                    description: "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.";
-                    checked <=> root.show-server-type;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-            }
-
-            // ── Connection ──
-            SectionLabel {
-                text: "ПОДКЛЮЧЕНИЕ";
-            }
-            SettingsCard {
-                ToggleRow {
-                    title: "Подключаться при запуске";
-                    description: "Сразу после запуска DUORAY подключается к последнему выбранному серверу.";
-                    checked <=> root.autoconnect;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Аварийная блокировка (kill switch)";
-                    description: "Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться».";
-                    checked <=> root.kill-switch;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Режим прокси вместо TUN";
-                    description: "DUORAY не создаёт VPN-туннель, а включает системный прокси 127.0.0.1 без логина и пароля (HTTP и SOCKS5 на одном порту). Через VPN идут программы, которые следуют системным настройкам прокси: браузеры и большинство приложений. Маршрутизация по приложениям в этом режиме не работает.";
-                    checked <=> root.proxy-mode;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                if root.proxy-mode: HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Порт прокси";
-                    }
-                    TextField {
-                        text <=> root.proxy-port;
-                        placeholder: "10808";
-                        edited => {
-                            root.changed();
-                        }
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Переключаться при выборе сервера";
-                    description: "Если VPN подключён, выбор другого сервера в списке сразу переключает подключение на него. Если выключить, новый сервер применится при следующем подключении.";
-                    checked <=> root.switch-on-select;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Перезапускать Hysteria2";
-                    description: "Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения.";
-                    checked <=> root.hysteria-restart;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                if root.hysteria-restart: HorizontalLayout {
-                    spacing: 12px;
-                    FieldLabel {
-                        text: "Каждые, минут";
-                    }
-                    ComboBox {
-                        height: 36px;
-                        model: ["1", "2", "3", "5", "10", "15", "30", "60"];
-                        by-value: true;
-                        current-value <=> root.hysteria-minutes;
-                        selected => {
-                            root.changed();
-                        }
-                    }
-                }
-                Divider { }
-                HorizontalLayout {
-                    spacing: 12px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 4px;
-                        Text {
-                            text: "Помощник TUN";
-                            font-size: Theme.fs-title;
-                            font-weight: 700;
-                        }
-                        Text {
-                            text: root.helper-status;
-                            font-size: Theme.fs-small;
-                            color: Theme.muted;
-                            wrap: word-wrap;
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            Button {
-                                text: root.helper-installed ? "Переустановить" : "Установить";
-                                enabled: !root.helper-busy;
-                                clicked => {
-                                    root.reinstall-helper();
-                                }
-                            }
-                            if root.helper-installed: Button {
-                                text: "Удалить";
-                                enabled: !root.helper-busy;
-                                clicked => {
-                                    root.uninstall-helper();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Reports and updates ──
-            SectionLabel {
-                text: "ОТЧЁТЫ И ОБНОВЛЕНИЯ";
-            }
-            SettingsCard {
-                ToggleRow {
-                    title: "Отправлять отчёты об ошибках";
-                    description: "Версия, ОС, текст ошибки и журнал последних действий — чтобы мы могли найти и исправить проблему. Ссылки подписок, адреса и названия серверов, ключи и UUID вырезаются и не отправляются.";
-                    checked <=> root.telemetry-enabled;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                Divider { }
-                ToggleRow {
-                    title: "Проверять обновления";
-                    description: "Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию.";
-                    checked <=> root.auto-update;
-                    toggled => {
-                        root.changed();
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 12px;
-                    Text {
-                        horizontal-stretch: 1;
-                        text: root.update-info != "" ? root.update-info : "Установлена версия " + root.duoray-version + ".";
-                        font-size: Theme.fs-small;
-                        color: Theme.muted;
-                        vertical-alignment: center;
-                        wrap: word-wrap;
-                    }
-                    VerticalLayout {
-                        alignment: center;
                         Button {
-                            text: "Проверить";
+                            text: "Сторонние компоненты";
                             clicked => {
-                                root.check-update();
+                                root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/THIRD-PARTY-NOTICES.md");
                             }
-                        }
-                    }
-                }
-                Divider { }
-                HorizontalLayout {
-                    spacing: 12px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 4px;
-                        Text {
-                            text: "Сообщить о проблеме";
-                            font-size: Theme.fs-title;
-                            font-weight: 700;
-                        }
-                        Text {
-                            text: "Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку.";
-                            font-size: Theme.fs-small;
-                            color: Theme.muted;
-                            wrap: word-wrap;
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Button {
-                            text: "Написать";
-                            clicked => {
-                                root.report-problem();
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── About (GPL "Appropriate Legal Notices") ──
-            SectionLabel {
-                text: "О ПРОГРАММЕ";
-            }
-            SettingsCard {
-                HorizontalLayout {
-                    spacing: 12px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 4px;
-                        Text {
-                            text: "DUORAY " + root.duoray-version;
-                            font-size: Theme.fs-title;
-                            font-weight: 700;
-                        }
-                        Text {
-                            text: "Разработчик — DUALIZM. Новости и поддержка — в Telegram-канале @dualizm_vpn.";
-                            font-size: Theme.fs-small;
-                            color: Theme.muted;
-                            wrap: word-wrap;
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Button {
-                            text: "@dualizm_vpn";
-                            clicked => {
-                                root.open-link("https://t.me/dualizm_vpn");
-                            }
-                        }
-                    }
-                }
-                Divider { }
-                Text {
-                    text: "© 2026 DUALIZM. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Учебный эксперимент, код написан с помощью ИИ-ассистента.";
-                    font-size: Theme.fs-small;
-                    color: Theme.muted;
-                    wrap: word-wrap;
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Button {
-                        text: "Исходный код";
-                        clicked => {
-                            root.open-link("https://github.com/m-a-prod/DUORAY");
-                        }
-                    }
-                    Button {
-                        text: "Лицензия";
-                        clicked => {
-                            root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/LICENSE");
-                        }
-                    }
-                    Button {
-                        text: "Сторонние компоненты";
-                        clicked => {
-                            root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/THIRD-PARTY-NOTICES.md");
                         }
                     }
                 }
@@ -2459,7 +2636,8 @@ export component AppWindow inherits Window {
             : root.theme-mode == 2 ? ColorScheme.light : ColorScheme.unknown;
     }
     in-out property <[string]> font-choices <=> settings-page.font-choices;
-    in-out property <[string]> theme-choices <=> settings-page.theme-choices;
+    in-out property <[ThemeSwatch]> theme-swatches <=> settings-page.theme-swatches;
+    in-out property <int> settings-section <=> settings-page.section;
     in property <bool> pinging;
     // The sort button appears once this subscription has been pinged.
     in property <bool> has-ping-results;
@@ -2564,6 +2742,12 @@ export component AppWindow inherits Window {
                 max-width: 380px;
                 horizontal-stretch: 26;
                 background: Theme.card;
+                // Edge line, for themes with an outline.
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    background: Theme.outline;
+                }
                 VerticalLayout {
                     padding: 18px;
                     spacing: 14px;
@@ -2999,6 +3183,8 @@ export component AppWindow inherits Window {
                     Rectangle {
                         border-radius: Theme.radius;
                         background: Theme.bg;
+                        border-width: 1px;
+                        border-color: Theme.outline;
                         VerticalLayout {
                             padding: 14px;
                             spacing: 10px;
@@ -3204,6 +3390,8 @@ export component AppWindow inherits Window {
                 if root.current-sub >= 0: Rectangle {
                     background: Theme.card;
                     border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.outline;
                     VerticalLayout {
                         padding: 14px;
                         padding-bottom: root.announce != "" ? 14px : 12px;

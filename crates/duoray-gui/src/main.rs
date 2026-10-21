@@ -223,7 +223,7 @@ fn main() -> anyhow::Result<()> {
 
     let ui = AppWindow::new()?;
 
-    ui.set_theme_choices(ModelRc::new(VecModel::from(THEMES.iter().map(|t| t.1.into()).collect::<Vec<slint::SharedString>>())));
+    ui.set_theme_swatches(ModelRc::new(VecModel::from(THEMES.iter().map(theme_swatch).collect::<Vec<_>>())));
     ui.set_font_choices(ModelRc::new(VecModel::from(
         std::iter::once(SYSTEM_FONT).chain(FONTS.iter().copied()).map(slint::SharedString::from).collect::<Vec<_>>(),
     )));
@@ -698,6 +698,8 @@ fn main() -> anyhow::Result<()> {
             ui.set_confirm_remove_index(-1);
             ui.invoke_open_settings();
             ui.set_settings_open(true);
+            // The section with the theme tiles.
+            ui.set_settings_section(2);
             let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
             slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                 let ui = ui_weak.unwrap();
@@ -1941,12 +1943,15 @@ struct Palette {
     tonal: u32,
     on_tonal: u32,
     track: u32,
+    /// Hairline around cards and along panel edges, for themes whose cards
+    /// barely differ from the background (OLED).
+    outline: Option<u32>,
 }
 
 /// A dark palette, colors in the field order above.
 const fn dark(c: [u32; 9]) -> Palette {
     let [bg, card, fg, line, accent, on_accent, tonal, on_tonal, track] = c;
-    Palette { light: false, bg, card, fg, line, accent, on_accent, tonal, on_tonal, track }
+    Palette { light: false, bg, card, fg, line, accent, on_accent, tonal, on_tonal, track, outline: None }
 }
 
 /// id (stored), name (shown), Slint color scheme (0 system, 1 dark, 2 light),
@@ -1959,7 +1964,15 @@ const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
     // Neutral greys a step lighter than Material's violet-tinted dark.
     ("graphite", "Графитовая", 1, Some(dark([0x2f3136, 0x25272b, 0xe4e5e8, 0x8f9197, 0xd0bcff, 0x381e72, 0x45474d, 0xe4e5e8, 0x3a3c41]))),
     // True black: OLED pixels switch off.
-    ("oled", "OLED (чёрная)", 1, Some(dark([0x000000, 0x0e0e10, 0xe6e6e6, 0x5a5a5e, 0xd0bcff, 0x381e72, 0x2a2a2e, 0xe6e6e6, 0x26262a]))),
+    (
+        "oled",
+        "OLED (чёрная)",
+        1,
+        Some(Palette {
+            outline: Some(0x2c2c30),
+            ..dark([0x000000, 0x0a0a0b, 0xe6e6e6, 0x5a5a5e, 0xd0bcff, 0x381e72, 0x2a2a2e, 0xe6e6e6, 0x26262a])
+        }),
+    ),
     // Catppuccin flavors, lightest dark to darkest: base, mantle, text, overlay0, mauve, surface1, surface0.
     ("catppuccin-frappe", "Catppuccin Frappé", 1, Some(dark([0x303446, 0x292c3c, 0xc6d0f5, 0x737994, 0xca9ee6, 0x303446, 0x51576d, 0xc6d0f5, 0x414559]))),
     ("catppuccin-macchiato", "Catppuccin Macchiato", 1, Some(dark([0x24273a, 0x1e2030, 0xcad3f5, 0x6e738d, 0xc6a0f6, 0x24273a, 0x494d64, 0xcad3f5, 0x363a4f]))),
@@ -1968,13 +1981,53 @@ const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
         "catppuccin-latte",
         "Catppuccin Latte",
         2,
-        Some(Palette { light: true, bg: 0xeff1f5, card: 0xe6e9ef, fg: 0x4c4f69, line: 0x9ca0b0, accent: 0x8839ef, on_accent: 0xffffff, tonal: 0xccd0da, on_tonal: 0x4c4f69, track: 0xdce0e8 }),
+        Some(Palette { light: true, bg: 0xeff1f5, card: 0xe6e9ef, fg: 0x4c4f69, line: 0x9ca0b0, accent: 0x8839ef, on_accent: 0xffffff, tonal: 0xccd0da, on_tonal: 0x4c4f69, track: 0xdce0e8, outline: None }),
     ),
     ("tokyo-night", "Tokyo Night", 1, Some(dark([0x1a1b26, 0x16161e, 0xc0caf5, 0x565f89, 0x7aa2f7, 0x1a1b26, 0x343a55, 0xc0caf5, 0x292e42]))),
     ("dracula", "Dracula", 1, Some(dark([0x282a36, 0x21222c, 0xf8f8f2, 0x6272a4, 0xbd93f9, 0x282a36, 0x44475a, 0xf8f8f2, 0x343746]))),
     ("nord", "Nord", 1, Some(dark([0x2e3440, 0x272c36, 0xeceff4, 0x616e88, 0x88c0d0, 0x2e3440, 0x434c5e, 0xeceff4, 0x3b4252]))),
     ("one-dark", "One Dark", 1, Some(dark([0x282c34, 0x21252b, 0xd7dae0, 0x5c6370, 0x61afef, 0x282c34, 0x3e4451, 0xd7dae0, 0x2c313a]))),
+    ("gruvbox", "Gruvbox", 1, Some(dark([0x282828, 0x1d2021, 0xebdbb2, 0x928374, 0xfabd2f, 0x282828, 0x504945, 0xebdbb2, 0x3c3836]))),
+    ("rose-pine", "Rosé Pine", 1, Some(dark([0x1f1d2e, 0x191724, 0xe0def4, 0x6e6a86, 0xc4a7e7, 0x191724, 0x403d52, 0xe0def4, 0x26233a]))),
+    // Green-black with soft phosphor text; the bright green only on accents.
+    (
+        "matrix",
+        "Матрица",
+        1,
+        Some(Palette {
+            outline: Some(0x15402a),
+            ..dark([0x06100a, 0x030805, 0xc4f5cf, 0x2a6b3a, 0x39e66b, 0x022110, 0x10301a, 0xd2fadb, 0x0d2414])
+        }),
+    ),
 ];
+
+/// Material's own colors, for the tiles of the themes without a palette.
+const MATERIAL_DARK: [u32; 4] = [0x2a282d, 0x1c1b1f, 0xe6e1e5, 0xd0bcff];
+const MATERIAL_LIGHT: [u32; 4] = [0xf8f3f9, 0xece6f0, 0x1d1b20, 0x6750a4];
+
+/// The tile Settings shows for a theme.
+fn theme_swatch(t: &(&str, &str, i32, Option<Palette>)) -> ThemeSwatch {
+    let c = |rgb: u32| slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+    let (first, second) = match (&t.3, t.2) {
+        (Some(p), _) => ([p.bg, p.card, p.fg, p.accent], None),
+        (None, 0) => (MATERIAL_LIGHT, Some(MATERIAL_DARK)),
+        (None, 2) => (MATERIAL_LIGHT, None),
+        (None, _) => (MATERIAL_DARK, None),
+    };
+    let other = second.unwrap_or(first);
+    ThemeSwatch {
+        name: t.1.into(),
+        bg: c(first[0]),
+        card: c(first[1]),
+        fg: c(first[2]),
+        accent: c(first[3]),
+        split: second.is_some(),
+        bg2: c(other[0]),
+        card2: c(other[1]),
+        fg2: c(other[2]),
+        accent2: c(other[3]),
+    }
+}
 
 /// The theme with this id; an unknown one (from a newer version) is dark.
 fn theme_of(id: &str) -> &'static (&'static str, &'static str, i32, Option<Palette>) {
@@ -1998,6 +2051,7 @@ fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
         g.set_c_tonal(c(p.tonal));
         g.set_c_on_tonal(c(p.on_tonal));
         g.set_c_track(c(p.track));
+        g.set_c_outline(p.outline.map_or(slint::Color::from_argb_u8(0, 0, 0, 0), c));
     }
     ui.global::<Theme>().set_text_scale(s.text_scale.clamp(80, 150) as f32 / 100.0);
     ui.set_font_family(s.font.clone().into());
