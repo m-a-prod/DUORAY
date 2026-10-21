@@ -52,27 +52,10 @@ fn flag_image(code: &str) -> Option<slint::Image> {
         cache
             .borrow_mut()
             .entry(code.to_string())
-            .or_insert_with(|| flags::flag_png(code).and_then(decode_png))
+            // Vector: drawn sharp at whatever size and scale the row needs.
+            .or_insert_with(|| flags::flag_svg(code).and_then(|svg| slint::Image::load_from_svg_data(svg).ok()))
             .clone()
     })
-}
-
-fn decode_png(bytes: &[u8]) -> Option<slint::Image> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::normalize_to_color8());
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0; reader.output_buffer_size()?];
-    let info = reader.next_frame(&mut buf).ok()?;
-    let px = &buf[..info.buffer_size()];
-    let rgba: Vec<u8> = match info.color_type {
-        png::ColorType::Rgba => px.to_vec(),
-        png::ColorType::Rgb => px.as_chunks::<3>().0.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => px.as_chunks::<2>().0.iter().flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
-        png::ColorType::Grayscale => px.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::Indexed => return None,
-    };
-    let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&rgba, info.width, info.height);
-    Some(slint::Image::from_rgba8(buffer))
 }
 
 struct App {
@@ -927,8 +910,17 @@ fn diag_context(ui: &AppWindow, st: &App) -> serde_json::Value {
 fn display_order(st: &App, sub: &Subscription) -> Vec<usize> {
     let mut order: Vec<usize> = (0..sub.servers.len()).collect();
     if st.sort_by_ping {
-        // Stable: equal pings keep the panel's order. Unmeasured and failed go last.
-        order.sort_by_key(|&i| st.ping_results.get(&key_of(sub, &sub.servers[i])).map_or(u128::MAX, |p| p.2));
+        // The connected server stays on top: it would jump up and down as
+        // pings come in. Stable: equal pings keep the panel's order.
+        // Unmeasured and failed go last.
+        let connected = match &st.conn_state {
+            ConnState::Connected { key, .. } => Some(key.as_str()),
+            _ => None,
+        };
+        order.sort_by_key(|&i| {
+            let key = key_of(sub, &sub.servers[i]);
+            (connected != Some(key.as_str()), st.ping_results.get(&key).map_or(u128::MAX, |p| p.2))
+        });
     }
     order
 }
@@ -1934,11 +1926,13 @@ const FONTS: &[&str] = &["Segoe UI", "Arial", "Verdana", "Tahoma", "Consolas"];
 #[cfg(not(any(target_os = "macos", windows)))]
 const FONTS: &[&str] = &["Noto Sans", "DejaVu Sans", "Liberation Sans", "Ubuntu", "DejaVu Sans Mono"];
 
-const THEMES: [(&str, &str, i32); 3] = [("dark", "Тёмная", 1), ("light", "Светлая", 2), ("system", "Как в системе", 0)];
+const THEMES: [(&str, &str, i32); 4] =
+    [("dark", "Тёмная", 1), ("graphite", "Графитовая", 1), ("light", "Светлая", 2), ("system", "Как в системе", 0)];
 
 fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
     let mode = THEMES.iter().find(|t| t.0 == s.theme).map_or(1, |t| t.2);
     ui.set_theme_mode(mode);
+    ui.global::<Theme>().set_graphite(s.theme == "graphite");
     ui.global::<Theme>().set_text_scale(s.text_scale.clamp(80, 150) as f32 / 100.0);
     ui.set_font_family(s.font.clone().into());
     ui.set_show_server_type(s.show_server_type);

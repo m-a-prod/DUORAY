@@ -73,18 +73,27 @@ export global Theme {
     // Resolved scheme, also when following the system (color-scheme is then
     // "unknown"): the Material light background is the tell.
     out property <bool> light: Palette.background == #f8f3f9;
+    // "Графитовая": the dark theme in neutral greys, a step lighter, instead
+    // of Material's violet tint. Palette is read-only, so the surfaces below
+    // pass Palette through unless this is on; use them, not Palette.
+    in-out property <bool> graphite;
+    property <bool> grey: graphite && !light;
+    out property <brush> bg: grey ? #2f3136 : Palette.background;
+    out property <brush> fg: grey ? #e4e5e8 : Palette.foreground;
+    out property <brush> line: grey ? #8f9197 : Palette.border;
+    out property <brush> selected-fg: grey ? #f1f2f4 : Palette.selection-foreground;
     // Brand palette. Slint's own accent follows the desktop accent color (KDE,
     // GNOME, macOS), which repaints the whole app; these stay DUORAY purple.
     out property <color> accent: light ? #6750a4 : #d0bcff;
     out property <color> on-accent: light ? #ffffff : #381e72;
-    out property <color> tonal: light ? #e8def8 : #4a4458;
-    out property <color> on-tonal: light ? #1e192b : #e8def8;
+    out property <color> tonal: light ? #e8def8 : grey ? #45474d : #4a4458;
+    out property <color> on-tonal: light ? #1e192b : grey ? #e4e5e8 : #e8def8;
     out property <color> selection: accent.with-alpha(0.3);
-    out property <color> track: light ? #e7e0ec : #36343b;
+    out property <color> track: light ? #e7e0ec : grey ? #3a3c41 : #36343b;
     // Status tones: bright on dark, deeper on light so text keeps contrast.
     out property <brush> danger: light ? #ce2c31 : #e5484d;
-    out property <brush> card: Palette.alternate-background;
-    out property <brush> muted: Palette.foreground.with-alpha(0.62);
+    out property <brush> card: grey ? #25272b : Palette.alternate-background;
+    out property <brush> muted: fg.with-alpha(0.62);
     out property <brush> ok: light ? #218358 : #30a46c;
     out property <brush> warn: light ? #ab6400 : #f5a524;
     // JSON editor syntax colors.
@@ -125,7 +134,7 @@ component Chip inherits Rectangle {
     in property <bool> accent;
     border-radius: 6px;
     border-width: 1px;
-    border-color: accent ? Theme.accent : Palette.border;
+    border-color: accent ? Theme.accent : Theme.line;
     background: accent ? Theme.accent.with-alpha(0.15) : transparent;
     height: 22px;
     HorizontalLayout {
@@ -134,7 +143,7 @@ component Chip inherits Rectangle {
         Text {
             text: root.text;
             font-size: Theme.fs-caption;
-            color: root.accent ? Palette.foreground : Theme.muted;
+            color: root.accent ? Theme.fg : Theme.muted;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -237,7 +246,7 @@ component Button inherits Rectangle {
     preferred-height: 40px;
     vertical-stretch: 0;
     border-radius: self.height / 2;
-    background: !root.enabled ? Palette.foreground.with-alpha(0.12) : root.primary ? Theme.accent : Theme.tonal;
+    background: !root.enabled ? Theme.fg.with-alpha(0.12) : root.primary ? Theme.accent : Theme.tonal;
     transform-scale: touch.pressed ? 0.97 : 1;
     animate background { duration: 150ms; easing: ease-out; }
     animate transform-scale { duration: 100ms; easing: ease-out; }
@@ -255,7 +264,7 @@ component Button inherits Rectangle {
     }
     label := Text {
         text: root.text;
-        color: root.enabled ? root.ink : Palette.foreground.with-alpha(0.38);
+        color: root.enabled ? root.ink : Theme.fg.with-alpha(0.38);
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -281,7 +290,7 @@ component Switch inherits Rectangle {
     height: 32px;
     border-radius: 16px;
     border-width: 2px;
-    border-color: root.checked ? Theme.accent : Palette.border;
+    border-color: root.checked ? Theme.accent : Theme.line;
     background: root.checked ? Theme.accent : Theme.track;
     opacity: root.enabled ? 1 : 0.38;
     animate background, border-color { duration: 160ms; easing: ease-out; }
@@ -299,14 +308,14 @@ component Switch inherits Rectangle {
         x: root.checked ? parent.width - root.knob - 4px : touch.pressed ? 2px : 8px;
         y: (parent.height - self.height) / 2;
         border-radius: self.width / 2;
-        background: root.checked ? Theme.on-accent : Palette.border;
+        background: root.checked ? Theme.on-accent : Theme.line;
         animate x, width, height, background { duration: 180ms; easing: ease-out; }
         // Hover halo around the handle.
         Rectangle {
             width: 40px;
             height: 40px;
             border-radius: 20px;
-            background: (root.checked ? Theme.accent : Palette.foreground).with-alpha(touch.has-hover && root.enabled ? 0.10 : 0);
+            background: (root.checked ? Theme.accent : Theme.fg).with-alpha(touch.has-hover && root.enabled ? 0.10 : 0);
             animate background { duration: 120ms; easing: ease-out; }
         }
     }
@@ -338,8 +347,8 @@ component ComboBox inherits Rectangle {
     vertical-stretch: 0;
     border-radius: 8px;
     border-width: 1px;
-    border-color: touch.has-hover && root.enabled ? Palette.foreground.with-alpha(0.55) : Palette.border;
-    background: Palette.foreground.with-alpha(0.04);
+    border-color: touch.has-hover && root.enabled ? Theme.fg.with-alpha(0.55) : Theme.line;
+    background: Theme.fg.with-alpha(0.04);
     opacity: root.enabled ? 1 : 0.38;
     animate border-color { duration: 120ms; easing: ease-out; }
     accessible-role: combobox;
@@ -384,7 +393,7 @@ component ComboBox inherits Rectangle {
         Text {
             horizontal-stretch: 1;
             text: root.current-value;
-            color: Palette.foreground;
+            color: Theme.fg;
             vertical-alignment: center;
             overflow: elide;
             accessible-role: none;
@@ -411,10 +420,10 @@ component ComboBox inherits Rectangle {
         height: min(8, root.model.length) * root.item-height + 12px;
         close-policy: close-on-click-outside;
         Rectangle {
-            background: Palette.background;
+            background: Theme.bg;
             border-radius: 10px;
             border-width: 1px;
-            border-color: Palette.border;
+            border-color: Theme.line;
             drop-shadow-blur: 20px;
             drop-shadow-offset-y: 6px;
             drop-shadow-color: Theme.shadow;
@@ -427,15 +436,15 @@ component ComboBox inherits Rectangle {
                     height: root.item-height;
                     border-radius: 7px;
                     background: (root.by-value ? value == root.current-value : i == root.current-index) ? Theme.selection
-                        : item-touch.pressed ? Palette.foreground.with-alpha(0.14)
-                        : item-touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+                        : item-touch.pressed ? Theme.fg.with-alpha(0.14)
+                        : item-touch.has-hover ? Theme.fg.with-alpha(0.08) : transparent;
                     animate background { duration: 100ms; easing: ease-out; }
                     Text {
                         x: 10px;
                         width: parent.width - 20px;
                         height: parent.height;
                         text: value;
-                        color: Palette.foreground;
+                        color: Theme.fg;
                         font-weight: (root.by-value ? value == root.current-value : i == root.current-index) ? 600 : 400;
                         vertical-alignment: center;
                         overflow: elide;
@@ -459,7 +468,7 @@ component RichName inherits HorizontalLayout {
     in property <[NamePart]> parts;
     in property <length> font-size;
     in property <int> font-weight;
-    in property <brush> color: Palette.foreground;
+    in property <brush> color: Theme.fg;
     alignment: start;
     // A hair of air around emoji, also where the name has no space ("📱LTE").
     spacing: 2px;
@@ -483,14 +492,14 @@ component RichName inherits HorizontalLayout {
 
 component IconButton inherits Rectangle {
     in property <image> icon;
-    in property <brush> tint: Palette.foreground;
+    in property <brush> tint: Theme.fg;
     in property <bool> enabled: true;
     callback clicked();
     width: 32px;
     height: 32px;
     border-radius: 16px;
-    background: touch.pressed && root.enabled ? Palette.foreground.with-alpha(0.16)
-        : touch.has-hover && root.enabled ? Palette.foreground.with-alpha(0.10) : transparent;
+    background: touch.pressed && root.enabled ? Theme.fg.with-alpha(0.16)
+        : touch.has-hover && root.enabled ? Theme.fg.with-alpha(0.10) : transparent;
     opacity: root.enabled ? 1 : 0.4;
     // Slight press-in; snaps back with the same curve.
     transform-scale: touch.pressed && root.enabled ? 0.92 : 1;
@@ -518,8 +527,8 @@ component RefreshButton inherits Rectangle {
     width: 32px;
     height: 32px;
     border-radius: 16px;
-    background: touch.pressed && !root.spinning ? Palette.foreground.with-alpha(0.16)
-        : touch.has-hover && !root.spinning ? Palette.foreground.with-alpha(0.10) : transparent;
+    background: touch.pressed && !root.spinning ? Theme.fg.with-alpha(0.16)
+        : touch.has-hover && !root.spinning ? Theme.fg.with-alpha(0.10) : transparent;
     transform-scale: touch.pressed && !root.spinning ? 0.92 : 1;
     animate background { duration: 120ms; easing: ease-out; }
     animate transform-scale { duration: 100ms; easing: ease-out; }
@@ -527,7 +536,7 @@ component RefreshButton inherits Rectangle {
         source: Icons.refresh;
         width: 20px;
         height: 20px;
-        colorize: Palette.foreground;
+        colorize: Theme.fg;
     }
     // A three-quarter arc whose ends move around the circle. The points are
     // computed here, not rotated with transform-rotation: the software
@@ -539,7 +548,7 @@ component RefreshButton inherits Rectangle {
         height: 20px;
         viewbox-width: 24;
         viewbox-height: 24;
-        stroke: Palette.foreground;
+        stroke: Theme.fg;
         stroke-width: 2.2px;
         stroke-line-cap: round;
         MoveTo {
@@ -573,14 +582,14 @@ component MenuItem inherits Rectangle {
     border-radius: 7px;
     opacity: root.enabled ? 1 : 0.4;
     background: !root.enabled ? transparent
-        : touch.pressed ? Palette.foreground.with-alpha(0.14)
-        : touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+        : touch.pressed ? Theme.fg.with-alpha(0.14)
+        : touch.has-hover ? Theme.fg.with-alpha(0.08) : transparent;
     animate background { duration: 100ms; easing: ease-out; }
     Text {
         x: 10px;
         text: root.text;
         font-size: Theme.fs-body;
-        color: root.danger ? Theme.danger : Palette.foreground;
+        color: root.danger ? Theme.danger : Theme.fg;
         vertical-alignment: center;
         height: parent.height;
     }
@@ -606,9 +615,9 @@ component TextField inherits Rectangle {
     height: 36px;
     border-radius: 8px;
     border-width: 1px;
-    border-color: input.has-focus ? Theme.accent : Palette.border;
+    border-color: input.has-focus ? Theme.accent : Theme.line;
     // Same quiet fill as ComboBox, so text and choice fields read as one set.
-    background: Palette.foreground.with-alpha(0.04);
+    background: Theme.fg.with-alpha(0.04);
     animate border-color { duration: 120ms; easing: ease-out; }
     input := TextInput {
         x: 12px;
@@ -616,7 +625,7 @@ component TextField inherits Rectangle {
         height: parent.height;
         vertical-alignment: center;
         font-size: Theme.fs-body;
-        color: Palette.foreground;
+        color: Theme.fg;
         single-line: true;
         edited => {
             root.edited();
@@ -640,7 +649,7 @@ component TextField inherits Rectangle {
 
 component Divider inherits Rectangle {
     height: 1px;
-    background: Palette.border;
+    background: Theme.line;
 }
 
 // Title + explanation on the left, a switch on the right.
@@ -699,7 +708,7 @@ component SettingsCard inherits Rectangle {
 }
 
 component SettingsPage inherits Rectangle {
-    background: Palette.background;
+    background: Theme.bg;
 
     in-out property <bool> happ-enabled;
     in-out property <string> app-version;
@@ -924,7 +933,7 @@ component SettingsPage inherits Rectangle {
                             ? "x-hwid: " + (root.happ-enabled ? root.hwid : root.duoray-hwid)
                             : "HWID и данные устройства не отправляются";
                         font-size: Theme.fs-small;
-                        color: root.send-device-info ? Palette.foreground : Theme.muted;
+                        color: root.send-device-info ? Theme.fg : Theme.muted;
                         wrap: word-wrap;
                     }
                 }
@@ -1009,7 +1018,7 @@ component SettingsPage inherits Rectangle {
                     }
                     ComboBox {
                         height: 36px;
-                        model: ["Тёмная", "Светлая", "Как в системе"];
+                        model: ["Тёмная", "Графитовая", "Светлая", "Как в системе"];
                         by-value: true;
                         current-value <=> root.theme-choice;
                         selected => {
@@ -1363,7 +1372,7 @@ component RuleCard inherits Rectangle {
     callback edited(RuleRow);
     callback move(int);
     callback remove();
-    background: Palette.background;
+    background: Theme.bg;
     border-radius: 10px;
     height: rule-layout.preferred-height;
     rule-layout := VerticalLayout {
@@ -1386,7 +1395,7 @@ component RuleCard inherits Rectangle {
                 font-size: Theme.fs-title;
                 font-weight: 700;
                 vertical-alignment: center;
-                color: root.rule.enabled ? Palette.foreground : Theme.muted;
+                color: root.rule.enabled ? Theme.fg : Theme.muted;
             }
             IconButton {
                 icon: Icons.arrow-up;
@@ -1477,7 +1486,7 @@ component RuleCard inherits Rectangle {
 }
 
 component RoutingPage inherits Rectangle {
-    background: Palette.background;
+    background: Theme.bg;
 
     in-out property <bool> advanced;
     in-out property <bool> lan;
@@ -1806,12 +1815,12 @@ component RoutingPage inherits Rectangle {
                     if root.picking: Rectangle {
                         height: 240px;
                         border-radius: 8px;
-                        background: Palette.background;
+                        background: Theme.bg;
                         ListView {
                             content-width: self.visible-width;
                             for name in root.running: Rectangle {
                                 height: 32px;
-                                background: pick-touch.has-hover ? Palette.foreground.with-alpha(0.08) : transparent;
+                                background: pick-touch.has-hover ? Theme.fg.with-alpha(0.08) : transparent;
                                 animate background { duration: 100ms; easing: ease-out; }
                                 Text {
                                     x: 12px;
@@ -1884,7 +1893,7 @@ component RoutingPage inherits Rectangle {
 // Share-link servers: a form; "Как JSON" turns the server into a JSON one.
 
 component ServerEditor inherits Rectangle {
-    background: Palette.background;
+    background: Theme.bg;
 
     // 0 JSON text, 1 share-link form
     in property <int> mode;
@@ -1966,7 +1975,7 @@ component ServerEditor inherits Rectangle {
         if i == 6 {
             return Theme.danger;
         }
-        return Palette.foreground.with-alpha(0.55);
+        return Theme.fg.with-alpha(0.55);
     }
 
     function shortcut(e: KeyEvent) -> EventResult {
@@ -2043,14 +2052,14 @@ component ServerEditor inherits Rectangle {
                     background: Theme.card;
                     border-width: 1px;
                     border-color: !root.valid ? Theme.danger.with-alpha(0.7)
-                        : input.has-focus ? Theme.accent.with-alpha(0.6) : Palette.border.with-alpha(0.4);
+                        : input.has-focus ? Theme.accent.with-alpha(0.6) : Theme.line.with-alpha(0.4);
                     animate border-color { duration: 150ms; easing: ease-out; }
                     clip: true;
                     // Line numbers follow the text's vertical scroll.
                     Rectangle {
                         x: 0;
                         width: 52px;
-                        background: Palette.foreground.with-alpha(0.035);
+                        background: Theme.fg.with-alpha(0.035);
                         clip: true;
                         Text {
                             x: 0;
@@ -2091,9 +2100,9 @@ component ServerEditor inherits Rectangle {
                             font-size: Theme.fs-body;
                             // Background-colored, not transparent: a transparent
                             // TextInput is skipped entirely, selection included.
-                            color: root.highlighted ? Theme.card : Palette.foreground;
+                            color: root.highlighted ? Theme.card : Theme.fg;
                             selection-background-color: Theme.selection;
-                            selection-foreground-color: root.highlighted ? transparent : Palette.foreground;
+                            selection-foreground-color: root.highlighted ? transparent : Theme.fg;
                             page-height: sv.visible-height;
                             edited => {
                                 root.json-changed(self.text);
@@ -2144,7 +2153,7 @@ component ServerEditor inherits Rectangle {
                             y: input.y + root.caret-y;
                             width: 1.5px;
                             height: root.line-h;
-                            background: Palette.foreground;
+                            background: Theme.fg;
                             visible: input.has-focus && root.caret-on;
                         }
                         Timer {
@@ -2291,7 +2300,7 @@ export component AppWindow inherits Window {
     preferred-height: 700px;
     min-width: 780px;
     min-height: 500px;
-    background: Palette.background;
+    background: Theme.bg;
     default-font-size: Theme.fs-body;
     default-font-family: root.font-family;
 
@@ -2582,7 +2591,7 @@ export component AppWindow inherits Window {
                             font-size: 19px * Theme.text-scale;
                             font-weight: 700;
                             letter-spacing: 0.8px;
-                            color: Palette.foreground;
+                            color: Theme.fg;
                             vertical-alignment: top;
                             overflow: elide;
                         }
@@ -2612,13 +2621,13 @@ export component AppWindow inherits Window {
                                 text: "Мои серверы";
                                 font-size: Theme.fs-title;
                                 font-weight: 700;
-                                color: root.manual-selected ? Palette.selection-foreground : Palette.foreground;
+                                color: root.manual-selected ? Theme.selected-fg : Theme.fg;
                                 overflow: elide;
                             }
                             Text {
                                 text: root.manual-meta;
                                 font-size: Theme.fs-caption;
-                                color: root.manual-selected ? Palette.selection-foreground : Theme.muted;
+                                color: root.manual-selected ? Theme.selected-fg : Theme.muted;
                                 overflow: elide;
                             }
                         }
@@ -2626,7 +2635,7 @@ export component AppWindow inherits Window {
                             x: parent.width - self.width - 8px;
                             y: (parent.height - self.height) / 2;
                             icon: Icons.add;
-                            tint: root.manual-selected ? Palette.selection-foreground : Theme.accent;
+                            tint: root.manual-selected ? Theme.selected-fg : Theme.accent;
                             clicked => {
                                 root.settings-open = false;
                                 root.routing-open = false;
@@ -2658,10 +2667,10 @@ export component AppWindow inherits Window {
                                 width: 212px;
                                 close-policy: close-on-click-outside;
                                 Rectangle {
-                                    background: Palette.background;
+                                    background: Theme.bg;
                                     border-radius: 10px;
                                     border-width: 1px;
-                                    border-color: Palette.border;
+                                    border-color: Theme.line;
                                     drop-shadow-blur: 20px;
                                     drop-shadow-offset-y: 6px;
                                     drop-shadow-color: Theme.shadow;
@@ -2738,24 +2747,24 @@ export component AppWindow inherits Window {
                                         font-size: Theme.fs-title;
                                         font-weight: 700;
                                         overflow: elide;
-                                        color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
+                                        color: sub.index == root.current-sub ? Theme.selected-fg : Theme.fg;
                                     }
                                     if sub.name-parts.length > 0: RichName {
                                         parts: sub.name-parts;
                                         font-size: Theme.fs-title;
                                         font-weight: 700;
-                                        color: sub.index == root.current-sub ? Palette.selection-foreground : Palette.foreground;
+                                        color: sub.index == root.current-sub ? Theme.selected-fg : Theme.fg;
                                     }
                                     Text {
                                         text: sub.meta;
                                         font-size: Theme.fs-caption;
                                         overflow: elide;
-                                        color: sub.index == root.current-sub ? Palette.selection-foreground : Theme.muted;
+                                        color: sub.index == root.current-sub ? Theme.selected-fg : Theme.muted;
                                     }
                                     if sub.usage >= 0: Rectangle {
                                         height: 4px;
                                         border-radius: 2px;
-                                        background: Palette.border;
+                                        background: Theme.line;
                                         if sub.usage > 0: Rectangle {
                                             x: 0;
                                             width: max(self.height, parent.width * min(1, sub.usage));
@@ -2781,14 +2790,14 @@ export component AppWindow inherits Window {
                                     width: confirming ? 86px : 28px;
                                     border-radius: 14px;
                                     background: confirming ? Theme.danger
-                                        : del-touch.has-hover ? Theme.danger.with-alpha(0.25) : Palette.foreground.with-alpha(0.08);
+                                        : del-touch.has-hover ? Theme.danger.with-alpha(0.25) : Theme.fg.with-alpha(0.08);
                                     opacity: sub-touch.has-hover || del-touch.has-hover || confirming ? 1 : 0;
                                     animate opacity, width, background { duration: 150ms; easing: ease-out; }
                                     if !confirming: Path {
                                         width: 10px;
                                         height: 10px;
                                         commands: "M 0 0 L 10 10 M 10 0 L 0 10";
-                                        stroke: del-touch.has-hover ? Theme.danger : Palette.foreground;
+                                        stroke: del-touch.has-hover ? Theme.danger : Theme.fg;
                                         stroke-width: 1.6px;
                                     }
                                     if confirming: Text {
@@ -2904,7 +2913,7 @@ export component AppWindow inherits Window {
                             Text {
                                 horizontal-stretch: 1;
                                 text: root.expiry-banner;
-                                color: Palette.foreground;
+                                color: Theme.fg;
                                 font-weight: 700;
                                 vertical-alignment: center;
                                 wrap: word-wrap;
@@ -2925,14 +2934,14 @@ export component AppWindow inherits Window {
                                     accessible-role: button;
                                     accessible-label: "Скрыть напоминание";
                                     accessible-action-default => { root.dismiss-expiring(); }
-                                    background: Palette.foreground.with-alpha(exp-hide.pressed ? 0.16 : exp-hide.has-hover ? 0.08 : 0);
+                                    background: Theme.fg.with-alpha(exp-hide.pressed ? 0.16 : exp-hide.has-hover ? 0.08 : 0);
                                     animate background { duration: 120ms; easing: ease-out; }
                                     Path {
                                         width: 12px;
                                         height: 12px;
                                         viewbox-width: 12;
                                         viewbox-height: 12;
-                                        stroke: Palette.foreground;
+                                        stroke: Theme.fg;
                                         stroke-width: 1.8px;
                                         stroke-line-cap: round;
                                         commands: "M1 1L11 11M11 1L1 11";
@@ -2977,7 +2986,7 @@ export component AppWindow inherits Window {
                     // Connection card
                     Rectangle {
                         border-radius: Theme.radius;
-                        background: Palette.background;
+                        background: Theme.bg;
                         VerticalLayout {
                             padding: 14px;
                             spacing: 10px;
@@ -2988,7 +2997,7 @@ export component AppWindow inherits Window {
                                     Rectangle {
                                         property <brush> tone: root.conn-state == "connected" ? Theme.ok
                                             : root.conn-state == "failed" || root.conn-state == "blocked" ? Theme.danger
-                                            : root.conn-state == "idle" ? Palette.border : Theme.warn;
+                                            : root.conn-state == "idle" ? Theme.line : Theme.warn;
                                         property <bool> pulsing: root.conn-state == "connecting" || root.conn-state == "disconnecting";
                                         width: 18px;
                                         height: 18px;
@@ -3095,13 +3104,13 @@ export component AppWindow inherits Window {
                             width: cancel-text.preferred-width + 16px;
                             height: 22px;
                             border-radius: 11px;
-                            background: cancel-touch.has-hover ? Theme.danger.with-alpha(0.22) : Palette.foreground.with-alpha(0.08);
+                            background: cancel-touch.has-hover ? Theme.danger.with-alpha(0.22) : Theme.fg.with-alpha(0.08);
                             animate background { duration: 120ms; easing: ease-out; }
                             cancel-text := Text {
                                 text: "Отмена";
                                 font-size: Theme.fs-caption;
                                 font-weight: 600;
-                                color: cancel-touch.has-hover ? Theme.danger : Palette.foreground;
+                                color: cancel-touch.has-hover ? Theme.danger : Theme.fg;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
@@ -3235,7 +3244,7 @@ export component AppWindow inherits Window {
                                 IconButton {
                                     icon: Icons.sort;
                                     // Highlighted while the list is sorted by ping.
-                                    tint: root.sort-by-ping ? Theme.accent : Palette.foreground;
+                                    tint: root.sort-by-ping ? Theme.accent : Theme.fg;
                                     background: root.sort-by-ping ? Theme.accent.with-alpha(0.18) : transparent;
                                     clicked => {
                                         root.toggle-sort();
@@ -3294,7 +3303,7 @@ export component AppWindow inherits Window {
                                 Rectangle {
                                     border-radius: self.height / 2;
                                     border-width: 1px;
-                                    border-color: Palette.border;
+                                    border-color: Theme.line;
                                 }
                                 Text {
                                     text: root.usage-text;
@@ -3332,10 +3341,10 @@ export component AppWindow inherits Window {
                         width: 220px;
                         close-policy: close-on-click-outside;
                         Rectangle {
-                            background: Palette.background;
+                            background: Theme.bg;
                             border-radius: 10px;
                             border-width: 1px;
-                            border-color: Palette.border;
+                            border-color: Theme.line;
                             drop-shadow-blur: 20px;
                             drop-shadow-offset-y: 6px;
                             drop-shadow-color: Theme.shadow;
@@ -3444,10 +3453,10 @@ export component AppWindow inherits Window {
                                 width: 230px;
                                 close-policy: close-on-click-outside;
                                 Rectangle {
-                                    background: Palette.background;
+                                    background: Theme.bg;
                                     border-radius: 10px;
                                     border-width: 1px;
-                                    border-color: Palette.border;
+                                    border-color: Theme.line;
                                     drop-shadow-blur: 20px;
                                     drop-shadow-offset-y: 6px;
                                     drop-shadow-color: Theme.shadow;
@@ -3515,28 +3524,21 @@ export component AppWindow inherits Window {
                                             font-weight: 600;
                                             overflow: elide;
                                             horizontal-stretch: 1;
-                                            color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
+                                            color: i == root.current-server ? Theme.selected-fg : Theme.fg;
                                         }
                                         if srv.name-parts.length > 0: RichName {
                                             parts: srv.name-parts;
                                             font-size: Theme.fs-title;
                                             font-weight: 600;
                                             horizontal-stretch: 1;
-                                            color: i == root.current-server ? Palette.selection-foreground : Palette.foreground;
+                                            color: i == root.current-server ? Theme.selected-fg : Theme.fg;
                                         }
                                     }
                                     Text {
                                         text: srv.description != "" ? srv.description : srv.endpoint;
                                         font-size: Theme.fs-caption;
                                         overflow: elide;
-                                        color: i == root.current-server ? Palette.selection-foreground : Theme.muted;
-                                    }
-                                }
-                                if srv.ping-level != 0: VerticalLayout {
-                                    alignment: center;
-                                    PingChip {
-                                        text: srv.ping-text;
-                                        level: srv.ping-level;
+                                        color: i == root.current-server ? Theme.selected-fg : Theme.muted;
                                     }
                                 }
                                 if srv.edited: VerticalLayout {
@@ -3562,6 +3564,16 @@ export component AppWindow inherits Window {
                                     alignment: center;
                                     Chip {
                                         text: srv.transport;
+                                    }
+                                }
+                                // Last, in a column of its own: pings line up down the list
+                                // whatever chips a row has.
+                                if srv.ping-level != 0: VerticalLayout {
+                                    alignment: center;
+                                    PingChip {
+                                        text: srv.ping-text;
+                                        level: srv.ping-level;
+                                        width: 64px * Theme.text-scale;
                                     }
                                 }
                                 if root.manual-selected: VerticalLayout {
@@ -3600,7 +3612,7 @@ export component AppWindow inherits Window {
             width: min(520px, parent.width - 40px);
             height: helper-layout.preferred-height;
             border-radius: 16px;
-            background: Palette.background;
+            background: Theme.bg;
             drop-shadow-blur: 32px;
             drop-shadow-offset-y: 10px;
             drop-shadow-color: Theme.shadow;
@@ -3671,7 +3683,7 @@ export component AppWindow inherits Window {
             width: min(520px, parent.width - 40px);
             height: dialog.preferred-height;
             border-radius: 16px;
-            background: Palette.background;
+            background: Theme.bg;
             drop-shadow-blur: 32px;
             drop-shadow-offset-y: 10px;
             drop-shadow-color: Theme.shadow;
@@ -3742,7 +3754,7 @@ export component AppWindow inherits Window {
             width: min(560px, parent.width - 40px);
             height: consent-layout.preferred-height;
             border-radius: 16px;
-            background: Palette.background;
+            background: Theme.bg;
             drop-shadow-blur: 32px;
             drop-shadow-offset-y: 10px;
             drop-shadow-color: Theme.shadow;
@@ -3804,7 +3816,7 @@ export component AppWindow inherits Window {
             width: min(620px, parent.width - 40px);
             height: min(report-layout.preferred-height, parent.height - 40px);
             border-radius: 16px;
-            background: Palette.background;
+            background: Theme.bg;
             drop-shadow-blur: 32px;
             drop-shadow-offset-y: 10px;
             drop-shadow-color: Theme.shadow;

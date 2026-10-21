@@ -89,7 +89,7 @@ fn embed_windows_icon() {
     println!("cargo:rustc-link-arg-bins={}", out.display());
 }
 
-/// Generates `flag_png(code)` over assets/flags/<iso>.png (Twemoji, CC-BY 4.0).
+/// Generates `flag_svg(code)` over assets/flags/<iso>.svg (Twemoji, CC-BY 4.0).
 fn embed_flags() {
     let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("assets/flags");
     println!("cargo:rerun-if-changed={}", dir.display());
@@ -97,10 +97,10 @@ fn embed_flags() {
         .expect("assets/flags")
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "png"))
+        .filter(|p| p.extension().is_some_and(|x| x == "svg"))
         .collect();
     entries.sort();
-    let mut src = String::from("pub fn flag_png(code: &str) -> Option<&'static [u8]> {\n    match code {\n");
+    let mut src = String::from("pub fn flag_svg(code: &str) -> Option<&'static [u8]> {\n    match code {\n");
     for p in entries {
         let code = p.file_stem().unwrap().to_string_lossy().to_ascii_uppercase();
         writeln!(src, "        {code:?} => Some(include_bytes!({:?})),", p.display().to_string()).unwrap();
