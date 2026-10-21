@@ -270,15 +270,27 @@ h2 { margin-top: 14px; font: 800 clamp(30px, 4.4vw, 56px)/1.05 var(--display); l
 .v-tun .x { stroke: #f4a3a3; stroke-width: 2.2; stroke-linecap: round; }
 .v-tun .pkt { fill: var(--pink-hi); }
 
-/* 03: what goes past the VPN, what goes through it */
-.routes { list-style: none; padding: 0; width: 100%; max-width: 420px; display: grid; gap: 10px; }
-.routes li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
-.routes .what { white-space: nowrap; }
-.routes .wire { flex: 1; min-width: 16px; height: 1px; background: repeating-linear-gradient(90deg, #ffffff40 0 4px, transparent 4px 8px); }
-.routes .to { padding: 3px 9px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--muted); font: 500 12px var(--mono); white-space: nowrap; }
-.routes .vpn .what { color: var(--pink); font-weight: 600; }
-.routes .vpn .wire { background: linear-gradient(90deg, #f4c2d733, var(--pink)); }
-.routes .vpn .to { color: #2a1220; background: var(--grad); border-color: transparent; }
+/* 03: the app's routing switches, clickable */
+.toggles { list-style: none; padding: 0; width: 100%; max-width: 400px; display: grid; gap: 2px; }
+.row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 36px; padding: 4px 10px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--text); font: 500 14px Onest, sans-serif; text-align: left; cursor: pointer;
+  transition: background .2s;
+}
+.row:hover { background: #ffffff0a; }
+.row .r-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .r-to { font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; transition: color .3s; }
+.row[aria-checked="true"] .r-to { color: var(--pink); }
+.track {
+  position: relative; flex: none; width: 40px; height: 24px; border-radius: 999px;
+  background: #ffffff14; border: 1px solid var(--line-2); transition: background .25s, border-color .25s;
+}
+.track::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--muted); transition: transform .25s var(--ease), background .25s;
+}
+.row[aria-checked="true"] .track { background: var(--grad); border-color: transparent; }
+.row[aria-checked="true"] .track::after { transform: translateX(16px); background: #2a1220; }
 
 /* 04: updates arrive by themselves */
 .toasts { width: 100%; max-width: 340px; display: grid; gap: 10px; }
@@ -344,8 +356,9 @@ footer a:hover, .src a:hover { color: var(--pink); }
 
   .v-tun .pipe { animation: flow 1.2s linear infinite; }
   .v-tun .pkt { offset-path: path("M58 60 H342"); animation: pkt 2.6s var(--ease) infinite; }
-  .js .feature .tree li, .js .feature .routes li { opacity: 0; transform: translateX(-8px); transition: opacity .5s, transform .5s var(--ease); }
-  .js .feature.in .tree li, .js .feature.in .routes li { opacity: 1; transform: none; }
+  .js .feature .tree li, .js .feature .toggles li { opacity: 0; transform: translateX(-8px); transition: opacity .5s, transform .5s var(--ease); }
+  .js .feature.in .tree li, .js .feature.in .toggles li { opacity: 1; transform: none; }
+  .feature li:nth-child(5) { transition-delay: .48s; }
   .feature li:nth-child(2) { transition-delay: .12s; } .feature li:nth-child(3) { transition-delay: .24s; } .feature li:nth-child(4) { transition-delay: .36s; }
   .js .toast .bar i { transform: scaleX(0); transform-origin: left; }
   .js .feature.in .toast .bar i { animation: fill 2.4s .3s var(--ease) forwards; }
@@ -372,7 +385,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
   .btn { width: 100%; justify-content: center; }
   .sec { padding: 72px 0; }
   .os-col, .arch { padding: 22px; }
-  .viz { height: 200px; padding: 16px; }
+  .viz { padding: 16px; }
   .f-text { padding: 0 8px; }
   .code.has-copy pre { padding-right: 22px; padding-top: 64px; }
 }
@@ -547,18 +560,19 @@ footer a:hover, .src a:hover { color: var(--pink); }
         </div>
       </article>
       <article class="feature reveal">
-        <div class="viz" aria-hidden="true">
-          <ul class="routes">
-            <li><span class="what">Steam, CS2, FACEIT</span><span class="wire"></span><span class="to">напрямую</span></li>
-            <li><span class="what">Белый список сайтов</span><span class="wire"></span><span class="to">напрямую</span></li>
-            <li><span class="what">Локальная сеть</span><span class="wire"></span><span class="to">напрямую</span></li>
-            <li class="vpn"><span class="what">Всё остальное</span><span class="wire"></span><span class="to">через VPN</span></li>
+        <div class="viz">
+          <ul class="toggles" id="toggles" aria-label="Переключатели маршрутизации, как в приложении">
+            <li><button class="row" type="button" role="switch" aria-checked="false"><span class="r-name">Российские сайты</span><span class="r-to">через VPN</span><span class="track" aria-hidden="true"></span></button></li>
+            <li><button class="row" type="button" role="switch" aria-checked="false"><span class="r-name">Белый список</span><span class="r-to">через VPN</span><span class="track" aria-hidden="true"></span></button></li>
+            <li><button class="row" type="button" role="switch" aria-checked="true"><span class="r-name">Локальная сеть</span><span class="r-to">напрямую</span><span class="track" aria-hidden="true"></span></button></li>
+            <li><button class="row" type="button" role="switch" aria-checked="false"><span class="r-name">Steam и CS2</span><span class="r-to">через VPN</span><span class="track" aria-hidden="true"></span></button></li>
+            <li><button class="row" type="button" role="switch" aria-checked="false"><span class="r-name">FACEIT</span><span class="r-to">через VPN</span><span class="track" aria-hidden="true"></span></button></li>
           </ul>
         </div>
         <div class="f-text">
           <span class="num">03</span>
-          <h3>Продвинутая маршрутизация</h3>
-          <p>Игры (Steam, CS2, FACEIT), сайты из белого списка и локальная сеть идут в&nbsp;обход VPN. Для остального&nbsp;— свои правила по&nbsp;доменам, IP и&nbsp;приложениям.</p>
+          <h3>Сами выбираете, что идёт мимо&nbsp;VPN</h3>
+          <p>Российские сайты, белый список, локальная сеть и&nbsp;игры (Steam, CS2, FACEIT, Valorant, Battle.net)&nbsp;— у&nbsp;каждого свой переключатель. Включили&nbsp;— идёт напрямую, через обычный интернет. Остальное&nbsp;— через VPN. Нужно точнее&nbsp;— свои правила по&nbsp;доменам, IP и&nbsp;приложениям.</p>
         </div>
       </article>
       <article class="feature reveal">
@@ -731,6 +745,27 @@ sudo pacman -Sy duoray</code></pre>
     items.forEach(function (el, i) { el.style.transitionDelay = (i % 4) * 80 + "ms"; io.observe(el); });
   } else {
     items.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  // The routing switches work like the app's; once in view, two flip by
+  // themselves so it is clear they are switches and not a fixed list.
+  var rows = document.querySelectorAll("#toggles .row"), touched = false;
+  function flip(row) {
+    var on = row.getAttribute("aria-checked") !== "true";
+    row.setAttribute("aria-checked", String(on));
+    row.querySelector(".r-to").textContent = on ? "напрямую" : "через VPN";
+  }
+  rows.forEach(function (row) {
+    row.addEventListener("click", function () { touched = true; flip(row); });
+  });
+  if (!reduce && "IntersectionObserver" in window) {
+    var tio = new IntersectionObserver(function (entries) {
+      if (!entries[0].isIntersecting) return;
+      tio.disconnect();
+      setTimeout(function () { if (!touched) flip(rows[0]); }, 1100);
+      setTimeout(function () { if (!touched) flip(rows[3]); }, 1800);
+    }, { threshold: .6 });
+    tio.observe(document.getElementById("toggles"));
   }
 
   // Looping visuals only run while on screen.
