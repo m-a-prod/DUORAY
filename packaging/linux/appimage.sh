@@ -37,9 +37,29 @@ install -Dm644 -t "$APPDIR/usr/share/doc/duoray" "$ROOT"/usr/share/licenses/duor
 install -m 644 packaging/linux/duoray.desktop "$APPDIR/duoray.desktop"
 install -m 644 crates/duoray-gui/assets/duoray-256.png "$APPDIR/duoray.png"
 ln -sf duoray.png "$APPDIR/.DirIcon"
+
+# winit loads libxkbcommon-x11 at run time and panicked at start where the
+# system has none ("Library libxkbcommon-x11.so could not be loaded", the
+# AppImage catalog test). Bundle it with libxcb-xkb, which it needs; AppRun
+# uses them only when the system lacks its own, so a working system keeps
+# its libraries. Built natively per arch, so the host's copies match $ARCH.
+mkdir -p "$APPDIR/usr/lib/fallback"
+# ldconfig tags each library with its ABI; skip 32-bit and foreign copies.
+case $ARCH in x86_64) ABI=x86-64 ;; aarch64) ABI=AArch64 ;; *) ABI=$ARCH ;; esac
+for lib in libxkbcommon-x11.so.0 libxcb-xkb.so.1; do
+    src=$(/sbin/ldconfig -p | awk -v l="$lib" -v a="$ABI" '$1 == l && index($0, a) { print $NF; exit }')
+    [ -n "$src" ] || { echo "appimage.sh: $lib not found on the build machine" >&2; exit 1; }
+    cp -L "$src" "$APPDIR/usr/lib/fallback/$lib"
+done
+
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
 HERE=$(dirname "$(readlink -f "$0")")
+# Bundled X11 keyboard libraries, only where the system has none (appimage.sh).
+LDCONFIG=$(command -v ldconfig || echo /sbin/ldconfig)
+if ! "$LDCONFIG" -p 2>/dev/null | grep -q 'libxkbcommon-x11\.so\.0 '; then
+    export LD_LIBRARY_PATH="$HERE/usr/lib/fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 exec "$HERE/usr/bin/duoray" "$@"
 EOF
 chmod 755 "$APPDIR/AppRun"
