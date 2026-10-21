@@ -1954,23 +1954,26 @@ const fn dark(c: [u32; 9]) -> Palette {
 /// The palette themes take their colors from the projects' own palettes.
 const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
     ("dark", "Тёмная", 1, None),
+    ("light", "Светлая", 2, None),
+    ("system", "Как в системе", 0, None),
     // Neutral greys a step lighter than Material's violet-tinted dark.
     ("graphite", "Графитовая", 1, Some(dark([0x2f3136, 0x25272b, 0xe4e5e8, 0x8f9197, 0xd0bcff, 0x381e72, 0x45474d, 0xe4e5e8, 0x3a3c41]))),
     // True black: OLED pixels switch off.
     ("oled", "OLED (чёрная)", 1, Some(dark([0x000000, 0x0e0e10, 0xe6e6e6, 0x5a5a5e, 0xd0bcff, 0x381e72, 0x2a2a2e, 0xe6e6e6, 0x26262a]))),
+    // Catppuccin flavors, lightest dark to darkest: base, mantle, text, overlay0, mauve, surface1, surface0.
+    ("catppuccin-frappe", "Catppuccin Frappé", 1, Some(dark([0x303446, 0x292c3c, 0xc6d0f5, 0x737994, 0xca9ee6, 0x303446, 0x51576d, 0xc6d0f5, 0x414559]))),
+    ("catppuccin-macchiato", "Catppuccin Macchiato", 1, Some(dark([0x24273a, 0x1e2030, 0xcad3f5, 0x6e738d, 0xc6a0f6, 0x24273a, 0x494d64, 0xcad3f5, 0x363a4f]))),
     ("catppuccin", "Catppuccin Mocha", 1, Some(dark([0x1e1e2e, 0x181825, 0xcdd6f4, 0x6c7086, 0xcba6f7, 0x1e1e2e, 0x45475a, 0xcdd6f4, 0x313244]))),
-    ("tokyo-night", "Tokyo Night", 1, Some(dark([0x1a1b26, 0x16161e, 0xc0caf5, 0x565f89, 0x7aa2f7, 0x1a1b26, 0x343a55, 0xc0caf5, 0x292e42]))),
-    ("dracula", "Dracula", 1, Some(dark([0x282a36, 0x21222c, 0xf8f8f2, 0x6272a4, 0xbd93f9, 0x282a36, 0x44475a, 0xf8f8f2, 0x343746]))),
-    ("nord", "Nord", 1, Some(dark([0x2e3440, 0x272c36, 0xeceff4, 0x616e88, 0x88c0d0, 0x2e3440, 0x434c5e, 0xeceff4, 0x3b4252]))),
-    ("one-dark", "One Dark", 1, Some(dark([0x282c34, 0x21252b, 0xd7dae0, 0x5c6370, 0x61afef, 0x282c34, 0x3e4451, 0xd7dae0, 0x2c313a]))),
-    ("light", "Светлая", 2, None),
     (
         "catppuccin-latte",
         "Catppuccin Latte",
         2,
         Some(Palette { light: true, bg: 0xeff1f5, card: 0xe6e9ef, fg: 0x4c4f69, line: 0x9ca0b0, accent: 0x8839ef, on_accent: 0xffffff, tonal: 0xccd0da, on_tonal: 0x4c4f69, track: 0xdce0e8 }),
     ),
-    ("system", "Как в системе", 0, None),
+    ("tokyo-night", "Tokyo Night", 1, Some(dark([0x1a1b26, 0x16161e, 0xc0caf5, 0x565f89, 0x7aa2f7, 0x1a1b26, 0x343a55, 0xc0caf5, 0x292e42]))),
+    ("dracula", "Dracula", 1, Some(dark([0x282a36, 0x21222c, 0xf8f8f2, 0x6272a4, 0xbd93f9, 0x282a36, 0x44475a, 0xf8f8f2, 0x343746]))),
+    ("nord", "Nord", 1, Some(dark([0x2e3440, 0x272c36, 0xeceff4, 0x616e88, 0x88c0d0, 0x2e3440, 0x434c5e, 0xeceff4, 0x3b4252]))),
+    ("one-dark", "One Dark", 1, Some(dark([0x282c34, 0x21252b, 0xd7dae0, 0x5c6370, 0x61afef, 0x282c34, 0x3e4451, 0xd7dae0, 0x2c313a]))),
 ];
 
 fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
