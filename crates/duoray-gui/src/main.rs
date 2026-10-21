@@ -425,7 +425,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_proxy_port(st.store.settings.proxy_port.to_string().into());
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
-            let theme = THEMES.iter().find(|t| t.0 == st.store.settings.theme).map_or(THEMES[0].1, |t| t.1);
+            let theme = theme_of(&st.store.settings.theme).1;
             ui.set_theme_choice(theme.into());
             ui.set_font_choice(
                 if st.store.settings.font.is_empty() { SYSTEM_FONT.to_string() } else { st.store.settings.font.clone() }.into(),
@@ -1953,9 +1953,9 @@ const fn dark(c: [u32; 9]) -> Palette {
 /// palette (None: Slint's Material colors with the DUORAY accent).
 /// The palette themes take their colors from the projects' own palettes.
 const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
+    ("system", "Как в системе", 0, None),
     ("dark", "Тёмная", 1, None),
     ("light", "Светлая", 2, None),
-    ("system", "Как в системе", 0, None),
     // Neutral greys a step lighter than Material's violet-tinted dark.
     ("graphite", "Графитовая", 1, Some(dark([0x2f3136, 0x25272b, 0xe4e5e8, 0x8f9197, 0xd0bcff, 0x381e72, 0x45474d, 0xe4e5e8, 0x3a3c41]))),
     // True black: OLED pixels switch off.
@@ -1976,8 +1976,13 @@ const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
     ("one-dark", "One Dark", 1, Some(dark([0x282c34, 0x21252b, 0xd7dae0, 0x5c6370, 0x61afef, 0x282c34, 0x3e4451, 0xd7dae0, 0x2c313a]))),
 ];
 
+/// The theme with this id; an unknown one (from a newer version) is dark.
+fn theme_of(id: &str) -> &'static (&'static str, &'static str, i32, Option<Palette>) {
+    THEMES.iter().find(|t| t.0 == id).or_else(|| THEMES.iter().find(|t| t.0 == "dark")).unwrap()
+}
+
 fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
-    let theme = THEMES.iter().find(|t| t.0 == s.theme).unwrap_or(&THEMES[0]);
+    let theme = theme_of(&s.theme);
     ui.set_theme_mode(theme.2);
     let g = ui.global::<Theme>();
     g.set_custom(theme.3.is_some());
