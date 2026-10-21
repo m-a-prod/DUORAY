@@ -70,29 +70,39 @@ export global Theme {
     // Text size multiplier from the settings (1.0 = 100 %).
     in-out property <float> text-scale: 1.0;
     out property <length> radius: 12px;
+    // A palette theme (Графитовая, OLED, Catppuccin, ...): the app sets the
+    // c-* colors and custom; otherwise everything follows Slint's Material
+    // Palette. Palette is read-only, so the UI takes its surfaces from here
+    // (bg, card, fg, line, ...), never from Palette directly.
+    in-out property <bool> custom;
+    in-out property <bool> c-light;
+    in-out property <color> c-bg;
+    in-out property <color> c-card;
+    in-out property <color> c-fg;
+    in-out property <color> c-line;
+    in-out property <color> c-accent;
+    in-out property <color> c-on-accent;
+    in-out property <color> c-tonal;
+    in-out property <color> c-on-tonal;
+    in-out property <color> c-track;
     // Resolved scheme, also when following the system (color-scheme is then
     // "unknown"): the Material light background is the tell.
-    out property <bool> light: Palette.background == #f8f3f9;
-    // "Графитовая": the dark theme in neutral greys, a step lighter, instead
-    // of Material's violet tint. Palette is read-only, so the surfaces below
-    // pass Palette through unless this is on; use them, not Palette.
-    in-out property <bool> graphite;
-    property <bool> grey: graphite && !light;
-    out property <brush> bg: grey ? #2f3136 : Palette.background;
-    out property <brush> fg: grey ? #e4e5e8 : Palette.foreground;
-    out property <brush> line: grey ? #8f9197 : Palette.border;
-    out property <brush> selected-fg: grey ? #f1f2f4 : Palette.selection-foreground;
+    out property <bool> light: custom ? c-light : Palette.background == #f8f3f9;
+    out property <brush> bg: custom ? c-bg : Palette.background;
+    out property <brush> card: custom ? c-card : Palette.alternate-background;
+    out property <brush> fg: custom ? c-fg : Palette.foreground;
+    out property <brush> line: custom ? c-line : Palette.border;
+    out property <brush> selected-fg: custom ? c-fg : Palette.selection-foreground;
     // Brand palette. Slint's own accent follows the desktop accent color (KDE,
     // GNOME, macOS), which repaints the whole app; these stay DUORAY purple.
-    out property <color> accent: light ? #6750a4 : #d0bcff;
-    out property <color> on-accent: light ? #ffffff : #381e72;
-    out property <color> tonal: light ? #e8def8 : grey ? #45474d : #4a4458;
-    out property <color> on-tonal: light ? #1e192b : grey ? #e4e5e8 : #e8def8;
+    out property <color> accent: custom ? c-accent : light ? #6750a4 : #d0bcff;
+    out property <color> on-accent: custom ? c-on-accent : light ? #ffffff : #381e72;
+    out property <color> tonal: custom ? c-tonal : light ? #e8def8 : #4a4458;
+    out property <color> on-tonal: custom ? c-on-tonal : light ? #1e192b : #e8def8;
     out property <color> selection: accent.with-alpha(0.3);
-    out property <color> track: light ? #e7e0ec : grey ? #3a3c41 : #36343b;
+    out property <color> track: custom ? c-track : light ? #e7e0ec : #36343b;
     // Status tones: bright on dark, deeper on light so text keeps contrast.
     out property <brush> danger: light ? #ce2c31 : #e5484d;
-    out property <brush> card: grey ? #25272b : Palette.alternate-background;
     out property <brush> muted: fg.with-alpha(0.62);
     out property <brush> ok: light ? #218358 : #30a46c;
     out property <brush> warn: light ? #ab6400 : #f5a524;
@@ -732,6 +742,7 @@ component SettingsPage inherits Rectangle {
     in-out property <string> font-choice: "Системный";
     in-out property <string> theme-choice: "Тёмная";
     in property <[string]> font-choices: ["Системный"];
+    in property <[string]> theme-choices: ["Тёмная"];
     in-out property <bool> hysteria-restart;
     in-out property <string> hysteria-minutes: "5";
     in-out property <bool> telemetry-enabled;
@@ -1018,7 +1029,7 @@ component SettingsPage inherits Rectangle {
                     }
                     ComboBox {
                         height: 36px;
-                        model: ["Тёмная", "Графитовая", "Светлая", "Как в системе"];
+                        model: root.theme-choices;
                         by-value: true;
                         current-value <=> root.theme-choice;
                         selected => {
@@ -2448,6 +2459,7 @@ export component AppWindow inherits Window {
             : root.theme-mode == 2 ? ColorScheme.light : ColorScheme.unknown;
     }
     in-out property <[string]> font-choices <=> settings-page.font-choices;
+    in-out property <[string]> theme-choices <=> settings-page.theme-choices;
     in property <bool> pinging;
     // The sort button appears once this subscription has been pinged.
     in property <bool> has-ping-results;

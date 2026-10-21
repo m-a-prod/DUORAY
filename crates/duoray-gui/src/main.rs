@@ -223,6 +223,7 @@ fn main() -> anyhow::Result<()> {
 
     let ui = AppWindow::new()?;
 
+    ui.set_theme_choices(ModelRc::new(VecModel::from(THEMES.iter().map(|t| t.1.into()).collect::<Vec<slint::SharedString>>())));
     ui.set_font_choices(ModelRc::new(VecModel::from(
         std::iter::once(SYSTEM_FONT).chain(FONTS.iter().copied()).map(slint::SharedString::from).collect::<Vec<_>>(),
     )));
@@ -1926,13 +1927,70 @@ const FONTS: &[&str] = &["Segoe UI", "Arial", "Verdana", "Tahoma", "Consolas"];
 #[cfg(not(any(target_os = "macos", windows)))]
 const FONTS: &[&str] = &["Noto Sans", "DejaVu Sans", "Liberation Sans", "Ubuntu", "DejaVu Sans Mono"];
 
-const THEMES: [(&str, &str, i32); 4] =
-    [("dark", "Тёмная", 1), ("graphite", "Графитовая", 1), ("light", "Светлая", 2), ("system", "Как в системе", 0)];
+/// Colors of a palette theme, as RGB: main area, sidebar and cards, text,
+/// borders, accent and the text on it, selected/secondary surfaces and the
+/// text on them, switch tracks.
+struct Palette {
+    light: bool,
+    bg: u32,
+    card: u32,
+    fg: u32,
+    line: u32,
+    accent: u32,
+    on_accent: u32,
+    tonal: u32,
+    on_tonal: u32,
+    track: u32,
+}
+
+/// A dark palette, colors in the field order above.
+const fn dark(c: [u32; 9]) -> Palette {
+    let [bg, card, fg, line, accent, on_accent, tonal, on_tonal, track] = c;
+    Palette { light: false, bg, card, fg, line, accent, on_accent, tonal, on_tonal, track }
+}
+
+/// id (stored), name (shown), Slint color scheme (0 system, 1 dark, 2 light),
+/// palette (None: Slint's Material colors with the DUORAY accent).
+/// The palette themes take their colors from the projects' own palettes.
+const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
+    ("dark", "Тёмная", 1, None),
+    // Neutral greys a step lighter than Material's violet-tinted dark.
+    ("graphite", "Графитовая", 1, Some(dark([0x2f3136, 0x25272b, 0xe4e5e8, 0x8f9197, 0xd0bcff, 0x381e72, 0x45474d, 0xe4e5e8, 0x3a3c41]))),
+    // True black: OLED pixels switch off.
+    ("oled", "OLED (чёрная)", 1, Some(dark([0x000000, 0x0e0e10, 0xe6e6e6, 0x5a5a5e, 0xd0bcff, 0x381e72, 0x2a2a2e, 0xe6e6e6, 0x26262a]))),
+    ("catppuccin", "Catppuccin Mocha", 1, Some(dark([0x1e1e2e, 0x181825, 0xcdd6f4, 0x6c7086, 0xcba6f7, 0x1e1e2e, 0x45475a, 0xcdd6f4, 0x313244]))),
+    ("tokyo-night", "Tokyo Night", 1, Some(dark([0x1a1b26, 0x16161e, 0xc0caf5, 0x565f89, 0x7aa2f7, 0x1a1b26, 0x343a55, 0xc0caf5, 0x292e42]))),
+    ("dracula", "Dracula", 1, Some(dark([0x282a36, 0x21222c, 0xf8f8f2, 0x6272a4, 0xbd93f9, 0x282a36, 0x44475a, 0xf8f8f2, 0x343746]))),
+    ("nord", "Nord", 1, Some(dark([0x2e3440, 0x272c36, 0xeceff4, 0x616e88, 0x88c0d0, 0x2e3440, 0x434c5e, 0xeceff4, 0x3b4252]))),
+    ("one-dark", "One Dark", 1, Some(dark([0x282c34, 0x21252b, 0xd7dae0, 0x5c6370, 0x61afef, 0x282c34, 0x3e4451, 0xd7dae0, 0x2c313a]))),
+    ("light", "Светлая", 2, None),
+    (
+        "catppuccin-latte",
+        "Catppuccin Latte",
+        2,
+        Some(Palette { light: true, bg: 0xeff1f5, card: 0xe6e9ef, fg: 0x4c4f69, line: 0x9ca0b0, accent: 0x8839ef, on_accent: 0xffffff, tonal: 0xccd0da, on_tonal: 0x4c4f69, track: 0xdce0e8 }),
+    ),
+    ("system", "Как в системе", 0, None),
+];
 
 fn apply_appearance(ui: &AppWindow, s: &duoray_core::store::Settings) {
-    let mode = THEMES.iter().find(|t| t.0 == s.theme).map_or(1, |t| t.2);
-    ui.set_theme_mode(mode);
-    ui.global::<Theme>().set_graphite(s.theme == "graphite");
+    let theme = THEMES.iter().find(|t| t.0 == s.theme).unwrap_or(&THEMES[0]);
+    ui.set_theme_mode(theme.2);
+    let g = ui.global::<Theme>();
+    g.set_custom(theme.3.is_some());
+    if let Some(p) = &theme.3 {
+        let c = |rgb: u32| slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+        g.set_c_light(p.light);
+        g.set_c_bg(c(p.bg));
+        g.set_c_card(c(p.card));
+        g.set_c_fg(c(p.fg));
+        g.set_c_line(c(p.line));
+        g.set_c_accent(c(p.accent));
+        g.set_c_on_accent(c(p.on_accent));
+        g.set_c_tonal(c(p.tonal));
+        g.set_c_on_tonal(c(p.on_tonal));
+        g.set_c_track(c(p.track));
+    }
     ui.global::<Theme>().set_text_scale(s.text_scale.clamp(80, 150) as f32 / 100.0);
     ui.set_font_family(s.font.clone().into());
     ui.set_show_server_type(s.show_server_type);
