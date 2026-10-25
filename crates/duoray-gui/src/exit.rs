@@ -29,7 +29,7 @@ pub fn selected_node(api: SocketAddr, tag: &str) -> Result<Option<String>> {
 pub fn trace(socks: SocketAddr, user: &str, pass: &str) -> Result<Trace> {
     // Proxy mode's inbound has no password.
     let proxy = ureq::Proxy::new(&if user.is_empty() { format!("socks5://{socks}") } else { format!("socks5://{user}:{pass}@{socks}") })?;
-    let agent: ureq::Agent = ureq::Agent::config_builder().proxy(Some(proxy)).timeout_global(Some(Duration::from_secs(8))).build().into();
+    let agent: ureq::Agent = ureq::Agent::config_builder().proxy(Some(proxy)).timeout_global(Some(Duration::from_secs(5))).build().into();
     let body = agent.get(TRACE_URL).call()?.body_mut().read_to_string()?;
     balancer::parse_trace(&body).context("no loc in the trace")
 }

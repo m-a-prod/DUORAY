@@ -59,6 +59,32 @@ fn flag_image(code: &str) -> Option<slint::Image> {
     })
 }
 
+/// A flag drawn at exactly `width` × width·26/36 physical pixels: Twemoji
+/// flags fill the band y 5..31 of their 36×36 square, rounded corners
+/// included, so rendering just that band gives a crisp, anti-aliased tile at
+/// any scale (a scaled-up 36 px raster looks blocky in the software renderer).
+fn flag_tile(code: &str, width: u32) -> Option<slint::Image> {
+    thread_local! {
+        static CACHE: std::cell::RefCell<std::collections::HashMap<(String, u32), Option<slint::Image>>> = Default::default();
+    }
+    CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .entry((code.to_string(), width))
+            .or_insert_with(|| {
+                use resvg::{tiny_skia, usvg};
+                let tree = usvg::Tree::from_data(flags::flag_svg(code)?, &usvg::Options::default()).ok()?;
+                let height = (width * 26).div_ceil(36);
+                let mut pixmap = tiny_skia::Pixmap::new(width, height)?;
+                let scale = width as f32 / 36.0;
+                resvg::render(&tree, tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, 0.0, -5.0 * scale), &mut pixmap.as_mut());
+                let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(pixmap.data(), width, height);
+                Some(slint::Image::from_rgba8_premultiplied(buffer))
+            })
+            .clone()
+    })
+}
+
 struct App {
     store: Store,
     path: PathBuf,
@@ -970,8 +996,11 @@ fn main() -> anyhow::Result<()> {
                                             ui.set_conn_title("Подключено".into());
                                             ui.set_conn_detail("LTE x1 • Авто-выбор · DUORAY".into());
                                             ui.set_conn_node("LTE #2 (1x)".into());
-                                            ui.set_conn_exit_flag(flag_image("PL").unwrap_or_default());
-                                            ui.set_conn_exit_text("Польша · 104.28.193.183".into());
+                                            ui.set_conn_exit_flag(flag_tile("PL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
+                                            ui.set_conn_server("LTE x1 • Авто-выбор".into());
+                                            ui.set_conn_ping_text("94 мс".into());
+                                            ui.set_conn_ping_level(1);
+                                            ui.set_conn_exit_text("Польша".into());
                                             let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                             slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
                                                 snapshot(ui_weak.unwrap().window(), &prefix.with_extension("connected.png"));
@@ -1863,14 +1892,15 @@ fn render(ui: &AppWindow, st: &App) {
     ui.set_conn_ping_level(live_level);
     let connected = matches!(st.conn_state, ConnState::Connected { .. });
     let exit = st.exit.as_ref().filter(|_| connected);
-    ui.set_conn_exit_flag(exit.and_then(|t| flag_image(&t.loc)).unwrap_or_default());
+    // The tile is 42 px wide (times the text size), in physical pixels here.
+    let tile = (42.0 * ui.window().scale_factor() * st.store.settings.text_scale.clamp(80, 150) as f32 / 100.0).round() as u32;
+    ui.set_conn_exit_flag(exit.and_then(|t| flag_tile(&t.loc, tile)).unwrap_or_default());
+    ui.set_conn_server(match &st.conn_state {
+        ConnState::Connected { name, .. } => name.clone().into(),
+        _ => "".into(),
+    });
     ui.set_conn_exit_text(
-        exit.map(|t| {
-            let country = duoray_core::balancer::country_name(&t.loc).unwrap_or(&t.loc);
-            if t.ip.is_empty() { country.to_string() } else { format!("{country} · {}", t.ip) }
-        })
-        .unwrap_or_default()
-        .into(),
+        exit.map(|t| duoray_core::balancer::country_name(&t.loc).unwrap_or(&t.loc).to_string()).unwrap_or_default().into(),
     );
     ui.set_conn_node(st.exit_node.clone().filter(|_| connected).unwrap_or_default().into());
     ui.set_can_connect(selected_server(ui, st).is_some());
@@ -2472,31 +2502,37 @@ fn measure_exit(ui: &AppWindow, app: &Shared, st: &mut App) {
     let balancer = conn.balancer.clone();
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let node = balancer.as_ref().map(|(api, b)| {
-            let tag = exit::selected_node(*api, &b.tag).ok().flatten();
-            (tag, b.members.clone())
-        });
-        let trace = exit::trace(socks, &user, &pass);
+        let node = balancer.as_ref().map(|(api, b)| exit::selected_node(*api, &b.tag).ok().flatten());
+        // Until the balancer has picked a node, its traffic goes to the
+        // fallback (usually "direct"): a trace then would show the user's own
+        // country. Ask again shortly instead.
+        let trace = match node {
+            Some(None) => Err(anyhow::anyhow!("the balancer has not picked a node yet")),
+            _ => exit::trace(socks, &user, &pass),
+        };
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             st.exit_busy = false;
             if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
                 return;
             }
-            if let Ok(t) = trace {
-                st.exit = Some(t);
+            match trace {
+                Ok(t) => st.exit = Some(t),
+                // Right after connecting: retry every 2 s, not at the 30 s tick.
+                Err(_) if st.exit.is_none() => {
+                    let (ui_weak, app) = (ui.as_weak(), app.clone());
+                    slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+                        let Some(ui) = ui_weak.upgrade() else { return };
+                        let mut st = app.lock().unwrap();
+                        if st.conn_gen == generation {
+                            measure_exit(&ui, &app, &mut st);
+                        }
+                    });
+                }
+                Err(_) => {}
             }
-            st.exit_node = node.map(|(tag, members)| match tag {
-                // Named after the single server it matches, else its place in the balancer.
-                Some(tag) => match st.node_names.get(&tag) {
-                    Some(name) => display_name(name).1,
-                    None => match members.iter().position(|m| *m == tag) {
-                        Some(i) => format!("узел {} из {}", i + 1, members.len()),
-                        None => tag,
-                    },
-                },
-                None => "узел ещё не выбран".into(),
-            });
+            // Only a node with a name says something; a bare tag or index does not.
+            st.exit_node = node.flatten().and_then(|tag| st.node_names.get(&tag)).map(|name| display_name(name).1);
             render(&ui, &st);
         });
     });

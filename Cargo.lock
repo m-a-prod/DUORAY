@@ -1316,6 +1316,7 @@ dependencies = [
  "libc",
  "png",
  "regex",
+ "resvg",
  "serde",
  "serde_json",
  "sha2",
