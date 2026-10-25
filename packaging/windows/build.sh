@@ -6,7 +6,7 @@
 set -eu
 cd "$(dirname "$0")/../.."
 ARCH=${1:-x64}
-XRAY_VERSION=v26.3.27
+XRAY_VERSION=v26.10.21
 case "$ARCH" in
     x64) TARGET=x86_64-pc-windows-msvc; XRAY_ZIP=Xray-windows-64.zip
          XRAY_SHA256=d004c39288ce9ada487c6f398c7c545f7d749e44bdfdd59dbc9f865afba4e1ad ;;

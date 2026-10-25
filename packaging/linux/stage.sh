@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")/../.."
 
 ARCH=${1:-$(uname -m)}
-XRAY_VERSION=v26.3.27
+XRAY_VERSION=v26.10.21
 case "$ARCH" in
     x86_64) XRAY_ZIP=Xray-linux-64.zip; XRAY_SHA256=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae ;;
     aarch64|arm64) ARCH=aarch64; XRAY_ZIP=Xray-linux-arm64-v8a.zip; XRAY_SHA256=4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c ;;

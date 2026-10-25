@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
-XRAY_VERSION=v26.3.27
+XRAY_VERSION=v26.10.21
 LIB=/usr/lib/duoray
 LIBEXEC=/usr/libexec/duoray
 

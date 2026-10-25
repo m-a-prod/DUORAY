@@ -12,7 +12,7 @@ cd "$(dirname "$0")/../.."
 
 ARCH=${1:-$(uname -m)}
 [ "$ARCH" = arm64 ] && ARCH=aarch64
-XRAY_VERSION=v26.3.27
+XRAY_VERSION=v26.10.21
 case "$ARCH" in
     aarch64) XRAY_ZIP=Xray-macos-arm64-v8a.zip; XRAY_SHA256=2e93a67e8aa1936ecefb307e120830fcbd4c643ab9b1c46a2d0838d5f8409eaf ;;
     x86_64) XRAY_ZIP=Xray-macos-64.zip; XRAY_SHA256=f5b0471d3459eff1b82e48af0aeac186abcc3298210070afbbbd8437a4e8b203 ;;
