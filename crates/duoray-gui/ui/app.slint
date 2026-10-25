@@ -347,6 +347,34 @@ component Switch inherits Rectangle {
 // (`current-value <=> …`, set `by-value`). Index callers get the label from the
 // model, so a renamed item updates; value callers keep their string even when
 // the model is replaced. No wheel stepping: scrolling a page never changes a value.
+// One entry of a ComboBox popup.
+component ComboItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+    border-radius: 7px;
+    background: root.selected ? Theme.selection
+        : item-touch.pressed ? Theme.fg.with-alpha(0.14)
+        : item-touch.has-hover ? Theme.fg.with-alpha(0.08) : transparent;
+    animate background { duration: 100ms; easing: ease-out; }
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        color: Theme.fg;
+        font-weight: root.selected ? 600 : 400;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    item-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 component ComboBox inherits Rectangle {
     in property <[string]> model;
     in property <bool> enabled: true;
@@ -441,34 +469,32 @@ component ComboBox inherits Rectangle {
             drop-shadow-blur: 20px;
             drop-shadow-offset-y: 6px;
             drop-shadow-color: Theme.shadow;
-            ListView {
+            // Short lists are shown whole: a ListView of exactly fitting rows
+            // still grows a scrollbar at fractional scales (1.25).
+            if root.model.length <= 8: VerticalLayout {
+                padding: 6px;
+                for value[i] in root.model: ComboItem {
+                    height: root.item-height;
+                    text: value;
+                    selected: root.by-value ? value == root.current-value : i == root.current-index;
+                    clicked => {
+                        root.select(i);
+                        popup.close();
+                    }
+                }
+            }
+            if root.model.length > 8: ListView {
                 x: 6px;
                 y: 6px;
                 width: parent.width - 12px;
                 height: parent.height - 12px;
-                for value[i] in root.model: Rectangle {
+                for value[i] in root.model: ComboItem {
                     height: root.item-height;
-                    border-radius: 7px;
-                    background: (root.by-value ? value == root.current-value : i == root.current-index) ? Theme.selection
-                        : item-touch.pressed ? Theme.fg.with-alpha(0.14)
-                        : item-touch.has-hover ? Theme.fg.with-alpha(0.08) : transparent;
-                    animate background { duration: 100ms; easing: ease-out; }
-                    Text {
-                        x: 10px;
-                        width: parent.width - 20px;
-                        height: parent.height;
-                        text: value;
-                        color: Theme.fg;
-                        font-weight: (root.by-value ? value == root.current-value : i == root.current-index) ? 600 : 400;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-                    item-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.select(i);
-                            popup.close();
-                        }
+                    text: value;
+                    selected: root.by-value ? value == root.current-value : i == root.current-index;
+                    clicked => {
+                        root.select(i);
+                        popup.close();
                     }
                 }
             }
