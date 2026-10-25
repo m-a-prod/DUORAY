@@ -109,6 +109,28 @@ pub struct Options {
 /// the helper ("another DUORAY session is active").
 static ATTEMPT: Mutex<()> = Mutex::new(());
 
+/// When the last connection was taken down (see [`settle`]).
+static LAST_TEARDOWN: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Runs `step` again for a few seconds while it fails right after a teardown.
+/// Switching servers connects the moment the old TUN is gone, but the system
+/// is still putting the network back: Windows briefly has no default route,
+/// systemd-resolved no DNS server ("не найден маршрут по умолчанию", "cannot
+/// resolve" in reports). Any other time a failure is real and returns at once.
+fn settle<T>(cancel: &AtomicBool, mut step: impl FnMut() -> Result<T>) -> Result<T> {
+    const WINDOW: Duration = Duration::from_secs(5);
+    let since = LAST_TEARDOWN.lock().unwrap().map(|t| t.elapsed());
+    let deadline = Instant::now() + since.map_or(Duration::ZERO, |s| WINDOW.saturating_sub(s));
+    loop {
+        match step() {
+            Err(_) if Instant::now() < deadline && !cancel.load(Ordering::SeqCst) => {
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            result => return result,
+        }
+    }
+}
+
 fn cancelled_error() -> ConnectError {
     ConnectError::Other(anyhow::anyhow!("подключение отменено"))
 }
@@ -167,12 +189,12 @@ pub fn connect(
     };
     let apps_skipped = proxy_port.is_some() && routing.apps.active();
     let routing = &effective_routing(routing, proxy_port);
-    let iface = physical_interface()?;
+    let iface = settle(&cancel, physical_interface)?;
     // Fresh databases if downloaded, else the ones shipped with xray (then
     // tags missing there, like geoip:ru-whitelist, are skipped).
     let assets = geo.assets().map(Path::to_path_buf).or_else(|| find_xray().ok().and_then(|(_, a)| a));
     let geo_data = GeoData::load(assets.as_deref(), Some(&geo.lists()));
-    let mut rt = runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data }))
+    let mut rt = settle(&cancel, || runtime::build(server, &iface, Some(runtime::Routing { settings: routing, geo: &geo_data })))
         .context("preparing xray config")?;
     // Held until this attempt returns, connected or not.
     let _attempt = ATTEMPT.lock().unwrap_or_else(|e| e.into_inner());
@@ -468,6 +490,7 @@ impl Connection {
         let mut x = self.xray.lock().unwrap();
         let _ = x.kill();
         let _ = x.wait();
+        *LAST_TEARDOWN.lock().unwrap() = Some(Instant::now());
     }
 }
 
@@ -514,6 +537,28 @@ fn keep_inbounds(config: &mut serde_json::Value, socks: u16, direct: Option<u16>
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn settle_retries_only_right_after_a_teardown() {
+        let cancel = AtomicBool::new(false);
+        let mut tries = 0;
+        *LAST_TEARDOWN.lock().unwrap() = None;
+        assert!(settle(&cancel, || -> Result<()> { tries += 1; bail!("no route") }).is_err());
+        assert_eq!(tries, 1, "a failure with no teardown before is real");
+
+        *LAST_TEARDOWN.lock().unwrap() = Some(Instant::now());
+        tries = 0;
+        let got = settle(&cancel, || { tries += 1; if tries < 3 { bail!("no route") } else { Ok(tries) } });
+        assert_eq!(got.unwrap(), 3, "the network came back during the window");
+
+        cancel.store(true, Ordering::SeqCst);
+        tries = 0;
+        assert!(settle(&cancel, || -> Result<()> { tries += 1; bail!("no route") }).is_err());
+        assert_eq!(tries, 1, "cancel stops waiting");
+        *LAST_TEARDOWN.lock().unwrap() = None;
+    }
+
     #[test]
     fn rerouted_config_keeps_the_tunnel_endpoints() {
         let mut config = serde_json::json!({ "inbounds": [
