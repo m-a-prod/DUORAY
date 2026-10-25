@@ -2698,6 +2698,10 @@ export component AppWindow inherits Window {
     callback uninstall-helper <=> settings-page.uninstall-helper;
     callback open-settings();
     callback toggle-connection();
+    // Enter and the menu: connect to the selected server (or switch to it).
+    callback connect-selected();
+    // Ctrl+S (Cmd+S) and the menu: disconnect, or cancel a connect in progress.
+    callback disconnect-current();
     callback install-helper();
 
     // Server context menu and editor.
@@ -2730,6 +2734,88 @@ export component AppWindow inherits Window {
     callback editor-as-json();
     callback editor-reset();
 
+    // macOS menu bar (the system adds the DUORAY menu: about, hide, quit).
+    // Elsewhere the window has no menu bar. Shortcuts stay in the FocusScope
+    // below: as menu shortcuts Cmd+S would beat the editor's save, and Enter
+    // would fire while typing in a field.
+    MenuBar {
+        visible: Platform.os == OperatingSystemType.macos;
+        Menu {
+            title: "Подключение";
+            MenuItem {
+                title: "Подключиться (Enter)";
+                enabled: root.can-connect && root.conn-state != "connecting" && root.conn-state != "disconnecting";
+                activated => { root.connect-selected(); }
+            }
+            MenuItem {
+                title: root.conn-state == "connecting" ? "Отменить подключение (⌘S)" : "Отключиться (⌘S)";
+                enabled: root.conn-state == "connected" || root.conn-state == "blocked" || root.conn-state == "connecting";
+                activated => { root.disconnect-current(); }
+            }
+            MenuSeparator {}
+            MenuItem {
+                title: "Пинг серверов";
+                activated => { root.ping-current(); }
+            }
+            MenuItem {
+                title: "Обновить подписку";
+                enabled: root.current-sub >= 0;
+                activated => { root.refresh-current(); }
+            }
+            MenuItem {
+                title: "Добавить из буфера обмена (⌘V)";
+                activated => { root.add-from-clipboard(); }
+            }
+        }
+        Menu {
+            title: "Вид";
+            MenuItem {
+                title: "Серверы";
+                activated => {
+                    root.settings-open = false;
+                    root.routing-open = false;
+                    root.editor-open = false;
+                }
+            }
+            MenuItem {
+                title: "Маршрутизация";
+                activated => {
+                    root.settings-open = false;
+                    root.editor-open = false;
+                    root.routing-open = true;
+                }
+            }
+            MenuItem {
+                title: "Настройки";
+                activated => {
+                    if (!root.settings-open) {
+                        root.open-settings();
+                    }
+                    root.routing-open = false;
+                    root.editor-open = false;
+                    root.settings-open = true;
+                }
+            }
+        }
+        Menu {
+            title: "Справка";
+            MenuItem {
+                title: "Сообщить о проблеме";
+                activated => { root.report-problem(); }
+            }
+            MenuItem {
+                title: "Поддержка";
+                enabled: root.has-support;
+                activated => { root.open-support(); }
+            }
+            MenuItem {
+                title: "Сайт подписки";
+                enabled: root.has-web-page;
+                activated => { root.open-web-page(); }
+            }
+        }
+    }
+
     // Flipped by the app when the window comes back (restored, focused,
     // uncovered): this window-sized, practically invisible fill changes, so
     // the next frame repaints and presents the whole window, not only what
@@ -2739,10 +2825,26 @@ export component AppWindow inherits Window {
         background: root.repaint-all ? #00000001 : #00000000;
     }
 
-    // Keys no field took: Ctrl+V (Cmd+V) adds a link from the clipboard.
+    // Keys no field took: Ctrl+V (Cmd+V) adds a link from the clipboard,
+    // Enter connects to the selected server, Ctrl+S (Cmd+S) disconnects.
     forward-focus: shortcuts;
     shortcuts := FocusScope {
         key-pressed(e) => {
+            if root.adding || root.consent-open || root.report-open || root.editor-open || root.helper-dialog {
+                return reject;
+            }
+            if e.text == Key.Return && !e.modifiers.control && !e.modifiers.alt && !e.modifiers.meta {
+                if !root.settings-open && !root.routing-open {
+                    root.connect-selected();
+                    return accept;
+                }
+                return reject;
+            }
+            if e.modifiers.control && !e.modifiers.alt
+                && (e.text == "s" || e.text == "S" || e.text == "ы" || e.text == "Ы") {
+                root.disconnect-current();
+                return accept;
+            }
             if (e.modifiers.control || e.modifiers.meta) && !e.modifiers.alt
                 && (e.text == "v" || e.text == "V" || e.text == "м" || e.text == "М") {
                 if !root.adding && !root.consent-open && !root.report-open && !root.editor-open {

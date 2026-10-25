@@ -328,6 +328,40 @@ fn main() -> anyhow::Result<()> {
         move || toggle_connection(&ui_weak.unwrap(), &app)
     });
 
+    ui.on_connect_selected({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let (idle, connected) = {
+                let st = app.lock().unwrap();
+                (
+                    matches!(st.conn_state, ConnState::Idle | ConnState::Failed(_)),
+                    matches!(st.conn_state, ConnState::Connected { .. }),
+                )
+            };
+            if idle {
+                start_connect(&ui, &app);
+            } else if connected {
+                // Connected to another server: switch, as a click on it would.
+                switch_connection(&ui, &app, false);
+            }
+        }
+    });
+
+    ui.on_disconnect_current({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let active = matches!(
+                app.lock().unwrap().conn_state,
+                ConnState::Connected { .. } | ConnState::Blocked | ConnState::Connecting { .. }
+            );
+            if active {
+                toggle_connection(&ui, &app);
+            }
+        }
+    });
+
     ui.on_install_helper({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || {
