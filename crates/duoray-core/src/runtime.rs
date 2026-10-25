@@ -297,7 +297,7 @@ fn random_token(len: usize) -> String {
 /// A loopback port free for both TCP and UDP: the SOCKS inbound listens on
 /// both. Windows reserves port ranges (Hyper-V, WinNAT) per protocol, so a
 /// port the system hands out for TCP can still be forbidden for UDP.
-fn free_port() -> Result<u16> {
+pub fn free_port() -> Result<u16> {
     for _ in 0..50 {
         let tcp = TcpListener::bind("127.0.0.1:0")?;
         let port = tcp.local_addr()?.port();

@@ -20,6 +20,7 @@ mod deeplink;
 mod diag;
 mod editor_ui;
 mod emoji;
+mod exit;
 mod helper;
 mod instance;
 mod ping;
@@ -89,6 +90,13 @@ struct App {
     live_ping: Option<(String, i32)>,
     /// A live measurement is in flight (never stack them).
     live_ping_busy: bool,
+    /// Where the active connection comes out (see [`measure_exit`]): the
+    /// country by Cloudflare's trace and, for a balancer, the node it picked.
+    exit: Option<duoray_core::balancer::Trace>,
+    exit_node: Option<String>,
+    exit_busy: bool,
+    /// Names of the active balancer's nodes that match a single server.
+    node_names: std::collections::HashMap<String, String>,
     /// (done, total) while a ping run is active.
     ping_progress: Option<(usize, usize)>,
     /// Stops the active ping run.
@@ -215,6 +223,10 @@ fn main() -> anyhow::Result<()> {
         sort_by_ping: false,
         live_ping: None,
         live_ping_busy: false,
+        exit: None,
+        exit_node: None,
+        exit_busy: false,
+        node_names: Default::default(),
         ping_progress: None,
         ping_cancel: None,
         ping_render_pending: false,
@@ -807,6 +819,20 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // While connected: exit country and balancer node every 30 s, window shown.
+    let exit_timer = slint::Timer::default();
+    exit_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(30), {
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            if !ui.window().is_visible() || ui.window().is_minimized() {
+                return;
+            }
+            let mut st = app.lock().unwrap();
+            measure_exit(&ui, &app, &mut st);
+        }
+    });
+
     // Hysteria2 can stall after a while: optionally restart xray on a timer.
     let hysteria_timer = slint::Timer::default();
     hysteria_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(15), {
@@ -936,8 +962,21 @@ fn main() -> anyhow::Result<()> {
                                         ui.set_ident_mode(2);
                                         let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                         slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
-                                            snapshot(ui_weak.unwrap().window(), &prefix.with_extension("ident.png"));
-                                            let _ = slint::quit_event_loop();
+                                            let ui = ui_weak.unwrap();
+                                            snapshot(ui.window(), &prefix.with_extension("ident.png"));
+                                            // The status card as connected through a balancer (set by hand: no tunnel here).
+                                            ui.set_ident_open(false);
+                                            ui.set_conn_state("connected".into());
+                                            ui.set_conn_title("Подключено".into());
+                                            ui.set_conn_detail("LTE x1 • Авто-выбор · DUORAY".into());
+                                            ui.set_conn_node("LTE #2 (1x)".into());
+                                            ui.set_conn_exit_flag(flag_image("PL").unwrap_or_default());
+                                            ui.set_conn_exit_text("Польша · 104.28.193.183".into());
+                                            let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                                            slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
+                                                snapshot(ui_weak.unwrap().window(), &prefix.with_extension("connected.png"));
+                                                let _ = slint::quit_event_loop();
+                                            });
                                         });
                                     });
                                 });
@@ -1473,6 +1512,8 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
         return;
     };
     let name = display_name(&server.name).1;
+    // Single servers of the same subscription, to name a balancer's nodes.
+    let siblings = current(ui, &st).map(|s| s.servers.clone()).unwrap_or_default();
     diag::log(format!("connect: {} {}/{}, {} outbound(s)", server.protocol, server.network, server.security, server.proxies));
     st.conn_gen += 1;
     let generation = st.conn_gen;
@@ -1520,6 +1561,10 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
             on_failure,
             on_uplink_change,
         );
+        let node_names = match &result {
+            Ok(conn) if conn.balancer.is_some() => duoray_core::balancer::node_names(&server.config_json(), &siblings),
+            _ => vec![],
+        };
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Connecting { .. });
@@ -1543,8 +1588,11 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     st.conn = Some(conn);
                     st.xray_started = Some(std::time::Instant::now());
                     st.live_ping = None;
+                    (st.exit, st.exit_node) = (None, None);
+                    st.node_names = node_names.into_iter().collect();
                     // First reading right away, then every 5 s from the timer.
                     measure_live_ping(&ui, &app, &mut st);
+                    measure_exit(&ui, &app, &mut st);
                 }
                 Ok(conn) => {
                     std::thread::spawn(move || conn.disconnect());
@@ -1813,6 +1861,18 @@ fn render(ui: &AppWindow, st: &App) {
     };
     ui.set_conn_ping_text(live_text.into());
     ui.set_conn_ping_level(live_level);
+    let connected = matches!(st.conn_state, ConnState::Connected { .. });
+    let exit = st.exit.as_ref().filter(|_| connected);
+    ui.set_conn_exit_flag(exit.and_then(|t| flag_image(&t.loc)).unwrap_or_default());
+    ui.set_conn_exit_text(
+        exit.map(|t| {
+            let country = duoray_core::balancer::country_name(&t.loc).unwrap_or(&t.loc);
+            if t.ip.is_empty() { country.to_string() } else { format!("{country} · {}", t.ip) }
+        })
+        .unwrap_or_default()
+        .into(),
+    );
+    ui.set_conn_node(st.exit_node.clone().filter(|_| connected).unwrap_or_default().into());
     ui.set_can_connect(selected_server(ui, st).is_some());
     render_expiry(ui, st);
 
@@ -2393,6 +2453,50 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
             st.live_ping = Some((entry.0.clone(), entry.1));
             st.ping_results.insert(key, entry);
             save_pings(&st);
+            render(&ui, &st);
+        });
+    });
+}
+
+/// Where the connection comes out: the balancer's node (if any), then the
+/// exit country through the tunnel. Asked right after connecting and every
+/// 30 s while the window is shown; a failed reading keeps the last one.
+fn measure_exit(ui: &AppWindow, app: &Shared, st: &mut App) {
+    let (ConnState::Connected { .. }, Some(conn)) = (&st.conn_state, &st.conn) else { return };
+    if st.exit_busy {
+        return;
+    }
+    st.exit_busy = true;
+    let generation = st.conn_gen;
+    let (socks, user, pass) = (conn.socks, conn.user.clone(), conn.pass.clone());
+    let balancer = conn.balancer.clone();
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    std::thread::spawn(move || {
+        let node = balancer.as_ref().map(|(api, b)| {
+            let tag = exit::selected_node(*api, &b.tag).ok().flatten();
+            (tag, b.members.clone())
+        });
+        let trace = exit::trace(socks, &user, &pass);
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            let mut st = app.lock().unwrap();
+            st.exit_busy = false;
+            if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
+                return;
+            }
+            if let Ok(t) = trace {
+                st.exit = Some(t);
+            }
+            st.exit_node = node.map(|(tag, members)| match tag {
+                // Named after the single server it matches, else its place in the balancer.
+                Some(tag) => match st.node_names.get(&tag) {
+                    Some(name) => display_name(name).1,
+                    None => match members.iter().position(|m| *m == tag) {
+                        Some(i) => format!("узел {} из {}", i + 1, members.len()),
+                        None => tag,
+                    },
+                },
+                None => "узел ещё не выбран".into(),
+            });
             render(&ui, &st);
         });
     });

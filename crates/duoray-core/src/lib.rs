@@ -1,6 +1,7 @@
 //! Duoray core: subscriptions, server entries, request identity, storage,
 //! xray runtime configs and the helper protocol.
 
+pub mod balancer;
 pub mod cert_pin;
 pub mod device;
 pub mod geo;

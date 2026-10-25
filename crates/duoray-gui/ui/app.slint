@@ -2664,6 +2664,11 @@ export component AppWindow inherits Window {
     in property <string> conn-state: "idle";
     in property <string> conn-title: "Не подключено";
     in property <string> conn-detail;
+    // Where the connection comes out: exit country (flag, "Эстония · 5.175.178.192")
+    // and, for a balancer, the node it picked now.
+    in property <image> conn-exit-flag;
+    in property <string> conn-exit-text;
+    in property <string> conn-node;
     in property <bool> can-connect;
     // Live latency of the active connection (0 level = hidden).
     in property <string> conn-ping-text;
@@ -3391,6 +3396,29 @@ export component AppWindow inherits Window {
                                         font-size: Theme.fs-caption;
                                         color: root.conn-state == "failed" ? Theme.danger : Theme.muted;
                                         wrap: word-wrap;
+                                    }
+                                    if root.conn-node != "": Text {
+                                        text: "Балансер: " + root.conn-node;
+                                        font-size: Theme.fs-caption;
+                                        color: Theme.muted;
+                                        overflow: elide;
+                                    }
+                                    if root.conn-exit-text != "": HorizontalLayout {
+                                        spacing: 6px;
+                                        if root.conn-exit-flag.width > 0: Image {
+                                            source: root.conn-exit-flag;
+                                            height: 12px * Theme.text-scale;
+                                            width: self.height * 4 / 3;
+                                            image-fit: contain;
+                                            y: (parent.height - self.height) / 2;
+                                        }
+                                        Text {
+                                            text: "Выход: " + root.conn-exit-text;
+                                            font-size: Theme.fs-caption;
+                                            color: Theme.muted;
+                                            overflow: elide;
+                                            horizontal-stretch: 1;
+                                        }
                                     }
                                 }
                             }

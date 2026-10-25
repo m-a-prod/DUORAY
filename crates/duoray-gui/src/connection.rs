@@ -15,6 +15,7 @@ use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, TunRequest};
 use duoray_core::routing::AppMode;
 use duoray_core::geo::GeoDir;
 use duoray_core::routing::{GeoData, RoutingSettings};
+use duoray_core::balancer::{self, Balancer};
 use duoray_core::runtime;
 use duoray_core::server::Server;
 
@@ -64,6 +65,9 @@ pub struct Connection {
     pub hysteria: bool,
     /// How long connecting took, by stage, for the log.
     pub timings: String,
+    /// The config balances between nodes: xray's API (loopback) to ask which
+    /// one it picked, and the balancer.
+    pub balancer: Option<(SocketAddr, Balancer)>,
     respawn: Respawn,
     /// What the tunnel was set up with: a routing change that keeps these can
     /// be applied by restarting xray alone (see [`Connection::rerouter`]).
@@ -79,6 +83,8 @@ struct TunnelInputs {
     apps: duoray_core::routing::AppRouting,
     bypass: Vec<std::net::IpAddr>,
     direct_socks: Option<SocketAddr>,
+    /// xray's API address, kept when the config is rebuilt.
+    api: Option<SocketAddr>,
 }
 
 /// Everything needed to start the same xray again.
@@ -247,6 +253,13 @@ pub fn connect(
         .as_array()
         .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));
 
+    // Balancers pick a node themselves: their API tells which one.
+    let balancer = balancer::main_balancer(&rt.config).and_then(|b| {
+        let api = SocketAddr::from(([127, 0, 0, 1], runtime::free_port().ok()?));
+        balancer::add_api(&mut rt.config, api);
+        Some((api, b))
+    });
+
     let config_path = run_dir.join("xray.json");
     write_private(&config_path, &serde_json::to_vec_pretty(&rt.config)?)?;
     let log_path = run_dir.join("xray.log");
@@ -279,6 +292,7 @@ pub fn connect(
         apps: routing.apps.clone(),
         bypass: rt.bypass.clone(),
         direct_socks: rt.direct_socks,
+        api: balancer.as_ref().map(|(api, _)| *api),
     };
     #[cfg(not(target_os = "macos"))]
     let mut sysproxy = None;
@@ -412,6 +426,7 @@ pub fn connect(
         pass,
         warnings,
         hysteria,
+        balancer,
         respawn,
         tunnel,
     })
@@ -465,6 +480,9 @@ impl Connection {
                 rt.open_proxy(port);
             }
             keep_inbounds(&mut rt.config, r.socks.port(), t.direct_socks.map(|a| a.port()), &user, &pass);
+            if let Some(api) = t.api {
+                balancer::add_api(&mut rt.config, api);
+            }
             write_private(&r.config, &serde_json::to_vec_pretty(&rt.config)?)?;
             let mut child = xray.lock().unwrap();
             let _ = child.kill();
