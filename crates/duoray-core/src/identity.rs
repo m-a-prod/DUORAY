@@ -118,10 +118,55 @@ pub fn request_headers(happ: &HappSpoof, device: &Device, send_device_info: bool
     h.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
+/// How one subscription identifies itself, over the app-wide settings.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SubIdentity {
+    pub mode: SubIdentityMode,
+    /// DUORAY mode: `x-hwid` and User-Agent; empty keeps the device's / ours.
+    pub hwid: String,
+    pub user_agent: String,
+    /// Happ mode: this subscription's own Happ fingerprint.
+    pub happ: Option<HappSpoof>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SubIdentityMode {
+    /// As in Settings (DUORAY or the app-wide Happ Spoof).
+    #[default]
+    Settings,
+    Duoray,
+    Happ,
+}
+
+/// Request headers for one subscription. Its own identity, set by hand for
+/// exactly this panel, is sent whole: device info "off" in Settings does
+/// not strip a HWID the user typed or a Happ fingerprint (Happ sends one).
+pub fn subscription_headers(global: &HappSpoof, device: &Device, send_device_info: bool, own: &SubIdentity) -> Vec<(String, String)> {
+    match own.mode {
+        SubIdentityMode::Settings => request_headers(global, device, send_device_info),
+        SubIdentityMode::Duoray => {
+            let duoray = HappSpoof { enabled: false, ..global.clone() };
+            with_custom(request_headers(&duoray, device, send_device_info), &own.hwid, &own.user_agent)
+        }
+        SubIdentityMode::Happ => {
+            let happ = HappSpoof { enabled: true, ..own.happ.clone().unwrap_or_else(|| global.clone()) };
+            request_headers(&happ, device, true)
+        }
+    }
+}
+
+/// A random HWID in the device format (UUID-shaped), for DUORAY mode.
+pub fn random_device_hwid() -> String {
+    let (a, b) = (fastrand::u64(..), fastrand::u64(..));
+    format!("{:08x}-{:04x}-{:04x}-{:04x}-{:012x}", a >> 32, (a >> 16) & 0xffff, a & 0xffff, b >> 48, b & 0xffff_ffff_ffff)
+}
+
 /// A subscription's own HWID and User-Agent over [`request_headers`]; empty
 /// keeps the app-wide value. A HWID set by hand is sent even with device
 /// info off: the user asked for exactly that one.
-pub fn with_custom(mut headers: Vec<(String, String)>, hwid: &str, user_agent: &str) -> Vec<(String, String)> {
+fn with_custom(mut headers: Vec<(String, String)>, hwid: &str, user_agent: &str) -> Vec<(String, String)> {
     for (key, value) in [("User-Agent", user_agent.trim()), ("x-hwid", hwid.trim())] {
         if value.is_empty() {
             continue;
@@ -150,6 +195,29 @@ pub fn header_value_problem(value: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscription_identity_modes() {
+        let device = Device::detect();
+        let global = HappSpoof { enabled: true, ..HappSpoof::default() };
+        let ua = |h: &[(String, String)]| h.iter().find(|(k, _)| k == "User-Agent").unwrap().1.clone();
+        let hwid = |h: &[(String, String)]| h.iter().find(|(k, _)| k == "x-hwid").map(|(_, v)| v.clone());
+
+        let own = SubIdentity::default();
+        assert_eq!(subscription_headers(&global, &device, true, &own), request_headers(&global, &device, true));
+
+        let own = SubIdentity { mode: SubIdentityMode::Duoray, hwid: "H-1".into(), ..Default::default() };
+        let h = subscription_headers(&global, &device, false, &own);
+        assert_eq!(ua(&h), DUORAY_USER_AGENT, "DUORAY mode drops the app-wide Happ");
+        assert_eq!(hwid(&h).as_deref(), Some("H-1"));
+
+        let mine = HappSpoof { os: "iOS".into(), user_id: "12345678901234567890".into(), hwid: "abcd".into(), ..HappSpoof::default() };
+        let own = SubIdentity { mode: SubIdentityMode::Happ, happ: Some(mine), ..Default::default() };
+        let h = subscription_headers(&HappSpoof::default(), &device, false, &own);
+        assert!(ua(&h).starts_with("Happ/") && ua(&h).ends_with("/iOS/12345678901234567890"), "{}", ua(&h));
+        assert_eq!(hwid(&h).as_deref(), Some("abcd"), "Happ fingerprint sent whole");
+        assert_eq!(random_device_hwid().len(), 36);
+    }
 
     #[test]
     fn custom_hwid_and_user_agent() {

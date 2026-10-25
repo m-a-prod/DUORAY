@@ -165,10 +165,8 @@ pub struct Subscription {
     /// Servers the user edited. Re-applied after every update, so an edit
     /// sticks until it is reset.
     pub overrides: Vec<ServerOverride>,
-    /// `x-hwid` for this subscription only; empty: the app-wide one.
-    pub hwid: String,
-    /// User-Agent for this subscription only; empty: the app-wide one.
-    pub user_agent: String,
+    /// Who DUORAY says it is when fetching this subscription.
+    pub identity: crate::identity::SubIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

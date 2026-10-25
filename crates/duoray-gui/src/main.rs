@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use duoray_core::device::Device;
-use duoray_core::identity::{self, HappSpoof};
+use duoray_core::identity::{self, HappSpoof, SubIdentityMode};
 use duoray_core::server::display_name;
 use duoray_core::store::{self, Store, Subscription};
 use duoray_core::subscription;
@@ -409,23 +409,82 @@ fn main() -> anyhow::Result<()> {
             let st = app.lock().unwrap();
             let Some(sub) = current(&ui, &st).filter(|s| !s.is_manual()) else { return };
             let settings = &st.store.settings;
-            let defaults = identity::request_headers(&settings.happ, &device, settings.send_device_info);
-            let default_of = |key: &str| defaults.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
-            ui.set_ident_hwid(sub.hwid.clone().into());
-            ui.set_ident_ua(sub.user_agent.clone().into());
-            ui.set_ident_default_hwid(default_of("x-hwid").unwrap_or_else(|| "не отправляется".into()).into());
-            ui.set_ident_default_ua(default_of("User-Agent").unwrap_or_default().into());
+            let header = |h: &[(String, String)], key: &str| h.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+            let global = identity::request_headers(&settings.happ, &device, settings.send_device_info);
+            let duoray = identity::request_headers(&HappSpoof { enabled: false, ..settings.happ.clone() }, &device, settings.send_device_info);
+            let not_sent = || "не отправляется".to_string();
+            ui.set_ident_settings_ua(header(&global, "User-Agent").unwrap_or_default().into());
+            ui.set_ident_settings_hwid(header(&global, "x-hwid").unwrap_or_else(not_sent).into());
+            ui.set_ident_default_ua(header(&duoray, "User-Agent").unwrap_or_default().into());
+            ui.set_ident_default_hwid(header(&duoray, "x-hwid").unwrap_or_else(not_sent).into());
+            let own = &sub.identity;
+            ui.set_ident_mode(match own.mode {
+                SubIdentityMode::Settings => 0,
+                SubIdentityMode::Duoray => 1,
+                SubIdentityMode::Happ => 2,
+            });
+            ui.set_ident_hwid(own.hwid.clone().into());
+            ui.set_ident_ua(own.user_agent.clone().into());
+            // A subscription new to Happ mode gets a device of its own, so it
+            // does not look like the same phone as the others.
+            let happ = own.happ.clone().unwrap_or_else(|| {
+                let mut h = HappSpoof::default();
+                h.randomize_device();
+                h
+            });
+            load_sub_happ(&ui, &happ);
             ui.set_ident_error("".into());
             ui.set_ident_open(true);
         }
     });
 
+    ui.on_ident_new_hwid({
+        let ui_weak = ui.as_weak();
+        move || ui_weak.unwrap().set_ident_hwid(identity::random_device_hwid().into())
+    });
+    ui.on_ident_new_ids({
+        let ui_weak = ui.as_weak();
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut h = read_sub_happ(&ui);
+            h.randomize_ids();
+            load_sub_happ(&ui, &h);
+        }
+    });
+    ui.on_ident_random_device({
+        let ui_weak = ui.as_weak();
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut h = read_sub_happ(&ui);
+            h.randomize_device();
+            load_sub_happ(&ui, &h);
+        }
+    });
+
     ui.on_save_ident({
         let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
-        move |hwid, user_agent| {
+        move || {
             let ui = ui_weak.unwrap();
-            let (hwid, user_agent) = (hwid.trim().to_string(), user_agent.trim().to_string());
-            for (name, value) in [("HWID", &hwid), ("User-Agent", &user_agent)] {
+            let mode = match ui.get_ident_mode() {
+                1 => SubIdentityMode::Duoray,
+                2 => SubIdentityMode::Happ,
+                _ => SubIdentityMode::Settings,
+            };
+            let happ = read_sub_happ(&ui);
+            let (hwid, user_agent) = (ui.get_ident_hwid().trim().to_string(), ui.get_ident_ua().trim().to_string());
+            let checked: Vec<(&str, &str)> = match mode {
+                SubIdentityMode::Settings => vec![],
+                SubIdentityMode::Duoray => vec![("HWID", &hwid), ("User-Agent", &user_agent)],
+                SubIdentityMode::Happ => vec![
+                    ("Версия Happ", &happ.app_version),
+                    ("Версия ОС", &happ.os_version),
+                    ("Модель", &happ.model),
+                    ("Язык", &happ.locale),
+                    ("User ID", &happ.user_id),
+                    ("HWID", &happ.hwid),
+                ],
+            };
+            for (name, value) in checked {
                 if let Some(problem) = identity::header_value_problem(value) {
                     ui.set_ident_error(format!("{name}: {problem}").into());
                     return;
@@ -435,9 +494,16 @@ fn main() -> anyhow::Result<()> {
                 let mut st = app.lock().unwrap();
                 let Some(i) = usize::try_from(ui.get_current_sub()).ok() else { return };
                 let Some(sub) = st.store.subscriptions.get_mut(i) else { return };
-                let changed = sub.hwid != hwid || sub.user_agent != user_agent;
-                sub.hwid = hwid;
-                sub.user_agent = user_agent;
+                // Fields of the other modes are kept, so switching back restores them.
+                let mut own = sub.identity.clone();
+                own.mode = mode;
+                match mode {
+                    SubIdentityMode::Settings => {}
+                    SubIdentityMode::Duoray => (own.hwid, own.user_agent) = (hwid, user_agent),
+                    SubIdentityMode::Happ => own.happ = Some(happ),
+                }
+                let changed = own != sub.identity;
+                sub.identity = own;
                 let id = sub.id.clone();
                 if changed {
                     save(&mut st);
@@ -865,9 +931,9 @@ fn main() -> anyhow::Result<()> {
                                     slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                                         let ui = ui_weak.unwrap();
                                         snapshot(ui.window(), &prefix.with_extension("edited.png"));
-                                        // The subscription's HWID/User-Agent dialog, with a value it refuses.
+                                        // The subscription's identity dialog in Happ mode (not saved).
                                         ui.invoke_open_ident();
-                                        ui.invoke_save_ident("A1B2C3".into(), "Клиент/1.0".into());
+                                        ui.set_ident_mode(2);
                                         let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                         slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                                             snapshot(ui_weak.unwrap().window(), &prefix.with_extension("ident.png"));
@@ -1584,6 +1650,30 @@ fn read_happ(w: &AppWindow) -> HappSpoof {
     }
 }
 
+/// The Happ fields of the subscription identity dialog.
+fn load_sub_happ(w: &AppWindow, h: &HappSpoof) {
+    w.set_ih_version(h.app_version.clone().into());
+    w.set_ih_os(h.os.clone().into());
+    w.set_ih_os_version(h.os_version.clone().into());
+    w.set_ih_model(h.model.clone().into());
+    w.set_ih_locale(h.locale.clone().into());
+    w.set_ih_user_id(h.user_id.clone().into());
+    w.set_ih_hwid(h.hwid.clone().into());
+}
+
+fn read_sub_happ(w: &AppWindow) -> HappSpoof {
+    HappSpoof {
+        enabled: true,
+        app_version: w.get_ih_version().trim().to_string(),
+        os: w.get_ih_os().trim().to_string(),
+        os_version: w.get_ih_os_version().trim().to_string(),
+        model: w.get_ih_model().trim().to_string(),
+        locale: w.get_ih_locale().trim().to_string(),
+        user_id: w.get_ih_user_id().trim().to_string(),
+        hwid: w.get_ih_hwid().trim().to_string(),
+    }
+}
+
 fn current<'a>(ui: &AppWindow, st: &'a App) -> Option<&'a Subscription> {
     usize::try_from(ui.get_current_sub()).ok().and_then(|i| st.store.subscriptions.get(i))
 }
@@ -1607,14 +1697,14 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
             return;
         }
         let (url, fallback) = (sub.url.clone(), sub.info.fallback_url.clone());
-        let (hwid, user_agent) = (sub.hwid.clone(), sub.user_agent.clone());
+        let own = sub.identity.clone();
         let proxy = st.conn.as_ref().map(|c| match c.user.as_str() {
             // Proxy mode: no password.
             "" => format!("socks5h://{}", c.socks),
             user => format!("socks5h://{user}:{}@{}", c.pass, c.socks),
         });
-        let headers = identity::request_headers(&st.store.settings.happ, device, st.store.settings.send_device_info);
-        (url, fallback, identity::with_custom(headers, &hwid, &user_agent), proxy)
+        let settings = &st.store.settings;
+        (url, fallback, identity::subscription_headers(&settings.happ, device, settings.send_device_info, &own), proxy)
     };
     render(ui, &app.lock().unwrap());
 

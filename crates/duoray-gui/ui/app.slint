@@ -2704,16 +2704,32 @@ export component AppWindow inherits Window {
     callback disconnect-current();
     callback install-helper();
 
-    // A subscription's own HWID and User-Agent (the ⋯ menu).
+    // How the current subscription identifies itself (the ⋯ menu):
+    // 0 as in Settings, 1 DUORAY with its own HWID / User-Agent, 2 Happ.
     in-out property <bool> ident-open;
-    in property <string> ident-hwid;
-    in property <string> ident-ua;
-    // What is sent when a field is empty.
+    in-out property <int> ident-mode;
+    in-out property <string> ident-hwid;
+    in-out property <string> ident-ua;
+    // DUORAY mode: what an empty field sends.
     in property <string> ident-default-hwid;
     in property <string> ident-default-ua;
+    // What Settings send (mode 0).
+    in property <string> ident-settings-ua;
+    in property <string> ident-settings-hwid;
+    // Happ mode: this subscription's own fingerprint.
+    in-out property <string> ih-version;
+    in-out property <string> ih-os;
+    in-out property <string> ih-os-version;
+    in-out property <string> ih-model;
+    in-out property <string> ih-locale;
+    in-out property <string> ih-user-id;
+    in-out property <string> ih-hwid;
     in property <string> ident-error;
     callback open-ident();
-    callback save-ident(string, string);
+    callback save-ident();
+    callback ident-new-hwid();
+    callback ident-new-ids();
+    callback ident-random-device();
 
     // Server context menu and editor.
     callback ping-server(int);
@@ -3731,7 +3747,7 @@ export component AppWindow inherits Window {
                                     }
                                 }
                                 if !root.manual-selected: MenuItem {
-                                    text: "HWID и User-Agent";
+                                    text: "Подмена HWID";
                                     clicked => {
                                         sub-menu.close();
                                         root.open-ident();
@@ -4125,7 +4141,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    // ── A subscription's own HWID and User-Agent ───────────────
+    // ── How one subscription identifies itself ─────────────────
     if root.ident-open: Rectangle {
         property <float> shown: 0;
         init => {
@@ -4137,7 +4153,7 @@ export component AppWindow inherits Window {
         TouchArea { }
         Rectangle {
             transform-scale: 0.96 + 0.04 * parent.shown;
-            width: min(560px, parent.width - 40px);
+            width: min(620px, parent.width - 40px);
             height: ident-layout.preferred-height;
             border-radius: 16px;
             background: Theme.bg;
@@ -4148,30 +4164,127 @@ export component AppWindow inherits Window {
                 padding: 22px;
                 spacing: 10px;
                 Text {
-                    text: "HWID и User-Agent";
+                    text: "Подмена HWID";
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
                 Text {
-                    text: "Только для этой подписки: с ними DUORAY запрашивает её у панели. Пустое поле — как у остальных подписок.";
+                    text: "Кем DUORAY представляется панели, когда запрашивает эту подписку. Остальные подписки это не меняет.";
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
-                FieldLabel { text: "HWID (x-hwid)"; }
-                hwid-edit := TextField {
-                    text: root.ident-hwid;
-                    placeholder: root.ident-default-hwid;
-                    accepted => {
-                        root.save-ident(hwid-edit.text, ua-edit.text);
+                HorizontalLayout {
+                    spacing: 12px;
+                    FieldLabel { text: "Представляться"; }
+                    ComboBox {
+                        model: ["Как в настройках", "DUORAY", "Happ"];
+                        current-index <=> root.ident-mode;
                     }
                 }
-                FieldLabel { text: "User-Agent"; }
-                ua-edit := TextField {
-                    text: root.ident-ua;
-                    placeholder: root.ident-default-ua;
-                    accepted => {
-                        root.save-ident(hwid-edit.text, ua-edit.text);
+
+                if root.ident-mode == 1: VerticalLayout {
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel { text: "HWID"; }
+                        TextField {
+                            text <=> root.ident-hwid;
+                            placeholder: root.ident-default-hwid;
+                        }
+                        Button {
+                            text: "Сгенерировать";
+                            clicked => {
+                                root.ident-new-hwid();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel { text: "User-Agent"; }
+                        TextField {
+                            text <=> root.ident-ua;
+                            placeholder: root.ident-default-ua;
+                        }
+                    }
+                }
+
+                if root.ident-mode == 2: VerticalLayout {
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel { text: "Версия Happ"; }
+                        TextField { text <=> root.ih-version; horizontal-stretch: 1; preferred-width: 100px; }
+                        FieldLabel { text: "ОС"; width: 80px; }
+                        ComboBox {
+                            min-width: 0;
+                            preferred-width: 100px;
+                            horizontal-stretch: 1;
+                            model: ["macOS", "Windows", "iOS", "Android"];
+                            by-value: true;
+                            current-value <=> root.ih-os;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel { text: "Версия ОС"; }
+                        TextField { text <=> root.ih-os-version; horizontal-stretch: 1; preferred-width: 100px; }
+                        FieldLabel { text: "Модель"; width: 80px; }
+                        TextField { text <=> root.ih-model; horizontal-stretch: 1; preferred-width: 100px; }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel { text: "Язык"; }
+                        TextField { text <=> root.ih-locale; horizontal-stretch: 1; preferred-width: 100px; }
+                        FieldLabel { text: "User ID"; width: 80px; }
+                        TextField { text <=> root.ih-user-id; horizontal-stretch: 1; preferred-width: 100px; }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel { text: "HWID"; }
+                        TextField { text <=> root.ih-hwid; horizontal-stretch: 1; preferred-width: 100px; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        padding-left: 162px;
+                        Button {
+                            text: "Новые ID";
+                            clicked => {
+                                root.ident-new-ids();
+                            }
+                        }
+                        Button {
+                            text: "Случайное устройство";
+                            clicked => {
+                                root.ident-random-device();
+                            }
+                        }
+                    }
+                }
+
+                Divider { }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "Будет отправлено";
+                        font-size: Theme.fs-small;
+                        font-weight: 700;
+                        color: Theme.muted;
+                    }
+                    Text {
+                        text: "User-Agent: " + (root.ident-mode == 2 ? "Happ/" + root.ih-version + "/" + root.ih-os + "/" + root.ih-user-id
+                            : root.ident-mode == 1 ? (root.ident-ua != "" ? root.ident-ua : root.ident-default-ua)
+                            : root.ident-settings-ua);
+                        font-size: Theme.fs-small;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: "x-hwid: " + (root.ident-mode == 2 ? root.ih-hwid
+                            : root.ident-mode == 1 ? (root.ident-hwid != "" ? root.ident-hwid : root.ident-default-hwid)
+                            : root.ident-settings-hwid);
+                        font-size: Theme.fs-small;
+                        wrap: word-wrap;
                     }
                 }
                 if root.ident-error != "": Text {
@@ -4181,15 +4294,8 @@ export component AppWindow inherits Window {
                     wrap: word-wrap;
                 }
                 HorizontalLayout {
+                    alignment: end;
                     spacing: 8px;
-                    Button {
-                        text: "Сбросить";
-                        clicked => {
-                            hwid-edit.text = "";
-                            ua-edit.text = "";
-                        }
-                    }
-                    Rectangle { horizontal-stretch: 1; }
                     Button {
                         text: "Отмена";
                         clicked => {
@@ -4200,7 +4306,7 @@ export component AppWindow inherits Window {
                         text: "Сохранить";
                         primary: true;
                         clicked => {
-                            root.save-ident(hwid-edit.text, ua-edit.text);
+                            root.save-ident();
                         }
                     }
                 }
