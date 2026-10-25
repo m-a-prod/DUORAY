@@ -2061,6 +2061,17 @@ const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
         2,
         Some(Palette { light: true, bg: 0xeff1f5, card: 0xe6e9ef, fg: 0x4c4f69, line: 0x9ca0b0, accent: 0x8839ef, on_accent: 0xffffff, tonal: 0xccd0da, on_tonal: 0x4c4f69, track: 0xdce0e8, outline: None }),
     ),
+    // From a user's palette (#FFF5F5, #F7D6D0, #E2B4BD, #4A4A4A): near-white
+    // warm surfaces, the peach only where something is selected, and the
+    // coral deepened so icons and white button text keep their contrast.
+    (
+        "coral",
+        "Коралловая",
+        2,
+        Some(Palette { light: true, bg: 0xfffaf9, card: 0xfbeeeb, fg: 0x3d3838, line: 0xc9a6ac, accent: 0xc75545, on_accent: 0xffffff, tonal: 0xf7d6d0, on_tonal: 0x3d3838, track: 0xecd8d6, outline: None }),
+    ),
+    // Its dark pair: warm plum-brown surfaces, a light coral accent.
+    ("coral-dark", "Тёмно-коралловая", 1, Some(dark([0x2a2022, 0x221a1c, 0xf2e4e2, 0x8c6f72, 0xf08a76, 0x3a1510, 0x4a3336, 0xf2e4e2, 0x3b2c2f]))),
     ("tokyo-night", "Tokyo Night", 1, Some(dark([0x1a1b26, 0x16161e, 0xc0caf5, 0x565f89, 0x7aa2f7, 0x1a1b26, 0x343a55, 0xc0caf5, 0x292e42]))),
     ("dracula", "Dracula", 1, Some(dark([0x282a36, 0x21222c, 0xf8f8f2, 0x6272a4, 0xbd93f9, 0x282a36, 0x44475a, 0xf8f8f2, 0x343746]))),
     ("nord", "Nord", 1, Some(dark([0x2e3440, 0x272c36, 0xeceff4, 0x616e88, 0x88c0d0, 0x2e3440, 0x434c5e, 0xeceff4, 0x3b4252]))),
