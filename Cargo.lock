@@ -1292,6 +1292,8 @@ dependencies = [
  "directories",
  "fastrand",
  "percent-encoding",
+ "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tempfile",

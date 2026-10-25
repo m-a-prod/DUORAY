@@ -19,6 +19,7 @@ use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs, UdpSocket};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
+use crate::cert_pin;
 use crate::routing::{self, GeoData, RoutingSettings};
 use crate::server::{Server, Source};
 use crate::xray;
@@ -61,14 +62,64 @@ pub struct Routing<'a> {
 const SERVICE_PROTOCOLS: &[&str] = &["freedom", "blackhole", "dns", "loopback"];
 
 pub fn build(server: &Server, iface: &str, routing: Option<Routing>) -> Result<Runtime> {
-    build_with(server, iface, routing, |host| {
+    let mut rt = build_with(server, iface, routing, |host| {
         (host, 0)
             .to_socket_addrs()
             .with_context(|| format!("cannot resolve {host}"))?
             .map(|a| a.ip())
             .find(IpAddr::is_ipv4)
             .with_context(|| format!("{host} has no IPv4 address"))
-    })
+    })?;
+    replace_allow_insecure(&mut rt.config, cert_pin::leaf_sha256);
+    Ok(rt)
+}
+
+type TlsTarget = (IpAddr, u16, String);
+
+/// Swaps `tlsSettings.allowInsecure`, which xray refuses since 2026-06-01, for
+/// a pin of the certificate the server presents now (see [`cert_pin`]). Runs
+/// after names are resolved, so it dials the IP xray will. A server that
+/// cannot be reached just loses the flag and xray verifies it as usual.
+fn replace_allow_insecure(config: &mut Value, leaf_sha256: impl Fn(IpAddr, u16, &str) -> Result<String> + Sync) {
+    let Some(outbounds) = config["outbounds"].as_array_mut() else { return };
+    // (outbound index, the server to fetch the certificate from)
+    let targets: Vec<(usize, Option<TlsTarget>)> = outbounds
+        .iter()
+        .enumerate()
+        .filter(|(_, ob)| ob["streamSettings"]["tlsSettings"]["allowInsecure"] == json!(true))
+        .map(|(i, ob)| {
+            let tls = &ob["streamSettings"]["tlsSettings"];
+            let pinned = tls["pinnedPeerCertSha256"].as_str().is_some_and(|v| !v.trim().is_empty());
+            // Hysteria runs over QUIC: nothing answers TLS on TCP there.
+            let quic = ob["protocol"] == "hysteria" || ob["streamSettings"]["network"] == "hysteria";
+            let target = (!pinned && !quic)
+                .then(|| endpoints_of(&ob["settings"]).into_iter().next())
+                .flatten()
+                .and_then(|ep| {
+                    let ip: IpAddr = ep["address"].as_str()?.parse().ok()?;
+                    let port = u16::try_from(ep["port"].as_u64()?).ok()?;
+                    let sni = tls["serverName"].as_str().filter(|s| !s.is_empty()).map_or_else(|| ip.to_string(), String::from);
+                    Some((ip, port, sni))
+                });
+            (i, target)
+        })
+        .collect();
+    let hashes: Vec<(usize, Option<String>)> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = targets
+            .iter()
+            .map(|(i, t)| (*i, t.as_ref().map(|(ip, port, sni)| scope.spawn(|| leaf_sha256(*ip, *port, sni)))))
+            .collect();
+        jobs.into_iter().map(|(i, job)| (i, job.and_then(|j| j.join().ok()?.ok()))).collect()
+    });
+    for (i, hash) in hashes {
+        let tls = &mut outbounds[i]["streamSettings"]["tlsSettings"];
+        if let Some(tls) = tls.as_object_mut() {
+            tls.remove("allowInsecure");
+        }
+        if let Some(hash) = hash {
+            tls["pinnedPeerCertSha256"] = json!(hash);
+        }
+    }
 }
 
 pub fn build_with(
@@ -321,6 +372,38 @@ mod tests {
         assert_eq!(ips, ["1.2.3.4", "8.8.4.4", "9.9.9.9"]);
         assert!(rt.socks.ip().is_loopback());
         assert_eq!(rt.pass.len(), 32);
+    }
+
+    #[test]
+    fn allow_insecure_becomes_a_pinned_certificate() {
+        let tls = |extra: Value| {
+            let mut t = json!({"serverName": "a.example", "allowInsecure": true});
+            t.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            t
+        };
+        let mut config = json!({"outbounds": [
+            {"protocol": "trojan", "settings": {"servers": [{"address": "1.2.3.4", "port": 8443}]},
+             "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": tls(json!({}))}},
+            {"protocol": "vless", "settings": {"vnext": [{"address": "5.6.7.8", "port": 443}]},
+             "streamSettings": {"security": "tls", "tlsSettings": tls(json!({"pinnedPeerCertSha256": "ab"}))}},
+            {"protocol": "hysteria", "settings": {"address": "9.9.9.9", "port": 443},
+             "streamSettings": {"network": "hysteria", "security": "tls", "tlsSettings": tls(json!({}))}},
+            {"protocol": "vless", "settings": {"vnext": [{"address": "4.4.4.4", "port": 443}]},
+             "streamSettings": {"security": "tls", "tlsSettings": tls(json!({}))}},
+            {"protocol": "vless", "settings": {"vnext": [{"address": "8.8.8.8", "port": 443}]},
+             "streamSettings": {"security": "tls", "tlsSettings": {"serverName": "b.example"}}}
+        ]});
+        replace_allow_insecure(&mut config, |ip, port, sni| match (ip.to_string().as_str(), port, sni) {
+            ("1.2.3.4", 8443, "a.example") => Ok("11".repeat(32)),
+            ("4.4.4.4", ..) => bail!("unreachable"),
+            other => panic!("unexpected dial {other:?}"),
+        });
+        let tls_of = |i: usize| config["outbounds"][i]["streamSettings"]["tlsSettings"].clone();
+        assert_eq!(tls_of(0), json!({"serverName": "a.example", "pinnedPeerCertSha256": "11".repeat(32)}));
+        assert_eq!(tls_of(1), json!({"serverName": "a.example", "pinnedPeerCertSha256": "ab"}), "own pin kept");
+        assert_eq!(tls_of(2), json!({"serverName": "a.example"}), "QUIC: flag dropped, nothing dialed");
+        assert_eq!(tls_of(3), json!({"serverName": "a.example"}), "unreachable: flag dropped");
+        assert_eq!(tls_of(4), json!({"serverName": "b.example"}), "no flag: untouched");
     }
 
     #[test]
