@@ -9,7 +9,10 @@ set -eu
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
-XRAY_VERSION=v26.10.21
+# The newest stable xray-core (XRAY_VERSION=vX.Y.Z pins one), from GitHub's
+# releases/latest redirect.
+XRAY_VERSION=${XRAY_VERSION:-$(curl -fsSI --retry 3 --connect-timeout 20 https://github.com/XTLS/Xray-core/releases/latest 2>/dev/null |
+    sed -n 's|^[Ll]ocation: .*/tag/\([^[:space:]]*\).*|\1|p')}
 LIB=/usr/lib/duoray
 LIBEXEC=/usr/libexec/duoray
 
@@ -44,14 +47,15 @@ command -v restorecon >/dev/null 2>&1 && restorecon -RF "$LIB" "$LIBEXEC" || tru
 # xray: the official build, checked against its published SHA-256.
 if [ ! -x "$LIB/xray" ] || ! "$LIB/xray" version 2>/dev/null | grep -q "Xray ${XRAY_VERSION#v} "; then
     case "$(uname -m)" in
-        x86_64) ZIP=Xray-linux-64.zip; SHA=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae ;;
-        aarch64|arm64) ZIP=Xray-linux-arm64-v8a.zip; SHA=4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c ;;
+        x86_64) ZIP=Xray-linux-64.zip ;;
+        aarch64|arm64) ZIP=Xray-linux-arm64-v8a.zip ;;
         *) ZIP= ;;
     esac
     if [ -n "$ZIP" ]; then
         tmp=$(mktemp -d)
         trap 'rm -rf "$tmp"' EXIT
         echo "Скачиваю xray $XRAY_VERSION…"
+        SHA=$(curl -fsSL --retry 3 --connect-timeout 20 "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$ZIP.dgst" | sed -n 's/^SHA2-256= *//p')
         curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$tmp/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$ZIP"
         echo "$SHA  $tmp/xray.zip" | sha256sum -c - >/dev/null
         if command -v unzip >/dev/null 2>&1; then

@@ -9,10 +9,13 @@ set -eu
 cd "$(dirname "$0")/../.."
 
 ARCH=${1:-$(uname -m)}
-XRAY_VERSION=v26.10.21
+# The newest stable xray-core (wintun and the geo databases come in its
+# archive); XRAY_VERSION=vX.Y.Z pins one.
+. packaging/latest.sh
+XRAY_VERSION=${XRAY_VERSION:-$(latest_tag XTLS/Xray-core)}
 case "$ARCH" in
-    x86_64) XRAY_ZIP=Xray-linux-64.zip; XRAY_SHA256=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae ;;
-    aarch64|arm64) ARCH=aarch64; XRAY_ZIP=Xray-linux-arm64-v8a.zip; XRAY_SHA256=4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c ;;
+    x86_64) XRAY_ZIP=Xray-linux-64.zip ;;
+    aarch64|arm64) ARCH=aarch64; XRAY_ZIP=Xray-linux-arm64-v8a.zip ;;
     *) echo "unsupported arch: $ARCH (x86_64|aarch64)" >&2; exit 1 ;;
 esac
 # Old glibc on purpose: binaries built against it run on any newer one.
@@ -25,6 +28,7 @@ cargo zigbuild --release --target "$TARGET.$GLIBC" -p duoray-gui -p duoray-helpe
 BIN=target/$TARGET/release
 
 mkdir -p "$CACHE"
+XRAY_SHA256=$(xray_sha256 "$XRAY_VERSION" "$XRAY_ZIP")
 if [ ! -f "$CACHE/$XRAY_ZIP" ] || ! echo "$XRAY_SHA256  $CACHE/$XRAY_ZIP" | sha256sum -c - >/dev/null 2>&1; then
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$CACHE/$XRAY_ZIP" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
     echo "$XRAY_SHA256  $CACHE/$XRAY_ZIP" | sha256sum -c -

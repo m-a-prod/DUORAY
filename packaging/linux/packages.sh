@@ -26,14 +26,20 @@ else
     packaging/linux/stage.sh "$ARCH"
 fi
 
-# nfpm: pinned release, checked against its published SHA-256.
-NFPM_VERSION=2.47.0
+# nfpm: the newest stable release (NFPM_VERSION=X.Y.Z pins one), checked
+# against the checksums.txt published with it.
+. packaging/latest.sh
+NFPM_VERSION=${NFPM_VERSION:-$(latest_tag goreleaser/nfpm)}
+NFPM_VERSION=${NFPM_VERSION#v}
 case "$(uname -m)" in
-    x86_64) NFPM_TAR=nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz; NFPM_SHA=0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783 ;;
-    aarch64|arm64) NFPM_TAR=nfpm_${NFPM_VERSION}_Linux_arm64.tar.gz; NFPM_SHA=1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c ;;
+    x86_64) NFPM_TAR=nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz ;;
+    aarch64|arm64) NFPM_TAR=nfpm_${NFPM_VERSION}_Linux_arm64.tar.gz ;;
 esac
 NFPM=$CACHE/nfpm-$NFPM_VERSION/nfpm
 if [ ! -x "$NFPM" ]; then
+    NFPM_SHA=$(curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/checksums.txt" |
+        awk -v f="$NFPM_TAR" '$2 == f { print $1 }')
+    [ -n "$NFPM_SHA" ] || { echo "no checksum published for $NFPM_TAR" >&2; exit 1; }
     mkdir -p "$CACHE/nfpm-$NFPM_VERSION"
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$CACHE/$NFPM_TAR" "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/$NFPM_TAR"
     echo "$NFPM_SHA  $CACHE/$NFPM_TAR" | sha256sum -c -

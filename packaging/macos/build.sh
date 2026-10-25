@@ -12,10 +12,13 @@ cd "$(dirname "$0")/../.."
 
 ARCH=${1:-$(uname -m)}
 [ "$ARCH" = arm64 ] && ARCH=aarch64
-XRAY_VERSION=v26.10.21
+# The newest stable xray-core (wintun and the geo databases come in its
+# archive); XRAY_VERSION=vX.Y.Z pins one.
+. packaging/latest.sh
+XRAY_VERSION=${XRAY_VERSION:-$(latest_tag XTLS/Xray-core)}
 case "$ARCH" in
-    aarch64) XRAY_ZIP=Xray-macos-arm64-v8a.zip; XRAY_SHA256=2e93a67e8aa1936ecefb307e120830fcbd4c643ab9b1c46a2d0838d5f8409eaf ;;
-    x86_64) XRAY_ZIP=Xray-macos-64.zip; XRAY_SHA256=f5b0471d3459eff1b82e48af0aeac186abcc3298210070afbbbd8437a4e8b203 ;;
+    aarch64) XRAY_ZIP=Xray-macos-arm64-v8a.zip ;;
+    x86_64) XRAY_ZIP=Xray-macos-64.zip ;;
     *) echo "unsupported arch: $ARCH (aarch64|x86_64)" >&2; exit 1 ;;
 esac
 TARGET=$ARCH-apple-darwin
@@ -36,6 +39,7 @@ BIN=target/$TARGET/release
 
 rm -rf "$WORK"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" dist
+XRAY_SHA256=$(xray_sha256 "$XRAY_VERSION" "$XRAY_ZIP")
 curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$WORK/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
 echo "$XRAY_SHA256  $WORK/xray.zip" | shasum -a 256 -c -
 unzip -q "$WORK/xray.zip" -d "$WORK/xray"
