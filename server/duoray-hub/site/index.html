@@ -183,6 +183,19 @@ h1 .name {
 .wait .w-dot { background: var(--a-warn); }
 .on .w-dot { background: var(--a-ok); box-shadow: 0 0 0 3px #30a46c33; }
 .w-status small { display: block; margin: 2px 0 10px 18px; color: var(--a-muted); font-size: 12px; }
+/* Connected: a status line, then the exit country with its flag, as in the app. */
+.w-exit { display: none; }
+.on .w-exit { display: block; }
+@media (prefers-reduced-motion: no-preference) { .on .w-exit { animation: w-in .35s ease-out; } }
+.on .w-off { display: none; }
+.w-exit .w-st b { color: var(--a-ok); font-size: 12px; }
+.w-exit .w-dot { width: 8px; height: 8px; box-shadow: none; }
+.w-exit .ping { margin-left: auto; }
+.w-country { display: flex; align-items: center; gap: 12px; margin: 10px 0 12px; }
+.w-country svg { width: 42px; height: 30px; flex: none; }
+.w-country b { display: block; font: 700 17px Onest, sans-serif; }
+.w-country small { margin: 1px 0 0; }
+@keyframes w-in { from { opacity: 0; transform: translateY(3px); } }
 .w-btn {
   display: block; width: 100%; padding: 9px 12px; border: 0; border-radius: 999px; cursor: pointer;
   background: var(--a-accent); color: var(--a-on-accent); font: 600 13px Onest, sans-serif; text-align: center;
@@ -211,8 +224,7 @@ h1 .name {
 .ping.ok { color: var(--a-ok); background: #30a46c24; }
 .ping.warn { color: var(--a-warn); background: #f5a52424; }
 .tag { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--a-border); color: var(--a-muted); font-size: 12px; white-space: nowrap; }
-.w-st .ping { min-width: 0; opacity: 0; transition: opacity .4s; }
-.on .w-st .ping { opacity: 1; }
+.w-st .ping { min-width: 0; }
 
 @container (max-width: 860px) {
   .tag { display: none; }
@@ -460,8 +472,17 @@ footer a:hover, .src a:hover { color: var(--pink); }
             <div class="w-label w-row" aria-hidden="true">Подписки <svg class="w-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
             <div class="w-sub" aria-hidden="true"><b>DUALIZM</b><small>66 серверов · безлимит</small></div>
             <div class="w-status">
-              <div class="w-st" aria-hidden="true"><span class="w-dot"></span><b id="w-state">Отключено</b><span class="ping ok" data-base="38">38 мс</span></div>
-              <small aria-hidden="true">Wi-Fi • Авто-выбор</small>
+              <div class="w-off" aria-hidden="true">
+                <div class="w-st"><span class="w-dot"></span><b id="w-state">Отключено</b></div>
+                <small>Wi-Fi • Авто-выбор</small>
+              </div>
+              <div class="w-exit" aria-hidden="true">
+                <div class="w-st"><span class="w-dot"></span><b>Подключено</b><span class="ping ok" data-base="38">38 мс</span></div>
+                <div class="w-country">
+                  <svg viewBox="0 5 36 26"><path fill="#EEE" d="M0 14h36v8H0z"/><path fill="#AE1F28" d="M32 5H4C1.791 5 0 6.791 0 9v5h36V9c0-2.209-1.791-4-4-4z"/><path fill="#20478B" d="M4 31h28c2.209 0 4-1.791 4-4v-5H0v5c0 2.209 1.791 4 4 4z"/></svg>
+                  <div><b>Нидерланды</b><small>Wi-Fi • Авто-выбор</small></div>
+                </div>
+              </div>
               <button class="w-btn toggle" type="button" id="w-toggle" aria-pressed="false"><span class="vh">Демонстрация: </span><span id="w-toggle-text">Подключиться</span></button>
             </div>
             <div class="w-nav" aria-hidden="true"><span class="w-btn flat">Маршрутизация</span><span class="w-btn flat">Настройки</span></div>
