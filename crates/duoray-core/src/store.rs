@@ -165,6 +165,10 @@ pub struct Subscription {
     /// Servers the user edited. Re-applied after every update, so an edit
     /// sticks until it is reset.
     pub overrides: Vec<ServerOverride>,
+    /// `x-hwid` for this subscription only; empty: the app-wide one.
+    pub hwid: String,
+    /// User-Agent for this subscription only; empty: the app-wide one.
+    pub user_agent: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

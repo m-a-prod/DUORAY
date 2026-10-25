@@ -402,6 +402,56 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    ui.on_open_ident({
+        let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let st = app.lock().unwrap();
+            let Some(sub) = current(&ui, &st).filter(|s| !s.is_manual()) else { return };
+            let settings = &st.store.settings;
+            let defaults = identity::request_headers(&settings.happ, &device, settings.send_device_info);
+            let default_of = |key: &str| defaults.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+            ui.set_ident_hwid(sub.hwid.clone().into());
+            ui.set_ident_ua(sub.user_agent.clone().into());
+            ui.set_ident_default_hwid(default_of("x-hwid").unwrap_or_else(|| "не отправляется".into()).into());
+            ui.set_ident_default_ua(default_of("User-Agent").unwrap_or_default().into());
+            ui.set_ident_error("".into());
+            ui.set_ident_open(true);
+        }
+    });
+
+    ui.on_save_ident({
+        let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
+        move |hwid, user_agent| {
+            let ui = ui_weak.unwrap();
+            let (hwid, user_agent) = (hwid.trim().to_string(), user_agent.trim().to_string());
+            for (name, value) in [("HWID", &hwid), ("User-Agent", &user_agent)] {
+                if let Some(problem) = identity::header_value_problem(value) {
+                    ui.set_ident_error(format!("{name}: {problem}").into());
+                    return;
+                }
+            }
+            let id = {
+                let mut st = app.lock().unwrap();
+                let Some(i) = usize::try_from(ui.get_current_sub()).ok() else { return };
+                let Some(sub) = st.store.subscriptions.get_mut(i) else { return };
+                let changed = sub.hwid != hwid || sub.user_agent != user_agent;
+                sub.hwid = hwid;
+                sub.user_agent = user_agent;
+                let id = sub.id.clone();
+                if changed {
+                    save(&mut st);
+                }
+                changed.then_some(id)
+            };
+            ui.set_ident_open(false);
+            // The panel may answer differently to the new identity.
+            if let Some(id) = id {
+                refresh(&ui, &app, &device, id);
+            }
+        }
+    });
+
     ui.on_refresh_current({
         let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
         move || {
@@ -813,8 +863,16 @@ fn main() -> anyhow::Result<()> {
                                     ui.invoke_editor_save();
                                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                     slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
-                                        snapshot(ui_weak.unwrap().window(), &prefix.with_extension("edited.png"));
-                                        let _ = slint::quit_event_loop();
+                                        let ui = ui_weak.unwrap();
+                                        snapshot(ui.window(), &prefix.with_extension("edited.png"));
+                                        // The subscription's HWID/User-Agent dialog, with a value it refuses.
+                                        ui.invoke_open_ident();
+                                        ui.invoke_save_ident("A1B2C3".into(), "Клиент/1.0".into());
+                                        let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                                        slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                                            snapshot(ui_weak.unwrap().window(), &prefix.with_extension("ident.png"));
+                                            let _ = slint::quit_event_loop();
+                                        });
                                     });
                                 });
                             });
@@ -1549,12 +1607,14 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
             return;
         }
         let (url, fallback) = (sub.url.clone(), sub.info.fallback_url.clone());
+        let (hwid, user_agent) = (sub.hwid.clone(), sub.user_agent.clone());
         let proxy = st.conn.as_ref().map(|c| match c.user.as_str() {
             // Proxy mode: no password.
             "" => format!("socks5h://{}", c.socks),
             user => format!("socks5h://{user}:{}@{}", c.pass, c.socks),
         });
-        (url, fallback, identity::request_headers(&st.store.settings.happ, device, st.store.settings.send_device_info), proxy)
+        let headers = identity::request_headers(&st.store.settings.happ, device, st.store.settings.send_device_info);
+        (url, fallback, identity::with_custom(headers, &hwid, &user_agent), proxy)
     };
     render(ui, &app.lock().unwrap());
 

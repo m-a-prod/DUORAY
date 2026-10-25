@@ -118,9 +118,50 @@ pub fn request_headers(happ: &HappSpoof, device: &Device, send_device_info: bool
     h.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
+/// A subscription's own HWID and User-Agent over [`request_headers`]; empty
+/// keeps the app-wide value. A HWID set by hand is sent even with device
+/// info off: the user asked for exactly that one.
+pub fn with_custom(mut headers: Vec<(String, String)>, hwid: &str, user_agent: &str) -> Vec<(String, String)> {
+    for (key, value) in [("User-Agent", user_agent.trim()), ("x-hwid", hwid.trim())] {
+        if value.is_empty() {
+            continue;
+        }
+        match headers.iter_mut().find(|(k, _)| k == key) {
+            Some(h) => h.1 = value.to_string(),
+            None => headers.push((key.to_string(), value.to_string())),
+        }
+    }
+    headers
+}
+
+/// Why a hand-typed header value cannot be sent, if it cannot: HTTP header
+/// values are one line of printable ASCII.
+pub fn header_value_problem(value: &str) -> Option<&'static str> {
+    let value = value.trim();
+    if value.len() > 512 {
+        Some("слишком длинное значение (больше 512 символов)")
+    } else if !value.bytes().all(|b| (0x20..0x7f).contains(&b)) {
+        Some("только латиница, цифры и знаки, без переносов строк")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_hwid_and_user_agent() {
+        let base = request_headers(&HappSpoof::default(), &Device::detect(), false);
+        assert_eq!(with_custom(base.clone(), "", " "), base, "empty keeps the defaults");
+        let h = with_custom(base, " ABC-1 ", "MyClient/2");
+        assert_eq!(h[0], ("User-Agent".to_string(), "MyClient/2".to_string()));
+        assert!(h.contains(&("x-hwid".to_string(), "ABC-1".to_string())), "sent even with device info off");
+        assert_eq!(header_value_problem("Happ/3.1 (iPhone)"), None);
+        assert!(header_value_problem("a\nb").is_some());
+        assert!(header_value_problem("хвид").is_some());
+    }
 
     #[test]
     fn happ_user_agent_format() {

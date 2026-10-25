@@ -2704,6 +2704,17 @@ export component AppWindow inherits Window {
     callback disconnect-current();
     callback install-helper();
 
+    // A subscription's own HWID and User-Agent (the ⋯ menu).
+    in-out property <bool> ident-open;
+    in property <string> ident-hwid;
+    in property <string> ident-ua;
+    // What is sent when a field is empty.
+    in property <string> ident-default-hwid;
+    in property <string> ident-default-ua;
+    in property <string> ident-error;
+    callback open-ident();
+    callback save-ident(string, string);
+
     // Server context menu and editor.
     callback ping-server(int);
     callback edit-server(int);
@@ -2830,7 +2841,7 @@ export component AppWindow inherits Window {
     forward-focus: shortcuts;
     shortcuts := FocusScope {
         key-pressed(e) => {
-            if root.adding || root.consent-open || root.report-open || root.editor-open || root.helper-dialog {
+            if root.adding || root.consent-open || root.report-open || root.editor-open || root.helper-dialog || root.ident-open {
                 return reject;
             }
             if e.text == Key.Return && !e.modifiers.control && !e.modifiers.alt && !e.modifiers.meta {
@@ -3719,6 +3730,13 @@ export component AppWindow inherits Window {
                                         sub-menu.close();
                                     }
                                 }
+                                if !root.manual-selected: MenuItem {
+                                    text: "HWID и User-Agent";
+                                    clicked => {
+                                        sub-menu.close();
+                                        root.open-ident();
+                                    }
+                                }
                                 MenuItem {
                                     text: root.confirm-menu-delete ? "Точно удалить?" : "Удалить подписку";
                                     danger: true;
@@ -4100,6 +4118,89 @@ export component AppWindow inherits Window {
                         primary: true;
                         clicked => {
                             root.add-subscription(url-edit.text, name-edit.text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── A subscription's own HWID and User-Agent ───────────────
+    if root.ident-open: Rectangle {
+        property <float> shown: 0;
+        init => {
+            self.shown = 1;
+        }
+        animate shown { duration: 180ms; easing: ease-out; }
+        background: #000000a0;
+        opacity: self.shown;
+        TouchArea { }
+        Rectangle {
+            transform-scale: 0.96 + 0.04 * parent.shown;
+            width: min(560px, parent.width - 40px);
+            height: ident-layout.preferred-height;
+            border-radius: 16px;
+            background: Theme.bg;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            ident-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 10px;
+                Text {
+                    text: "HWID и User-Agent";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                Text {
+                    text: "Только для этой подписки: с ними DUORAY запрашивает её у панели. Пустое поле — как у остальных подписок.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                FieldLabel { text: "HWID (x-hwid)"; }
+                hwid-edit := TextField {
+                    text: root.ident-hwid;
+                    placeholder: root.ident-default-hwid;
+                    accepted => {
+                        root.save-ident(hwid-edit.text, ua-edit.text);
+                    }
+                }
+                FieldLabel { text: "User-Agent"; }
+                ua-edit := TextField {
+                    text: root.ident-ua;
+                    placeholder: root.ident-default-ua;
+                    accepted => {
+                        root.save-ident(hwid-edit.text, ua-edit.text);
+                    }
+                }
+                if root.ident-error != "": Text {
+                    text: root.ident-error;
+                    color: Theme.danger;
+                    font-size: Theme.fs-small;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        text: "Сбросить";
+                        clicked => {
+                            hwid-edit.text = "";
+                            ua-edit.text = "";
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button {
+                        text: "Отмена";
+                        clicked => {
+                            root.ident-open = false;
+                        }
+                    }
+                    Button {
+                        text: "Сохранить";
+                        primary: true;
+                        clicked => {
+                            root.save-ident(hwid-edit.text, ua-edit.text);
                         }
                     }
                 }
