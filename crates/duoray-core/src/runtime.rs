@@ -132,7 +132,7 @@ pub fn build_with(
         Source::Json(v) => v.clone(),
         Source::Link(p) => xray::config_from_profile(p),
     };
-    let warnings = match &routing {
+    let mut warnings = match &routing {
         Some(r) => routing::apply(&mut config, r.settings, r.geo),
         None => vec![],
     };
@@ -188,13 +188,31 @@ pub fn build_with(
         .collect();
     names.sort();
     names.dedup();
-    let resolved: HashMap<String, IpAddr> = std::thread::scope(|scope| {
+    let results: Vec<(String, Result<IpAddr>)> = std::thread::scope(|scope| {
         let jobs: Vec<_> = names.iter().map(|n| (n, scope.spawn(|| resolve(n)))).collect();
         jobs.into_iter()
-            .map(|(n, job)| Ok((n.clone(), job.join().map_err(|_| anyhow::anyhow!("resolving {n} panicked"))??)))
-            .collect::<Result<_>>()
-    })?;
-    let mut resolve = |host: &str| resolved.get(host).copied().with_context(|| format!("cannot resolve {host}"));
+            .map(|(n, job)| (n.clone(), job.join().unwrap_or_else(|_| Err(anyhow::anyhow!("resolving {n} panicked")))))
+            .collect()
+    });
+    let mut resolved: HashMap<String, IpAddr> = HashMap::new();
+    let mut failed: HashMap<String, anyhow::Error> = HashMap::new();
+    for (name, result) in results {
+        match result {
+            Ok(ip) => drop(resolved.insert(name, ip)),
+            Err(e) => drop(failed.insert(name, e)),
+        }
+    }
+    if !failed.is_empty() {
+        drop_unresolved_nodes(&mut config, &failed, &mut warnings);
+    }
+    let Some(outbounds) = config["outbounds"].as_array_mut() else {
+        bail!("config has no outbounds");
+    };
+    // A name still unresolved is not a spare balancer node: connecting fails.
+    let mut resolve = |host: &str| match resolved.get(host) {
+        Some(ip) => Ok(*ip),
+        None => Err(failed.remove(host).unwrap_or_else(|| anyhow::anyhow!("cannot resolve {host}"))),
+    };
     for ob in outbounds.iter_mut() {
         let protocol = ob["protocol"].as_str().unwrap_or_default().to_string();
         if protocol == "blackhole" {
@@ -219,6 +237,51 @@ pub fn build_with(
     bypass.dedup();
 
     Ok(Runtime { config, socks, user, pass, bypass, direct_socks, warnings })
+}
+
+/// Removes balancer nodes whose server name did not resolve (a dead domain
+/// among dozens took the whole connection down), as long as each balancer
+/// keeps a node. Other outbounds are left: their failure is reported.
+fn drop_unresolved_nodes(config: &mut Value, failed: &HashMap<String, anyhow::Error>, warnings: &mut Vec<String>) {
+    let selectors: Vec<Vec<String>> = config["routing"]["balancers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|b| b["selector"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect())
+        .collect();
+    let Some(outbounds) = config["outbounds"].as_array() else { return };
+    let tag = |o: &Value| o["tag"].as_str().unwrap_or_default().to_string();
+    let in_balancer = |t: &str, sel: &[String]| sel.iter().any(|s| t.starts_with(s.as_str()));
+    let dead = |o: &Value| endpoints_of(&o["settings"]).iter().any(|ep| ep["address"].as_str().is_some_and(|a| failed.contains_key(a)));
+    let mut drop_tags: Vec<String> = outbounds
+        .iter()
+        .filter(|o| dead(o) && selectors.iter().any(|sel| in_balancer(&tag(o), sel)))
+        .map(tag)
+        .collect();
+    // Keep a balancer whole rather than empty it: its error is the real one.
+    for sel in &selectors {
+        let members: Vec<String> = outbounds.iter().map(tag).filter(|t| in_balancer(t, sel)).collect();
+        if !members.is_empty() && members.iter().all(|m| drop_tags.contains(m)) {
+            drop_tags.retain(|t| !members.contains(t));
+        }
+    }
+    if drop_tags.is_empty() {
+        return;
+    }
+    let hosts: Vec<&str> = outbounds
+        .iter()
+        .filter(|o| drop_tags.contains(&tag(o)))
+        .flat_map(|o| endpoints_of(&o["settings"]))
+        .filter_map(|ep| ep["address"].as_str())
+        .filter(|a| failed.contains_key(*a))
+        .collect();
+    let mut hosts: Vec<String> = hosts.into_iter().map(String::from).collect();
+    hosts.sort();
+    hosts.dedup();
+    warnings.push(format!("Пропущено узлов балансера: {} — не найден адрес {}", drop_tags.len(), hosts.join(", ")));
+    if let Some(o) = config["outbounds"].as_array_mut() {
+        o.retain(|o| !drop_tags.contains(&tag(o)));
+    }
 }
 
 /// No access log and nothing chattier than warnings: panels often turn them
@@ -413,6 +476,23 @@ mod tests {
         assert_eq!(rt.config["outbounds"][0]["protocol"], "vless");
         assert_eq!(rt.config["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"], "K");
         assert_eq!(rt.bypass, vec!["5.6.7.8".parse::<IpAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn unresolvable_balancer_nodes_are_skipped() {
+        let node = |tag: &str, host: &str| json!({"tag": tag, "protocol": "vless",
+            "settings": {"vnext": [{"address": host, "port": 443, "users": [{"id": "u"}]}]}});
+        let cfg = |hosts: &[&str]| json!({
+            "outbounds": hosts.iter().enumerate().map(|(i, h)| node(&format!("proxy-{i}"), h)).collect::<Vec<_>>(),
+            "routing": {"balancers": [{"tag": "b", "selector": ["proxy"]}], "rules": [{"network": "tcp,udp", "balancerTag": "b"}]}
+        });
+        let resolve = |h: &str| if h.starts_with("dead") { bail!("cannot resolve {h}") } else { Ok("1.2.3.4".parse().unwrap()) };
+        let rt = build_with(&server(cfg(&["ok.example", "dead.example", "ok2.example"])), "en0", None, resolve).unwrap();
+        let tags: Vec<_> = rt.config["outbounds"].as_array().unwrap().iter().map(|o| o["tag"].clone()).collect();
+        assert_eq!(tags, [json!("proxy-0"), json!("proxy-2")]);
+        assert!(rt.warnings.iter().any(|w| w.contains("dead.example")));
+        let err = build_with(&server(cfg(&["dead.example", "dead2.example"])), "en0", None, resolve).err().unwrap();
+        assert!(format!("{err:#}").contains("cannot resolve"), "all nodes dead: the real error");
     }
 
     #[test]
