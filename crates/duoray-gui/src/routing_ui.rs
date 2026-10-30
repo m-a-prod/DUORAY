@@ -4,16 +4,61 @@
 //! restarted a moment later, because the rules live in xray's config.
 
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use duoray_core::geo::GeoDir;
-use duoray_core::routing::{Action, AppMode, GAMES, RouteProfile, RouteRule, RoutingSettings};
+use duoray_core::routing::{
+    Action, AppMode, GAMES, RouteProfile, RouteRule, RoutingSettings, search_geoip, search_geosite, split_geo_query,
+};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
-use crate::{AppWindow, ConnState, GameRow, RuleRow, Shared, connection, save};
+use crate::{AppWindow, ConnState, GameRow, GeoRow, RuleRow, Shared, connection, save};
 
 const STRATEGY_PANEL: &str = "Как в подписке";
 const NETWORKS: [&str; 3] = ["", "tcp", "udp"];
+const GEO_SEARCH_LIMIT: usize = 100;
+
+/// Geo files read once and kept while unchanged: a search per keystroke
+/// read and parsed several MB from disk each time.
+fn cached_read(path: &std::path::Path) -> std::io::Result<Arc<Vec<u8>>> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    // path → (modification time, contents)
+    type Files = HashMap<std::path::PathBuf, (std::time::SystemTime, Arc<Vec<u8>>)>;
+    static CACHE: Mutex<Option<Files>> = Mutex::new(None);
+    let modified = std::fs::metadata(path)?.modified()?;
+    if let Some((at, data)) = CACHE.lock().unwrap().get_or_insert_default().get(path)
+        && *at == modified
+    {
+        return Ok(data.clone());
+    }
+    let data = Arc::new(std::fs::read(path)?);
+    CACHE.lock().unwrap().get_or_insert_default().insert(path.to_path_buf(), (modified, data.clone()));
+    Ok(data)
+}
+
+/// Up to `limit` rows from several sources, each getting an equal share and
+/// passing on what it does not use: many domain hits must not hide the IPs.
+fn share_limit<T>(mut sources: Vec<Vec<T>>, limit: usize) -> Vec<T> {
+    let mut quota = vec![0; sources.len()];
+    let mut left = limit;
+    // Hand out one row at a time round-robin, skipping exhausted sources.
+    while left > 0 {
+        let before = left;
+        for (i, s) in sources.iter().enumerate() {
+            if left > 0 && quota[i] < s.len() {
+                quota[i] += 1;
+                left -= 1;
+            }
+        }
+        if left == before {
+            break;
+        }
+    }
+    sources.iter_mut().zip(quota).flat_map(|(s, q)| s.drain(..q).collect::<Vec<_>>()).collect()
+}
 
 pub fn data_dir(app: &Shared) -> std::path::PathBuf {
     let st = app.lock().unwrap();
@@ -305,6 +350,83 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || update_geo(&ui_weak.unwrap(), &app, true)
     });
+    ui.on_routing_geo_search({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        let generation = Arc::new(AtomicU64::new(0));
+        let timer = Rc::new(slint::Timer::default());
+        move |query| {
+            let ui = ui_weak.unwrap();
+            let current = generation.fetch_add(1, Ordering::Relaxed) + 1;
+            ui.set_routing_geo_results(ModelRc::new(VecModel::from(Vec::<GeoRow>::new())));
+            let query = query.trim().to_string();
+            if query.is_empty() {
+                timer.stop();
+                ui.set_routing_geo_search_status("".into());
+                return;
+            }
+            ui.set_routing_geo_search_status("Поиск…".into());
+            let (ui_weak, app) = (ui.as_weak(), app.clone());
+            let (generation, query) = (generation.clone(), query.clone());
+            timer.start(slint::TimerMode::SingleShot, Duration::from_millis(200), move || {
+                let assets = geo_dir(&app)
+                    .assets()
+                    .map(std::path::Path::to_path_buf)
+                    .or_else(|| connection::find_xray().ok().and_then(|(_, a)| a));
+                let (generation, query, ui_weak) = (generation.clone(), query.clone(), ui_weak.clone());
+                std::thread::spawn(move || {
+                    // A newer keystroke already started its own search.
+                    let stale = || generation.load(Ordering::Relaxed) != current;
+                    if stale() {
+                        return;
+                    }
+                    let (only, needle) = split_geo_query(&query);
+                    let wanted = |source: &str| only.is_none_or(|o| o == source);
+                    let mut found: Vec<Vec<GeoRow>> = vec![];
+                    let mut unread = vec![];
+                    for (source, search) in [
+                        ("geosite", search_geosite as fn(&[u8], &str, usize) -> Vec<_>),
+                        ("geoip", search_geoip),
+                    ] {
+                        if !wanted(source) || needle.is_empty() || stale() {
+                            continue;
+                        }
+                        match assets.as_ref().map(|a| cached_read(&a.join(format!("{source}.dat")))) {
+                            Some(Ok(data)) => found.push(
+                                search(&data, needle, GEO_SEARCH_LIMIT + 1)
+                                    .into_iter()
+                                    .map(|m| GeoRow { source: source.into(), tag: m.tag.into(), value: m.value.into() })
+                                    .collect(),
+                            ),
+                            _ => unread.push(format!("{source}.dat")),
+                        }
+                    }
+                    if stale() {
+                        return;
+                    }
+                    let total: usize = found.iter().map(Vec::len).sum();
+                    let rows = share_limit(found, GEO_SEARCH_LIMIT);
+                    let mut status = if assets.is_none() {
+                        "Геофайлы не найдены".to_string()
+                    } else if total > rows.len() {
+                        format!("Показаны первые {} совпадений", rows.len())
+                    } else if rows.is_empty() {
+                        "Ничего не найдено".to_string()
+                    } else {
+                        format!("Найдено: {}", rows.len())
+                    };
+                    if assets.is_some() && !unread.is_empty() {
+                        status = format!("{status}. Не удалось прочитать {}", unread.join(" и "));
+                    }
+                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                        if generation.load(Ordering::Relaxed) == current {
+                            ui.set_routing_geo_results(ModelRc::new(VecModel::from(rows)));
+                            ui.set_routing_geo_search_status(status.into());
+                        }
+                    });
+                });
+            });
+        }
+    });
     ui.on_routing_app_added({
         let (ui_weak, app, committed) = (ui.as_weak(), app.clone(), committed.clone());
         move |name| {
@@ -530,4 +652,19 @@ fn running_apps() -> Vec<String> {
         }
     }
     names.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn share_limit_keeps_room_for_each_source() {
+        let rows = share_limit(vec![(0..300).collect(), vec![1000, 1001]], 100);
+        assert_eq!(rows.len(), 100);
+        assert!(rows.contains(&1000) && rows.contains(&1001), "the short source is kept whole");
+        assert_eq!(rows.iter().filter(|r| **r < 300).count(), 98);
+        assert_eq!(share_limit(vec![(0..10).collect::<Vec<_>>(), (10..20).collect()], 100).len(), 20);
+        assert_eq!(share_limit(vec![(0..80).collect::<Vec<_>>(), (100..180).collect()], 100).len(), 100);
+    }
 }

@@ -949,62 +949,84 @@ fn main() -> anyhow::Result<()> {
                 slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                     let ui = ui_weak.unwrap();
                     snapshot(ui.window(), &prefix.with_extension("routing.png"));
-                    ui.set_routing_advanced(true);
-                    ui.invoke_routing_changed();
-                    ui.invoke_routing_add_rule();
+                    ui.set_routing_geo_search_query("ru".into());
+                    ui.set_routing_geo_results(ModelRc::new(VecModel::from(vec![
+                        GeoRow { source: "geosite".into(), tag: "category-ru".into(), value: "domain:vk.com".into() },
+                        GeoRow { source: "geosite".into(), tag: "category-ru".into(), value: "full:пример.рф".into() },
+                        GeoRow { source: "geoip".into(), tag: "ru".into(), value: "1.2.3.0/24".into() },
+                    ])));
+                    ui.set_routing_geo_search_status("Найдено: 3".into());
                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
-                    slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                    slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
                         let ui = ui_weak.unwrap();
-                        snapshot(ui.window(), &prefix.with_extension("routing-advanced.png"));
-                        // Server editor: the first server's config, then a broken edit of it.
-                        ui.set_routing_open(false);
-                        ui.invoke_edit_server(0);
+                        ui.invoke_routing_show_geo();
+                        snapshot(ui.window(), &prefix.with_extension("routing-search.png"));
+                        ui.set_routing_advanced(true);
+                        ui.invoke_routing_changed();
+                        ui.invoke_routing_add_rule();
                         let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                         slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                             let ui = ui_weak.unwrap();
-                            snapshot(ui.window(), &prefix.with_extension("editor.png"));
-                            let broken = ui.get_editor_json().replacen('"', "", 1);
-                            ui.set_editor_json(broken.as_str().into());
-                            ui.invoke_editor_json_changed(broken.into());
+                            snapshot(ui.window(), &prefix.with_extension("routing-advanced.png"));
+                            // Server editor: the first server's config, then a broken edit of it.
+                            ui.set_routing_open(false);
+                            ui.invoke_edit_server(0);
                             let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                             slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                                 let ui = ui_weak.unwrap();
-                                snapshot(ui.window(), &prefix.with_extension("editor-error.png"));
-                                ui.invoke_editor_cancel();
-                                ui.invoke_edit_server(1);
+                                snapshot(ui.window(), &prefix.with_extension("editor.png"));
+                                let broken = ui.get_editor_json().replacen('"', "", 1);
+                                ui.set_editor_json(broken.as_str().into());
+                                ui.invoke_editor_json_changed(broken.into());
                                 let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                 slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                                     let ui = ui_weak.unwrap();
-                                    snapshot(ui.window(), &prefix.with_extension("editor-form.png"));
-                                    // Save a changed port: the row gets the "изменён" chip.
-                                    ui.invoke_editor_field_changed(2, "9443".into());
-                                    ui.invoke_editor_save();
+                                    snapshot(ui.window(), &prefix.with_extension("editor-error.png"));
+                                    ui.invoke_editor_cancel();
+                                    ui.invoke_edit_server(1);
                                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                     slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                                         let ui = ui_weak.unwrap();
-                                        snapshot(ui.window(), &prefix.with_extension("edited.png"));
-                                        // The subscription's identity dialog in Happ mode (not saved).
-                                        ui.invoke_open_ident();
-                                        ui.set_ident_mode(2);
+                                        snapshot(ui.window(), &prefix.with_extension("editor-form.png"));
+                                        // Save a changed port: the row gets the "изменён" chip.
+                                        ui.invoke_editor_field_changed(2, "9443".into());
+                                        ui.invoke_editor_save();
                                         let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                         slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
                                             let ui = ui_weak.unwrap();
-                                            snapshot(ui.window(), &prefix.with_extension("ident.png"));
-                                            // The status card as connected through a balancer (set by hand: no tunnel here).
-                                            ui.set_ident_open(false);
-                                            ui.set_conn_state("connected".into());
-                                            ui.set_conn_title("Подключено".into());
-                                            ui.set_conn_detail("LTE x1 • Авто-выбор · DUORAY".into());
-                                            ui.set_conn_node("LTE #2 (1x)".into());
-                                            ui.set_conn_exit_flag(flag_tile("PL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
-                                            ui.set_conn_server("LTE x1 • Авто-выбор".into());
-                                            ui.set_conn_ping_text("94 мс".into());
-                                            ui.set_conn_ping_level(1);
-                                            ui.set_conn_exit_text("Польша".into());
+                                            snapshot(ui.window(), &prefix.with_extension("edited.png"));
+                                            // The subscription's identity dialog in Happ mode (not saved).
+                                            ui.invoke_open_ident();
+                                            ui.set_ident_mode(2);
                                             let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
-                                            slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
-                                                snapshot(ui_weak.unwrap().window(), &prefix.with_extension("connected.png"));
-                                                let _ = slint::quit_event_loop();
+                                            slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+                                                let ui = ui_weak.unwrap();
+                                                snapshot(ui.window(), &prefix.with_extension("ident.png"));
+                                                // The status card as connected through a balancer (set by hand: no tunnel here).
+                                                ui.set_ident_open(false);
+                                                ui.set_conn_state("connected".into());
+                                                ui.set_conn_title("Подключено".into());
+                                                ui.set_conn_detail("LTE x1 • Авто-выбор · DUORAY".into());
+                                                ui.set_conn_node("LTE #2 (1x)".into());
+                                                ui.set_conn_exit_flag(flag_tile("PL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
+                                                ui.set_conn_server("LTE x1 • Авто-выбор".into());
+                                                ui.set_conn_ping_text("94 мс".into());
+                                                ui.set_conn_ping_level(1);
+                                                ui.set_conn_exit_text("Польша".into());
+                                                let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                                                slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
+                                                    let ui = ui_weak.unwrap();
+                                                    snapshot(ui.window(), &prefix.with_extension("connected.png"));
+                                                    ui.set_conn_state("failed".into());
+                                                    ui.set_conn_title("Ошибка подключения".into());
+                                                    ui.set_conn_detail("preparing xray config: cannot resolve rubridge-3.pullk.in: failed to lookup address information: nodename nor servname provided, or not known".into());
+                                                    ui.set_conn_ping_level(0);
+                                                    let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
+                                                    slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
+                                                        snapshot(ui_weak.unwrap().window(), &prefix.with_extension("connection-error.png"));
+                                                        let _ = slint::quit_event_loop();
+                                                    });
+                                                });
                                             });
                                         });
                                     });
@@ -1294,6 +1316,9 @@ fn load_pings(store_path: &std::path::Path) -> std::collections::HashMap<String,
 
 /// Saves finished results of servers that still exist; "…" (in progress) is skipped.
 fn save_pings(st: &App) {
+    if std::env::var_os("DUORAY_SNAPSHOT").is_some() {
+        return;
+    }
     let live: HashSet<String> =
         st.store.subscriptions.iter().flat_map(|sub| sub.servers.iter().map(|s| key_of(sub, s))).collect();
     let saved: std::collections::BTreeMap<&String, Option<u64>> = st
@@ -1774,6 +1799,9 @@ fn current<'a>(ui: &AppWindow, st: &'a App) -> Option<&'a Subscription> {
 }
 
 fn save(st: &mut App) {
+    if std::env::var_os("DUORAY_SNAPSHOT").is_some() {
+        return;
+    }
     if let Err(e) = st.store.save(&st.path) {
         st.status = format!("Не удалось сохранить: {e:#}");
     }
@@ -2210,12 +2238,17 @@ fn humanize(e: &str) -> String {
 const PING_THREADS: [u32; 5] = [1, 2, 4, 8, 16];
 
 fn load_ping(ui: &AppWindow, p: &duoray_core::store::PingSettings) {
-    use duoray_core::store::PingMode;
+    use duoray_core::store::{PingMode, ProxyPingMode};
     ui.set_ping_mode_index(match p.mode {
         PingMode::HttpGet => 0,
         PingMode::HttpHead => 1,
         PingMode::Tcp => 2,
         PingMode::Icmp => 3,
+    });
+    ui.set_ping_proxy_mode(match p.proxy_mode {
+        ProxyPingMode::Default => 0,
+        ProxyPingMode::Double => 1,
+        ProxyPingMode::KeepAlive => 2,
     });
     let threads = PING_THREADS.iter().copied().filter(|t| *t <= p.threads).max().unwrap_or(1);
     ui.set_ping_threads(threads.to_string().into());
@@ -2223,7 +2256,7 @@ fn load_ping(ui: &AppWindow, p: &duoray_core::store::PingSettings) {
 }
 
 fn read_ping(ui: &AppWindow, old: &duoray_core::store::PingSettings) -> duoray_core::store::PingSettings {
-    use duoray_core::store::PingMode;
+    use duoray_core::store::{PingMode, ProxyPingMode};
     let url = ui.get_ping_url().trim().to_string();
     duoray_core::store::PingSettings {
         mode: match ui.get_ping_mode_index() {
@@ -2231,6 +2264,11 @@ fn read_ping(ui: &AppWindow, old: &duoray_core::store::PingSettings) -> duoray_c
             2 => PingMode::Tcp,
             3 => PingMode::Icmp,
             _ => PingMode::HttpGet,
+        },
+        proxy_mode: match ui.get_ping_proxy_mode() {
+            1 => ProxyPingMode::Double,
+            2 => ProxyPingMode::KeepAlive,
+            _ => ProxyPingMode::Default,
         },
         threads: ui.get_ping_threads().parse().unwrap_or(1),
         url: if url.starts_with("http://") || url.starts_with("https://") { url } else { old.url.clone() },
@@ -2486,10 +2524,13 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
     st.live_ping_busy = true;
     let (key, generation) = (key.clone(), st.conn_gen);
     let (socks, user, pass) = (conn.socks, conn.user.clone(), conn.pass.clone());
-    let url = st.store.settings.ping.url.clone();
+    let ping = st.store.settings.ping.clone();
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let result = ping::via_socks(socks, &user, &pass, &url, false, std::time::Duration::from_secs(5));
+        // The same request kind and mode as the list's ping: the result lands in its row.
+        let head = ping.mode == duoray_core::store::PingMode::HttpHead;
+        let timeout = std::time::Duration::from_secs(5);
+        let result = ping::via_socks_mode(socks, &user, &pass, &ping.url, head, timeout, ping.proxy_mode);
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             st.live_ping_busy = false;

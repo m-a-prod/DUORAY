@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use duoray_core::runtime;
 use duoray_core::server::Server;
-use duoray_core::store::{PingMode, PingSettings};
+use duoray_core::store::{PingMode, PingSettings, ProxyPingMode};
 
 use crate::connection;
 
@@ -63,8 +63,7 @@ pub fn ping(server: &Server, s: &PingSettings, iface: Option<&str>, run_dir: &Pa
     match s.mode {
         PingMode::Tcp => tcp(&server.address, server.port, iface, timeout),
         PingMode::Icmp => icmp(&server.address, iface, timeout),
-        PingMode::HttpGet => http(server, &s.url, false, iface, timeout, run_dir, worker),
-        PingMode::HttpHead => http(server, &s.url, true, iface, timeout, run_dir, worker),
+        PingMode::HttpGet | PingMode::HttpHead => http(server, s, iface, timeout, run_dir, worker),
     }
 }
 
@@ -189,17 +188,9 @@ fn parse_ping_time(text: &str) -> Option<Duration> {
     None
 }
 
-/// Real delay: a throwaway xray with the server's own config, then one HTTP
-/// GET through it. Measures the whole request, handshake included.
-fn http(
-    server: &Server,
-    url: &str,
-    head: bool,
-    iface: Option<&str>,
-    timeout: Duration,
-    run_dir: &Path,
-    worker: usize,
-) -> Result<Duration> {
+/// Real delay: a throwaway xray with the server's own config, then HTTP
+/// requests through it according to the selected proxy ping mode.
+fn http(server: &Server, settings: &PingSettings, iface: Option<&str>, timeout: Duration, run_dir: &Path, worker: usize) -> Result<Duration> {
     let Some(iface) = iface else { bail!("нет подключения к сети") };
     let rt = runtime::build(server, iface, None)?;
     std::fs::create_dir_all(run_dir)?;
@@ -215,7 +206,15 @@ fn http(
     let mut child = connection::hidden(&mut cmd).spawn().context("запуск xray")?;
     let result = (|| {
         connection::wait_listening(rt.socks, &mut child, Duration::from_secs(5), None)?;
-        via_socks(rt.socks, &rt.user, &rt.pass, url, head, timeout)
+        via_socks_mode(
+            rt.socks,
+            &rt.user,
+            &rt.pass,
+            &settings.url,
+            settings.mode == PingMode::HttpHead,
+            timeout,
+            settings.proxy_mode,
+        )
     })();
     let _ = child.kill();
     let _ = child.wait();
@@ -223,24 +222,51 @@ fn http(
     result
 }
 
-/// One HTTP request through a SOCKS5 proxy with a fresh connection, so the
-/// time includes the handshake with the server (the "real delay").
-pub fn via_socks(socks: SocketAddr, user: &str, pass: &str, url: &str, head: bool, timeout: Duration) -> Result<Duration> {
+/// HTTP requests through a SOCKS5 proxy. Default: one request on a fresh
+/// connection, so the time includes the handshake (the "real delay").
+/// Double: two fresh connections in one xray session. KeepAlive: the second
+/// request reuses the first one's connection. Both keep the best time.
+pub fn via_socks_mode(
+    socks: SocketAddr,
+    user: &str,
+    pass: &str,
+    url: &str,
+    head: bool,
+    timeout: Duration,
+    mode: ProxyPingMode,
+) -> Result<Duration> {
     // Proxy mode's inbound has no password.
     let proxy = ureq::Proxy::new(&if user.is_empty() { format!("socks5://{socks}") } else { format!("socks5://{user}:{pass}@{socks}") })?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .proxy(Some(proxy))
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
-        .max_idle_connections(0)
+        .max_idle_connections(if mode == ProxyPingMode::KeepAlive { 1 } else { 0 })
         .build()
         .into();
+    let attempts = if mode == ProxyPingMode::Default { 1 } else { 2 };
+    let mut best: Option<Duration> = None;
+    for attempt in 1..=attempts {
+        // KeepAlive reuses the connection only if the body was read to the end.
+        let drain = mode == ProxyPingMode::KeepAlive && attempt < attempts;
+        // A server that failed once is not asked again: a dead one would cost
+        // the timeout twice.
+        let elapsed = proxy_request(&agent, url, head, drain)?;
+        best = Some(best.map_or(elapsed, |previous| previous.min(elapsed)));
+    }
+    best.ok_or_else(|| anyhow::anyhow!("нет ответа"))
+}
+
+fn proxy_request(agent: &ureq::Agent, url: &str, head: bool, drain: bool) -> Result<Duration> {
     let start = Instant::now();
-    let resp = if head { agent.head(url).call() } else { agent.get(url).call() }
+    let mut resp = if head { agent.head(url).call() } else { agent.get(url).call() }
         .map_err(|e| anyhow::anyhow!("нет ответа: {e}"))?;
     let elapsed = start.elapsed();
     if resp.status().is_server_error() {
         bail!("HTTP {}", resp.status());
+    }
+    if drain {
+        let _ = resp.body_mut().with_config().limit(1024 * 1024).read_to_vec();
     }
     Ok(elapsed)
 }
@@ -248,6 +274,8 @@ pub fn via_socks(socks: SocketAddr, user: &str, pass: &str, url: &str, head: boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     #[test]
     fn parses_ping_output() {
@@ -256,5 +284,109 @@ mod tests {
         assert_eq!(parse_ping_time("Reply from 1.1.1.1: bytes=32 time<1ms TTL=57"), Some(Duration::from_millis(1)));
         assert_eq!(parse_ping_time("Ответ от 1.1.1.1: число байт=32 время=24мс TTL=57"), Some(Duration::from_millis(24)));
         assert_eq!(parse_ping_time("Request timeout for icmp_seq 0"), None);
+    }
+
+    #[test]
+    fn proxy_modes_control_connection_reuse() {
+        for (mode, connections, requests) in [
+            (ProxyPingMode::Default, 1, 1),
+            (ProxyPingMode::Double, 2, 1),
+            (ProxyPingMode::KeepAlive, 1, 2),
+        ] {
+            let (address, server) = socks_server(connections, requests);
+            via_socks_mode(address, "", "", "http://127.0.0.1/generate_204", false, Duration::from_secs(2), mode).unwrap();
+            assert_eq!(server.join().unwrap(), (connections, connections * requests));
+        }
+    }
+
+    #[test]
+    fn failed_first_attempt_is_not_repeated() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        for mode in [ProxyPingMode::Double, ProxyPingMode::KeepAlive] {
+            // Accepts and hangs up at once: the SOCKS handshake fails.
+            let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counter = accepted.clone();
+            let probe = listener.try_clone().unwrap();
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let done = stop.clone();
+            let server = std::thread::spawn(move || {
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok((stream, _)) = probe.accept() {
+                        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        drop(stream);
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            });
+            assert!(via_socks_mode(address, "", "", "http://127.0.0.1/", false, Duration::from_secs(2), mode).is_err());
+            std::thread::sleep(Duration::from_millis(200));
+            stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            server.join().unwrap();
+            assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 1, "{mode:?} asked a failing server twice");
+        }
+    }
+
+    fn socks_server(connections: usize, requests: usize) -> (SocketAddr, std::thread::JoinHandle<(usize, usize)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut total = 0;
+            for _ in 0..connections {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(accepted) => break accepted,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "SOCKS connection timed out");
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(e) => panic!("SOCKS accept failed: {e}"),
+                    }
+                };
+                stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut greeting = [0; 2];
+                stream.read_exact(&mut greeting).unwrap();
+                assert_eq!(greeting[0], 5);
+                let mut methods = vec![0; greeting[1] as usize];
+                stream.read_exact(&mut methods).unwrap();
+                stream.write_all(&[5, 0]).unwrap();
+
+                let mut request = [0; 4];
+                stream.read_exact(&mut request).unwrap();
+                assert_eq!(&request[..3], &[5, 1, 0]);
+                let address_len = match request[3] {
+                    1 => 4,
+                    3 => {
+                        let mut len = [0];
+                        stream.read_exact(&mut len).unwrap();
+                        len[0] as usize
+                    }
+                    4 => 16,
+                    other => panic!("unsupported SOCKS address type {other}"),
+                };
+                let mut target = vec![0; address_len + 2];
+                stream.read_exact(&mut target).unwrap();
+                stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).unwrap();
+
+                for _ in 0..requests {
+                    let mut http = Vec::new();
+                    let mut buffer = [0; 1024];
+                    while !http.ends_with(b"\r\n\r\n") {
+                        let n = stream.read(&mut buffer).unwrap();
+                        assert_ne!(n, 0);
+                        http.extend_from_slice(&buffer[..n]);
+                        assert!(http.len() < 16 * 1024);
+                    }
+                    total += 1;
+                    stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n").unwrap();
+                    stream.flush().unwrap();
+                }
+            }
+            (connections, total)
+        });
+        (address, handle)
     }
 }

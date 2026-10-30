@@ -894,6 +894,7 @@ component SettingsPage inherits Rectangle {
     in property <bool> helper-busy;
     // 0 HTTP GET, 1 HTTP HEAD, 2 TCP, 3 ICMP
     in-out property <int> ping-mode-index;
+    in-out property <int> ping-proxy-mode;
     in-out property <string> ping-threads: "1";
     in-out property <string> ping-url;
     in-out property <bool> send-device-info: true;
@@ -1255,6 +1256,30 @@ component SettingsPage inherits Rectangle {
                             }
                         }
                     }
+                    if root.ping-mode-index <= 1: HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Режим";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["Default", "Double", "KeepAlive"];
+                            current-index <=> root.ping-proxy-mode;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    if root.ping-mode-index <= 1: Text {
+                        text: root.ping-proxy-mode == 0
+                            ? "Default: один запрос, включая установку соединения."
+                            : root.ping-proxy-mode == 1
+                            ? "Double: два запроса в одной сессии xray без повторного использования соединения. Берётся лучший результат."
+                            : "KeepAlive: два запроса через один транспорт. Второй идёт по уже установленному соединению; берётся лучший результат.";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
                     Text {
                         text: root.ping-mode-index == 0
                             ? "HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ."
@@ -1577,6 +1602,12 @@ export struct GameRow {
     on: bool,
 }
 
+export struct GeoRow {
+    source: string,
+    tag: string,
+    value: string,
+}
+
 // One advanced rule; lists are free text, parsed by the app.
 export struct RuleRow {
     enabled: bool,
@@ -1727,6 +1758,9 @@ component RoutingPage inherits Rectangle {
     in-out property <string> domain-strategy: "Как в подписке";
     in property <string> geo-status;
     in property <bool> geo-busy;
+    in-out property <string> geo-search-query;
+    in property <[GeoRow]> geo-results;
+    in property <string> geo-search-status;
     in property <string> warnings;
     // 0 off, 1 listed apps bypass the VPN, 2 only listed apps use it
     in-out property <int> app-mode;
@@ -1745,11 +1779,16 @@ component RoutingPage inherits Rectangle {
     callback remove-profile();
     callback select-profile(int);
     callback update-geo();
+    callback geo-search(string);
     callback app-added(string);
     callback app-removed(int);
     callback pick-running();
 
-    ScrollView {
+    public function show-geo() {
+        routing-scroll.content-y = routing-scroll.visible-height - routing-content.preferred-height;
+    }
+
+    routing-scroll := ScrollView {
         content-width: max(self.visible-width, routing-content.min-width);
         content-height: max(self.visible-height, routing-content.preferred-height);
         routing-content := VerticalLayout {
@@ -2104,6 +2143,52 @@ component RoutingPage inherits Rectangle {
                             enabled: !root.geo-busy;
                             clicked => {
                                 root.update-geo();
+                            }
+                        }
+                    }
+                }
+            }
+            SettingsCard {
+                TextField {
+                    text <=> root.geo-search-query;
+                    placeholder: "Поиск в geoip.dat и geosite.dat";
+                    edited => {
+                        root.geo-search(root.geo-search-query);
+                    }
+                }
+                if root.geo-search-status != "": Text {
+                    text: root.geo-search-status;
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.geo-results.length > 0: Rectangle {
+                    height: min(240px, root.geo-results.length * 52px);
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: Theme.bg;
+                    ListView {
+                        content-width: self.visible-width;
+                        for row in root.geo-results: Rectangle {
+                            height: 52px;
+                            VerticalLayout {
+                                x: 12px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+                                alignment: center;
+                                spacing: 2px;
+                                Text {
+                                    text: row.source + ":" + row.tag;
+                                    font-size: Theme.fs-small;
+                                    color: Theme.muted;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: row.value;
+                                    font-size: Theme.fs-body;
+                                    overflow: elide;
+                                }
                             }
                         }
                     }
@@ -2529,6 +2614,10 @@ export component AppWindow inherits Window {
     default-font-size: Theme.fs-body;
     default-font-family: root.font-family;
 
+    public function routing-show-geo() {
+        routing-page.show-geo();
+    }
+
     in property <[SubRow]> subs;
     in property <bool> manual-selected;
     in property <string> manual-meta;
@@ -2578,6 +2667,9 @@ export component AppWindow inherits Window {
     in-out property <string> routing-domain-strategy <=> routing-page.domain-strategy;
     in-out property <string> routing-geo-status <=> routing-page.geo-status;
     in-out property <bool> routing-geo-busy <=> routing-page.geo-busy;
+    in-out property <string> routing-geo-search-query <=> routing-page.geo-search-query;
+    in-out property <[GeoRow]> routing-geo-results <=> routing-page.geo-results;
+    in-out property <string> routing-geo-search-status <=> routing-page.geo-search-status;
     in-out property <string> routing-warnings <=> routing-page.warnings;
     callback routing-changed <=> routing-page.changed;
     callback routing-game-toggled <=> routing-page.game-toggled;
@@ -2589,6 +2681,7 @@ export component AppWindow inherits Window {
     callback routing-remove-profile <=> routing-page.remove-profile;
     callback routing-select-profile <=> routing-page.select-profile;
     callback routing-update-geo <=> routing-page.update-geo;
+    callback routing-geo-search <=> routing-page.geo-search;
     in-out property <int> routing-app-mode <=> routing-page.app-mode;
     in-out property <[string]> routing-apps <=> routing-page.apps;
     in-out property <[string]> routing-running <=> routing-page.running;
@@ -2614,6 +2707,7 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-helper-installed <=> settings-page.helper-installed;
     in-out property <bool> settings-helper-busy <=> settings-page.helper-busy;
     in-out property <int> ping-mode-index <=> settings-page.ping-mode-index;
+    in-out property <int> ping-proxy-mode <=> settings-page.ping-proxy-mode;
     in-out property <string> ping-threads <=> settings-page.ping-threads;
     in-out property <string> ping-url <=> settings-page.ping-url;
     in-out property <bool> send-device-info <=> settings-page.send-device-info;
@@ -3362,11 +3456,12 @@ export component AppWindow inherits Window {
     
                     // Connection card
                     Rectangle {
+                        height: conn-layout.preferred-height;
                         border-radius: Theme.radius;
                         background: Theme.bg;
                         border-width: 1px;
                         border-color: Theme.outline;
-                        VerticalLayout {
+                        conn-layout := VerticalLayout {
                             padding: 14px;
                             spacing: 10px;
                             // Connected, exit known: status line, then the exit country
@@ -3482,6 +3577,7 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                     if root.conn-detail != "": Text {
+                                        height: self.preferred-height;
                                         text: root.conn-detail;
                                         font-size: Theme.fs-caption;
                                         color: root.conn-state == "failed" ? Theme.danger : Theme.muted;
@@ -3980,8 +4076,8 @@ export component AppWindow inherits Window {
                                             text: "Вернуть версию подписки";
                                             danger: true;
                                             clicked => {
-                                                row-menu.close();
                                                 root.reset-server(i);
+                                                row-menu.close();
                                             }
                                         }
                                     }

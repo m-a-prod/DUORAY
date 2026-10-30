@@ -259,36 +259,212 @@ pub fn parse_list(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Lower-cased tags of a v2ray `geoip.dat`/`geosite.dat` (a protobuf list of
-/// entries whose first field is the tag). Reads only the framing.
+fn varint(data: &[u8], pos: &mut usize) -> Option<u64> {
+    let mut value = 0u64;
+    for shift in (0..64).step_by(7) {
+        let byte = *data.get(*pos)?;
+        *pos += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte < 0x80 {
+            return Some(value);
+        }
+    }
+    None
+}
+
+enum ProtoField<'a> {
+    Varint(u64),
+    Bytes(&'a [u8]),
+}
+
+fn next_field<'a>(data: &'a [u8], pos: &mut usize) -> Option<(u32, ProtoField<'a>)> {
+    let key = varint(data, pos)?;
+    let number = (key >> 3) as u32;
+    let field = match key & 7 {
+        0 => ProtoField::Varint(varint(data, pos)?),
+        1 | 2 | 5 => {
+            let len = match key & 7 {
+                1 => 8,
+                5 => 4,
+                _ => usize::try_from(varint(data, pos)?).ok()?,
+            };
+            let end = pos.checked_add(len)?;
+            let bytes = data.get(*pos..end)?;
+            *pos = end;
+            ProtoField::Bytes(bytes)
+        }
+        _ => return None,
+    };
+    Some((number, field))
+}
+
+fn entries(mut data: &[u8], mut f: impl FnMut(&[u8])) {
+    while !data.is_empty() {
+        let mut pos = 0;
+        let Some((1, ProtoField::Bytes(entry))) = next_field(data, &mut pos) else { break };
+        f(entry);
+        data = &data[pos..];
+    }
+}
+
+/// Lower-cased tags of a v2ray `geoip.dat`/`geosite.dat`.
 pub fn dat_tags(data: &[u8]) -> HashSet<String> {
-    fn varint(b: &[u8], i: &mut usize) -> Option<u64> {
-        let mut v = 0u64;
-        for shift in (0..64).step_by(7) {
-            let x = *b.get(*i)?;
-            *i += 1;
-            v |= u64::from(x & 0x7f) << shift;
-            if x < 0x80 {
-                return Some(v);
+    let mut tags = HashSet::new();
+    entries(data, |entry| {
+        let mut pos = 0;
+        while let Some((number, field)) = next_field(entry, &mut pos) {
+            if let (1, ProtoField::Bytes(tag)) = (number, field) {
+                tags.insert(String::from_utf8_lossy(tag).to_lowercase());
+                break;
             }
         }
-        None
-    }
-    let mut tags = HashSet::new();
-    let mut i = 0;
-    while i < data.len() {
-        let (Some(_key), Some(len)) = (varint(data, &mut i), varint(data, &mut i)) else { break };
-        let end = i.saturating_add(len as usize).min(data.len());
-        let entry = &data[i..end];
-        i = end;
-        let mut j = 0;
-        if let (Some(_), Some(n)) = (varint(entry, &mut j), varint(entry, &mut j))
-            && let Some(tag) = entry.get(j..j + n as usize)
-        {
-            tags.insert(String::from_utf8_lossy(tag).to_lowercase());
+    });
+    tags
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeoMatch {
+    pub tag: String,
+    pub value: String,
+}
+
+/// Which file a query asks for: rule syntax ("geoip:ru", "geosite:google")
+/// names one, the bare query searches both.
+pub fn split_geo_query(query: &str) -> (Option<&'static str>, &str) {
+    let query = query.trim();
+    for source in ["geosite", "geoip"] {
+        if let Some(rest) = query.get(..source.len() + 1).filter(|p| p.eq_ignore_ascii_case(&format!("{source}:"))) {
+            return (Some(source), query[rest.len()..].trim());
         }
     }
-    tags
+    (None, query)
+}
+
+/// Whether `cidr` ("1.2.3.0/24") contains `ip`.
+fn cidr_contains(cidr: &str, ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    let Some((net, prefix)) = cidr.split_once('/') else { return false };
+    let (Ok(net), Ok(prefix)) = (net.parse::<IpAddr>(), prefix.parse::<u32>()) else { return false };
+    let (net, ip, bits) = match (net, ip) {
+        (IpAddr::V4(n), IpAddr::V4(i)) => (u128::from(u32::from(n)), u128::from(u32::from(i)), 32),
+        (IpAddr::V6(n), IpAddr::V6(i)) => (u128::from(n), u128::from(i), 128),
+        _ => return false,
+    };
+    if prefix > bits {
+        return false;
+    }
+    let shift = bits - prefix;
+    shift >= 128 || (net >> shift) == (ip >> shift)
+}
+
+fn search_dat(
+    data: &[u8],
+    query: &str,
+    limit: usize,
+    parse: impl Fn(&[u8]) -> (String, Vec<String>),
+    also: impl Fn(&str) -> bool,
+) -> Vec<GeoMatch> {
+    let query = query.trim().to_lowercase();
+    let mut matches = Vec::new();
+    if query.is_empty() || limit == 0 {
+        return matches;
+    }
+    entries(data, |entry| {
+        if matches.len() >= limit {
+            return;
+        }
+        let (tag, values) = parse(entry);
+        let tag_match = tag.to_lowercase().contains(&query);
+        for value in values {
+            if tag_match || value.to_lowercase().contains(&query) || also(&value) {
+                matches.push(GeoMatch { tag: tag.clone(), value });
+                if matches.len() >= limit {
+                    break;
+                }
+            }
+        }
+    });
+    matches
+}
+
+/// Searches domain values and tags in a v2ray `geosite.dat`.
+pub fn search_geosite(data: &[u8], query: &str, limit: usize) -> Vec<GeoMatch> {
+    search_dat(data, query, limit, geosite_entry, |_| false)
+}
+
+fn geosite_entry(entry: &[u8]) -> (String, Vec<String>) {
+    let mut tag = String::new();
+    let mut values = Vec::new();
+    let mut pos = 0;
+    while let Some((number, field)) = next_field(entry, &mut pos) {
+        match (number, field) {
+            (1, ProtoField::Bytes(value)) => tag = String::from_utf8_lossy(value).into_owned(),
+            (2, ProtoField::Bytes(domain)) => {
+                let mut kind = 0;
+                let mut value = None;
+                let mut pos = 0;
+                while let Some((number, field)) = next_field(domain, &mut pos) {
+                    match (number, field) {
+                        (1, ProtoField::Varint(v)) => kind = v,
+                        (2, ProtoField::Bytes(v)) => value = Some(String::from_utf8_lossy(v).into_owned()),
+                        _ => {}
+                    }
+                }
+                if let Some(value) = value {
+                    let kind = match kind {
+                        0 => "keyword".to_string(),
+                        1 => "regexp".to_string(),
+                        2 => "domain".to_string(),
+                        3 => "full".to_string(),
+                        other => format!("type-{other}"),
+                    };
+                    values.push(format!("{kind}:{value}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    (tag, values)
+}
+
+/// Searches CIDR values and tags in a v2ray `geoip.dat`; an IP address finds
+/// the networks that contain it.
+pub fn search_geoip(data: &[u8], query: &str, limit: usize) -> Vec<GeoMatch> {
+    let ip = query.trim().parse::<std::net::IpAddr>().ok();
+    search_dat(data, query, limit, geoip_entry, |value| ip.is_some_and(|ip| cidr_contains(value, ip)))
+}
+
+fn geoip_entry(entry: &[u8]) -> (String, Vec<String>) {
+    let mut tag = String::new();
+    let mut values = Vec::new();
+    let mut pos = 0;
+    while let Some((number, field)) = next_field(entry, &mut pos) {
+        match (number, field) {
+            (1, ProtoField::Bytes(value)) => tag = String::from_utf8_lossy(value).into_owned(),
+            (2, ProtoField::Bytes(cidr)) => {
+                let mut ip = None;
+                let mut prefix = 0;
+                let mut pos = 0;
+                while let Some((number, field)) = next_field(cidr, &mut pos) {
+                    match (number, field) {
+                        (1, ProtoField::Bytes(v)) => ip = Some(v),
+                        (2, ProtoField::Varint(v)) => prefix = v,
+                        _ => {}
+                    }
+                }
+                let ip = ip.and_then(|ip| match ip.len() {
+                    4 => <[u8; 4]>::try_from(ip).ok().map(std::net::Ipv4Addr::from).map(std::net::IpAddr::from),
+                    16 => <[u8; 16]>::try_from(ip).ok().map(std::net::Ipv6Addr::from).map(std::net::IpAddr::from),
+                    _ => None,
+                });
+                if let Some(ip) = ip {
+                    values.push(format!("{ip}/{prefix}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    (tag, values)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -662,5 +838,95 @@ mod tests {
         let mut data = entry("RU");
         data.extend(entry("private"));
         assert_eq!(dat_tags(&data), ["ru", "private"].map(String::from).into());
+    }
+
+    fn put_varint(mut value: u64, out: &mut Vec<u8>) {
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            out.push(byte);
+            if value == 0 {
+                break;
+            }
+        }
+    }
+
+    fn bytes_field(number: u32, value: &[u8], out: &mut Vec<u8>) {
+        put_varint(u64::from(number) << 3 | 2, out);
+        put_varint(value.len() as u64, out);
+        out.extend(value);
+    }
+
+    fn varint_field(number: u32, value: u64, out: &mut Vec<u8>) {
+        put_varint(u64::from(number) << 3, out);
+        put_varint(value, out);
+    }
+
+    #[test]
+    fn searches_geosite_domains_and_tags() {
+        let mut domain = Vec::new();
+        varint_field(1, 3, &mut domain);
+        bytes_field(2, "пример.рф".as_bytes(), &mut domain);
+        let mut entry = Vec::new();
+        bytes_field(1, b"Category-RU", &mut entry);
+        bytes_field(2, &domain, &mut entry);
+        let mut data = Vec::new();
+        bytes_field(1, &entry, &mut data);
+
+        assert_eq!(
+            search_geosite(&data, "ПРИМЕР", 10),
+            [GeoMatch { tag: "Category-RU".into(), value: "full:пример.рф".into() }]
+        );
+        assert_eq!(search_geosite(&data, "category-ru", 10).len(), 1);
+        assert!(search_geosite(&data, "missing", 10).is_empty());
+        assert!(search_geosite(&data, "", 10).is_empty());
+    }
+
+    #[test]
+    fn searches_geoip_ipv4_and_ipv6() {
+        let mut data = Vec::new();
+        for (tag, ip, prefix) in [
+            ("ru", std::net::IpAddr::from([1, 2, 3, 0]), 24),
+            ("cloud", "2001:db8::".parse().unwrap(), 32),
+        ] {
+            let mut cidr = Vec::new();
+            match ip {
+                std::net::IpAddr::V4(ip) => bytes_field(1, &ip.octets(), &mut cidr),
+                std::net::IpAddr::V6(ip) => bytes_field(1, &ip.octets(), &mut cidr),
+            }
+            varint_field(2, prefix, &mut cidr);
+            let mut entry = Vec::new();
+            bytes_field(1, tag.as_bytes(), &mut entry);
+            bytes_field(2, &cidr, &mut entry);
+            bytes_field(1, &entry, &mut data);
+        }
+
+        assert_eq!(search_geoip(&data, "1.2.3.0/24", 10)[0].value, "1.2.3.0/24");
+        assert_eq!(search_geoip(&data, "2001:DB8", 10)[0].tag, "cloud");
+        assert_eq!(search_geoip(&data, "cloud", 1).len(), 1);
+        assert_eq!(search_geoip(&data, "1.2.3.77", 10)[0].tag, "ru", "an address finds its network");
+        assert_eq!(search_geoip(&data, "2001:db8:ffff::1", 10)[0].tag, "cloud");
+        assert!(search_geoip(&data, "1.2.4.1", 10).is_empty());
+    }
+
+    #[test]
+    fn geo_query_prefix_names_the_file() {
+        assert_eq!(split_geo_query(" GeoIP:ru "), (Some("geoip"), "ru"));
+        assert_eq!(split_geo_query("geosite:google"), (Some("geosite"), "google"));
+        assert_eq!(split_geo_query("ru"), (None, "ru"));
+        assert!(cidr_contains("0.0.0.0/0", "8.8.8.8".parse().unwrap()));
+        assert!(!cidr_contains("10.0.0.0/8", "::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn malformed_dat_is_ignored() {
+        for data in [&[0x0a, 0x80][..], &[0x0a, 5, 0x0a, 1, b'x'][..], &[0x0b, 1, 0][..]] {
+            assert!(dat_tags(data).is_empty());
+            assert!(search_geosite(data, "x", 10).is_empty());
+            assert!(search_geoip(data, "x", 10).is_empty());
+        }
     }
 }

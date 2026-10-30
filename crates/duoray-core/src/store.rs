@@ -121,10 +121,20 @@ pub enum PingMode {
     Icmp,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyPingMode {
+    #[default]
+    Default,
+    Double,
+    KeepAlive,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PingSettings {
     pub mode: PingMode,
+    pub proxy_mode: ProxyPingMode,
     /// Servers pinged in parallel. 1 is gentle; many at once can trip
     /// providers that whitelist traffic.
     pub threads: u32,
@@ -137,6 +147,7 @@ impl Default for PingSettings {
     fn default() -> Self {
         Self {
             mode: PingMode::HttpGet,
+            proxy_mode: ProxyPingMode::Default,
             threads: 1,
             url: "http://cp.cloudflare.com/generate_204".into(),
             timeout_ms: 5000,
