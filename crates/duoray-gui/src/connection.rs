@@ -360,6 +360,8 @@ pub fn connect(
         move || {
             let gone = |closing: &std::sync::atomic::AtomicBool| closing.load(std::sync::atomic::Ordering::SeqCst);
             let mut moved = 0;
+            // When xray was started again without a kill switch (see below).
+            let mut restarts: Vec<Instant> = vec![];
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 if gone(&closing) {
@@ -380,13 +382,27 @@ pub fn connect(
                     if gone(&closing) {
                         return;
                     }
-                    let why = format!("xray остановился ({status}). {}", log_tail(&log_path));
+                    let mut why = format!("xray остановился ({status}). {}", log_tail(&log_path));
+                    let others = other_vpn_processes();
+                    if !others.is_empty() {
+                        why = format!("{why} | другие VPN: {}", others.join(", "));
+                    }
                     if kill_switch {
                         if restart_xray(&xray, &respawn, &closing) {
                             crate::diag::log(format!("kill switch: xray stopped ({status}), started again"));
                             continue;
                         }
                         return on_failure(why, true);
+                    }
+                    // Windows reports show xray ending with code 1 and nothing in
+                    // its log, killed from outside: started again, the tunnel
+                    // stays up. A config xray keeps dying on gives up after three
+                    // restarts in ten minutes.
+                    restarts.retain(|t| t.elapsed() < Duration::from_secs(600));
+                    if restarts.len() < 3 && restart_xray(&xray, &respawn, &closing) {
+                        restarts.push(Instant::now());
+                        crate::diag::auto("xray_restarted", &why);
+                        continue;
                     }
                     return on_failure(why, false);
                 }
@@ -902,6 +918,60 @@ mod linux_spawn {
     }
 }
 
+/// Other VPN clients and xray processes running now, by process name, for
+/// reports: one of them may stop our xray (seen on Windows: exit code 1,
+/// nothing in its log). Ours run from DUORAY's own folder and are skipped.
+pub fn other_vpn_processes() -> Vec<String> {
+    const NAMES: &[&str] = &[
+        "happ", "v2rayn", "v2ray", "xray", "nekoray", "nekobox", "throne", "hiddify", "sing-box", "clash", "mihomo",
+        "outline", "amnezia", "wireguard", "openvpn", "karing", "invisible",
+    ];
+    let ours = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+    let mut found: Vec<String> = processes()
+        .into_iter()
+        .filter(|(path, _)| ours.as_ref().is_none_or(|dir| !Path::new(path).starts_with(dir)))
+        .map(|(_, name)| name)
+        .filter(|name| {
+            let n = name.to_lowercase();
+            !n.starts_with("duoray") && NAMES.iter().any(|k| n.contains(k))
+        })
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// (executable path or name, process name) of running processes.
+fn processes() -> Vec<(String, String)> {
+    #[cfg(windows)]
+    {
+        // tasklist gives names only, and our own xray.exe always runs: any
+        // xray.exe is left out (Happ shows up as happd.exe anyway).
+        let Ok(out) = hidden(Command::new("tasklist").args(["/FO", "CSV", "/NH"])).output() else { return vec![] };
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.split(',').next().map(|n| n.trim_matches('"').to_string()))
+            .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("xray.exe"))
+            .map(|n| (n.clone(), n))
+            .collect()
+    }
+    #[cfg(unix)]
+    {
+        let Ok(out) = Command::new("/bin/ps").args(["-axo", "comm="]).output() else { return vec![] };
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .map(|path| {
+                let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+                (path, name)
+            })
+            .collect()
+    }
+    #[cfg(not(any(windows, unix)))]
+    vec![]
+}
+
 pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration, cancel: Option<&AtomicBool>) -> Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -909,7 +979,11 @@ pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration, ca
             bail!("cancelled");
         }
         if let Some(status) = child.try_wait()? {
-            bail!("xray завершился при старте ({status})");
+            let others = other_vpn_processes();
+            if others.is_empty() {
+                bail!("xray завершился при старте ({status})");
+            }
+            bail!("xray завершился при старте ({status}); другие VPN: {}", others.join(", "));
         }
         // Short probes: Windows does not refuse a connection to a closed
         // loopback port, it retries the SYN, so a 500 ms probe made every
