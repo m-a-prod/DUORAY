@@ -1020,7 +1020,7 @@ fn main() -> anyhow::Result<()> {
     // At login: straight to the tray (the window appears if there is none).
     let hidden = autostart::launched() && app.lock().unwrap().store.settings.close_to_tray;
     if !hidden {
-        ui.show()?;
+        show_window(&ui);
     }
     {
         let st = app.lock().unwrap();
@@ -1101,11 +1101,29 @@ fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
 fn show_window(ui: &AppWindow) {
     use slint::winit_030::WinitWindowAccessor;
     let _ = ui.show();
+    // Started hidden at login, Slint still creates the window, unmapped. On
+    // Wayland an unmapped window cannot be shown later (winit's set_visible
+    // does nothing there), so the window never came up, from the tray or a
+    // second launch (Pop!_OS / COSMIC, niri). Hiding destroys it on Wayland
+    // and showing again creates it mapped.
+    static SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed) && is_wayland(ui) {
+        let _ = ui.hide();
+        let _ = ui.show();
+    }
     ui.window().with_winit_window(|w| {
         w.set_minimized(false);
         w.set_visible(true);
         w.focus_window();
     });
+}
+
+fn is_wayland(ui: &AppWindow) -> bool {
+    use slint::winit_030::WinitWindowAccessor;
+    use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    ui.window()
+        .with_winit_window(|w| w.window_handle().is_ok_and(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_))))
+        .unwrap_or(false)
 }
 
 fn tray_state(ui: &AppWindow, st: &App) -> tray::State {
