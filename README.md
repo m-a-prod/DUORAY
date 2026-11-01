@@ -7,8 +7,8 @@
   <a href="https://github.com/m-a-prod/DUORAY/actions/workflows/release.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/m-a-prod/DUORAY/release.yml?style=flat-square&labelColor=141118"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-c97fa3?style=flat-square&labelColor=141118"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-fdebf3?style=flat-square&labelColor=141118">
-  <a href="https://duoray.pro"><img alt="Downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fduoray.pro%2Fv1%2Fbadge%2Fdownloads.json&style=flat-square"></a>
-  <a href="https://duoray.pro"><img alt="Active installs" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fduoray.pro%2Fv1%2Fbadge%2Finstalls.json&style=flat-square"></a>
+  <a href="https://duoray.pro"><img alt="Downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fduoray.pro%2Fv1%2Fbadge%2Fdownloads.json&cacheSeconds=3600&style=flat-square"></a>
+  <a href="https://duoray.pro"><img alt="Active installs" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fduoray.pro%2Fv1%2Fbadge%2Finstalls.json&cacheSeconds=3600&style=flat-square"></a>
 </p>
 
 **DUORAY** — клиент [Xray-core](https://github.com/XTLS/Xray-core) для Windows,
