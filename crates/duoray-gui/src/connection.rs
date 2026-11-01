@@ -68,6 +68,8 @@ pub struct Connection {
     /// The config balances between nodes: xray's API (loopback) to ask which
     /// one it picked, and the balancer.
     pub balancer: Option<(SocketAddr, Balancer)>,
+    /// xray's API, for the traffic counters.
+    pub api: Option<SocketAddr>,
     respawn: Respawn,
     /// What the tunnel was set up with: a routing change that keeps these can
     /// be applied by restarting xray alone (see [`Connection::rerouter`]).
@@ -253,12 +255,13 @@ pub fn connect(
         .as_array()
         .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));
 
-    // Balancers pick a node themselves: their API tells which one.
-    let balancer = balancer::main_balancer(&rt.config).and_then(|b| {
-        let api = SocketAddr::from(([127, 0, 0, 1], runtime::free_port().ok()?));
+    // xray's API (loopback): the traffic through it, and for a balancer the
+    // node it picked.
+    let api = runtime::free_port().ok().map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
+    if let Some(api) = api {
         balancer::add_api(&mut rt.config, api);
-        Some((api, b))
-    });
+    }
+    let balancer = api.and_then(|api| balancer::main_balancer(&rt.config).map(|b| (api, b)));
 
     let config_path = run_dir.join("xray.json");
     write_private(&config_path, &serde_json::to_vec_pretty(&rt.config)?)?;
@@ -292,7 +295,7 @@ pub fn connect(
         apps: routing.apps.clone(),
         bypass: rt.bypass.clone(),
         direct_socks: rt.direct_socks,
-        api: balancer.as_ref().map(|(api, _)| *api),
+        api,
     };
     #[cfg(not(target_os = "macos"))]
     let mut sysproxy = None;
@@ -443,6 +446,7 @@ pub fn connect(
         warnings,
         hysteria,
         balancer,
+        api,
         respawn,
         tunnel,
     })

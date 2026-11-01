@@ -85,6 +85,41 @@ fn flag_tile(code: &str, width: u32) -> Option<slint::Image> {
     })
 }
 
+/// Traffic through xray's SOCKS inbound, from its counters.
+struct Traffic {
+    /// The last reading: when, and the counters (up, down).
+    at: std::time::Instant,
+    counters: (u64, u64),
+    /// Bytes this session (counters restart with xray), and the speed
+    /// between the last two readings, bytes a second.
+    session: (u64, u64),
+    rate: (f64, f64),
+}
+
+impl Traffic {
+    fn read(prev: Option<&Traffic>, now: std::time::Instant, (up, down): (u64, u64)) -> Traffic {
+        let Some(p) = prev else {
+            return Traffic { at: now, counters: (up, down), session: (up, down), rate: (0.0, 0.0) };
+        };
+        // A counter that went down means xray started again: count from zero.
+        let delta = |now: u64, before: u64| now.checked_sub(before).unwrap_or(now);
+        let (du, dd) = (delta(up, p.counters.0), delta(down, p.counters.1));
+        let secs = now.duration_since(p.at).as_secs_f64().max(0.001);
+        Traffic {
+            at: now,
+            counters: (up, down),
+            session: (p.session.0 + du, p.session.1 + dd),
+            rate: (du as f64 / secs, dd as f64 / secs),
+        }
+    }
+
+    /// "↓ 2.4 МБ/с · ↑ 120.0 КБ/с · 1.2 ГБ"
+    fn label(&self) -> String {
+        let rate = |b: f64| format!("{}/с", bytes(b as u64));
+        format!("↓ {} · ↑ {} · {}", rate(self.rate.1), rate(self.rate.0), bytes(self.session.0 + self.session.1))
+    }
+}
+
 struct App {
     store: Store,
     path: PathBuf,
@@ -123,6 +158,9 @@ struct App {
     exit_busy: bool,
     /// Names of the active balancer's nodes that match a single server.
     node_names: std::collections::HashMap<String, String>,
+    /// Traffic through the active connection (see [`measure_traffic`]).
+    traffic: Option<Traffic>,
+    traffic_busy: bool,
     /// (done, total) while a ping run is active.
     ping_progress: Option<(usize, usize)>,
     /// Stops the active ping run.
@@ -253,6 +291,8 @@ fn main() -> anyhow::Result<()> {
         exit_node: None,
         exit_busy: false,
         node_names: Default::default(),
+        traffic: None,
+        traffic_busy: false,
         ping_progress: None,
         ping_cancel: None,
         ping_render_pending: false,
@@ -842,6 +882,20 @@ fn main() -> anyhow::Result<()> {
             }
             let mut st = app.lock().unwrap();
             measure_live_ping(&ui, &app, &mut st);
+        }
+    });
+
+    // While connected: speed and traffic every second, window shown.
+    let traffic_timer = slint::Timer::default();
+    traffic_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), {
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            if !ui.window().is_visible() || ui.window().is_minimized() {
+                return;
+            }
+            let mut st = app.lock().unwrap();
+            measure_traffic(&ui, &app, &mut st);
         }
     });
 
@@ -1712,7 +1766,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     st.conn = Some(conn);
                     st.xray_started = Some(std::time::Instant::now());
                     st.live_ping = None;
-                    (st.exit, st.exit_node) = (None, None);
+                    (st.exit, st.exit_node, st.traffic) = (None, None, None);
                     st.node_names = node_names.into_iter().collect();
                     // First reading right away, then every 5 s from the timer.
                     measure_live_ping(&ui, &app, &mut st);
@@ -2001,6 +2055,7 @@ fn render(ui: &AppWindow, st: &App) {
         exit.map(|t| duoray_core::balancer::country_name(&t.loc).unwrap_or(&t.loc).to_string()).unwrap_or_default().into(),
     );
     ui.set_conn_node(st.exit_node.clone().filter(|_| connected).unwrap_or_default().into());
+    ui.set_conn_traffic(st.traffic.as_ref().filter(|_| connected).map(Traffic::label).unwrap_or_default().into());
     ui.set_can_connect(selected_server(ui, st).is_some());
     render_expiry(ui, st);
 
@@ -2599,6 +2654,32 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
     });
 }
 
+/// Reads the traffic counters of the active connection, every second while
+/// the window is shown.
+fn measure_traffic(ui: &AppWindow, app: &Shared, st: &mut App) {
+    let (ConnState::Connected { .. }, Some(api)) = (&st.conn_state, st.conn.as_ref().and_then(|c| c.api)) else { return };
+    if st.traffic_busy {
+        return;
+    }
+    st.traffic_busy = true;
+    let generation = st.conn_gen;
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    std::thread::spawn(move || {
+        let counters = exit::traffic(api);
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            let mut st = app.lock().unwrap();
+            st.traffic_busy = false;
+            if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
+                return;
+            }
+            if let Ok(counters) = counters {
+                st.traffic = Some(Traffic::read(st.traffic.as_ref(), std::time::Instant::now(), counters));
+                render(&ui, &st);
+            }
+        });
+    });
+}
+
 /// Where the connection comes out: the balancer's node (if any), then the
 /// exit country through the tunnel. Asked right after connecting and every
 /// 30 s while the window is shown; a failed reading keeps the last one.
@@ -2789,6 +2870,19 @@ fn ping_jobs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn traffic_counts_across_xray_restarts() {
+        let t0 = std::time::Instant::now();
+        let a = Traffic::read(None, t0, (100, 1000));
+        assert_eq!(a.session, (100, 1000));
+        let b = Traffic::read(Some(&a), t0 + std::time::Duration::from_secs(2), (300, 5000));
+        assert_eq!((b.session, b.rate), ((300, 5000), (100.0, 2000.0)));
+        // xray started again: its counters begin from zero.
+        let c = Traffic::read(Some(&b), t0 + std::time::Duration::from_secs(3), (50, 400));
+        assert_eq!(c.session, (350, 5400));
+        assert_eq!(c.label(), "↓ 400 Б/с · ↑ 50 Б/с · 5.6 КБ");
+    }
 
     #[test]
     fn server_filter() {

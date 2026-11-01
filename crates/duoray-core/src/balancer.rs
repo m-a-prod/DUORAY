@@ -44,10 +44,35 @@ pub fn main_balancer(config: &Value) -> Option<Balancer> {
     Some(Balancer { tag, members })
 }
 
-/// Turns on xray's routing API on `addr` (loopback), replacing a panel's own
-/// API section: we only read which node a balancer picked.
+/// Turns on xray's API on `addr` (loopback), replacing a panel's own API
+/// section: we read which node a balancer picked (routing) and the traffic
+/// through our SOCKS inbound (stats; the panel's other policy is kept).
 pub fn add_api(config: &mut Value, addr: SocketAddr) {
-    config["api"] = json!({ "tag": "duoray-api", "listen": addr.to_string(), "services": ["RoutingService"] });
+    config["api"] =
+        json!({ "tag": "duoray-api", "listen": addr.to_string(), "services": ["RoutingService", "StatsService"] });
+    if !config["stats"].is_object() {
+        config["stats"] = json!({});
+    }
+    if !config["policy"].is_object() {
+        config["policy"] = json!({});
+    }
+    if !config["policy"]["system"].is_object() {
+        config["policy"]["system"] = json!({});
+    }
+    config["policy"]["system"]["statsInboundUplink"] = json!(true);
+    config["policy"]["system"]["statsInboundDownlink"] = json!(true);
+}
+
+/// Bytes through the SOCKS inbound `tag` in `xray api statsquery` output:
+/// (uplink, downlink). Counters xray has not seen traffic on are left out.
+pub fn parse_inbound_traffic(output: &str, tag: &str) -> Option<(u64, u64)> {
+    let json: Value = serde_json::from_str(output).ok()?;
+    let value = |dir: &str| {
+        let name = format!("inbound>>>{tag}>>>traffic>>>{dir}");
+        json["stat"].as_array()?.iter().find(|s| s["name"] == name.as_str()).map(|s| s["value"].as_u64().unwrap_or(0))
+    };
+    let (up, down) = (value("uplink"), value("downlink"));
+    (up.is_some() || down.is_some()).then(|| (up.unwrap_or(0), down.unwrap_or(0)))
 }
 
 /// The node in `xray api bi <tag>` output: a manual override if set, else
@@ -212,6 +237,26 @@ mod tests {
         assert_eq!(b.tag, "Super_Balancer");
         assert_eq!(b.members, ["proxy", "proxy-2"]);
         assert_eq!(main_balancer(&json!({"routing": {}})), None);
+    }
+
+    #[test]
+    fn api_keeps_the_panels_policy() {
+        let mut config = json!({"policy": {"levels": {"0": {"handshake": 4}}, "system": {"statsOutboundUplink": true}}});
+        add_api(&mut config, "127.0.0.1:9".parse().unwrap());
+        assert_eq!(config["api"]["services"], json!(["RoutingService", "StatsService"]));
+        assert_eq!(config["policy"]["levels"]["0"]["handshake"], 4);
+        assert_eq!(config["policy"]["system"], json!({"statsOutboundUplink": true, "statsInboundUplink": true, "statsInboundDownlink": true}));
+        assert_eq!(config["stats"], json!({}));
+    }
+
+    #[test]
+    fn reads_inbound_traffic() {
+        let out = r#"{"stat": [{"name": "inbound>>>socks>>>traffic>>>uplink", "value": 135},
+                               {"name": "inbound>>>socks>>>traffic>>>downlink"},
+                               {"name": "outbound>>>proxy>>>traffic>>>downlink", "value": 9}]}"#;
+        assert_eq!(parse_inbound_traffic(out, "socks"), Some((135, 0)));
+        assert_eq!(parse_inbound_traffic(out, "other"), None);
+        assert_eq!(parse_inbound_traffic("garbage", "socks"), None);
     }
 
     #[test]

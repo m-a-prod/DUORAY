@@ -2791,6 +2791,8 @@ export component AppWindow inherits Window {
     in property <string> conn-node;
     // The connected server's name, for the exit view.
     in property <string> conn-server;
+    // "↓ 2.4 МБ/с · ↑ 120.0 КБ/с · 1.2 ГБ" while connected.
+    in property <string> conn-traffic;
     property <bool> has-exit: root.conn-state == "connected" && root.conn-exit-text != "";
     in property <bool> can-connect;
     // Live latency of the active connection (0 level = hidden).
@@ -3522,6 +3524,12 @@ export component AppWindow inherits Window {
                                             color: Theme.muted;
                                             overflow: elide;
                                         }
+                                        if root.conn-traffic != "": Text {
+                                            text: root.conn-traffic;
+                                            font-size: Theme.fs-caption;
+                                            color: Theme.muted;
+                                            overflow: elide;
+                                        }
                                     }
                                 }
                             }
@@ -3575,6 +3583,12 @@ export component AppWindow inherits Window {
                                         Rectangle {
                                             horizontal-stretch: 1;
                                         }
+                                    }
+                                    if !root.has-exit && root.conn-state == "connected" && root.conn-traffic != "": Text {
+                                        text: root.conn-traffic;
+                                        font-size: Theme.fs-caption;
+                                        color: Theme.muted;
+                                        overflow: elide;
                                     }
                                     if root.conn-detail != "": Text {
                                         height: self.preferred-height;

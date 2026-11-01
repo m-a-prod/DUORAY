@@ -33,3 +33,17 @@ pub fn trace(socks: SocketAddr, user: &str, pass: &str) -> Result<Trace> {
     let body = agent.get(TRACE_URL).call()?.body_mut().read_to_string()?;
     balancer::parse_trace(&body).context("no loc in the trace")
 }
+
+/// Bytes sent and received through xray's SOCKS inbound so far:
+/// (uplink, downlink). Counted from xray's start.
+pub fn traffic(api: SocketAddr) -> Result<(u64, u64)> {
+    let (xray, _) = connection::find_xray()?;
+    let mut cmd = Command::new(xray);
+    cmd.args(["api", "statsquery", &format!("--server={api}"), "-t", "2", "-pattern", "inbound>>>socks>>>traffic"]);
+    let out = connection::hidden(&mut cmd).output().context("xray api statsquery")?;
+    if !out.status.success() {
+        bail!("xray api statsquery: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    // No counter yet: nothing went through.
+    Ok(balancer::parse_inbound_traffic(&String::from_utf8_lossy(&out.stdout), "socks").unwrap_or((0, 0)))
+}
