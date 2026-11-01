@@ -1,0 +1,41 @@
+name: Ошибка
+description: Что-то работает не так
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Быстрее всего помогает отчёт из программы: **Настройки → Отчёты и обновления → Сообщить о проблеме**.
+        Он придёт нам с журналом (без ссылок подписок, адресов и ключей), а вы получите код вида `DR-XXXXXX` — укажите его ниже.
+  - type: input
+    id: report
+    attributes:
+      label: Код отчёта
+      placeholder: DR-XXXXXX
+  - type: input
+    id: version
+    attributes:
+      label: Версия DUORAY
+      description: Настройки → О DUORAY
+      placeholder: "0.4.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Система
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: Версия системы
+      placeholder: "Windows 11 24H2, macOS 15.5, Ubuntu 24.04 (Wayland)…"
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что вы делали, что ожидали и что произошло. Скриншот помогает.
+    validations:
+      required: true

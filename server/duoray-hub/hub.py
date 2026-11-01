@@ -21,6 +21,7 @@ self-updates and Arch packages. Daily totals only, no cookies or scripts.
   GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
   GET  /download/<kind>              302 to the current build, e.g. /download/windows
   GET  /, /robots.txt, /og.png, ... download page and its files (site/, see PAGES)
+  GET  /v1/badge/<downloads|installs>.json   totals for a shields.io endpoint badge
   GET  /health
 """
 
@@ -180,6 +181,34 @@ def count(key, ip):
         print(f"traffic count failed: {e}", flush=True)
 
 
+def short(n):
+    """1234 -> "1.2k", as badges show counts."""
+    if n < 1000:
+        return str(n)
+    return f"{n / 1000:.1f}".rstrip("0").rstrip(".") + "k"
+
+
+def badge(kind):
+    """shields.io endpoint JSON: all downloads (site and Arch packages), or
+    active installs (the busiest day of update checks in the last week)."""
+    queries = {
+        "downloads": ("downloads", "SELECT COALESCE(SUM(hits), 0) FROM traffic WHERE key LIKE 'download:%' OR key = 'arch'"),
+        "installs": (
+            "active installs",
+            "SELECT COALESCE(MAX(uniq), 0) FROM traffic WHERE key = 'update-check' AND day >= date('now', '-7 days')",
+        ),
+    }
+    if kind not in queries:
+        return None
+    label, sql = queries[kind]
+    try:
+        with _db_lock, db() as conn:
+            n = conn.execute(sql).fetchone()[0]
+    except sqlite3.Error:
+        n = 0
+    return {"schemaVersion": 1, "label": label, "message": short(n), "color": "f4c2d7", "labelColor": "141118"}
+
+
 def new_id(conn):
     while True:
         rid = "DR-" + "".join(secrets.choice(ID_ALPHABET) for _ in range(6))
@@ -310,6 +339,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.reply(200, b"ok", "text/plain")
+        if self.path.startswith("/v1/badge/") and self.path.endswith(".json"):
+            data = badge(self.path[len("/v1/badge/"):-len(".json")])
+            if data is None:
+                return self.reply_json(404, {"error": "not found"})
+            # shields.io caches too; an hour old is fine for a counter.
+            return self.reply(200, json.dumps(data).encode(), "application/json", {"Cache-Control": "max-age=3600"})
         get = self.command == "GET"
         page = PAGES.get(self.path.split("?", 1)[0])
         if page:

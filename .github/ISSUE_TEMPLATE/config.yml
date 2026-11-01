@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Вопрос по подписке DUALIZM
+    url: https://duoray.pro
+    about: Оплата, продление и доступ к серверам — в поддержке DUALIZM, ссылка в приложении и на сайте.
+  - name: Обсуждения
+    url: https://github.com/m-a-prod/DUORAY/discussions
+    about: Вопросы по настройке и работе DUORAY.

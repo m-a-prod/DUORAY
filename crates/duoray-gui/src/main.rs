@@ -904,13 +904,36 @@ fn main() -> anyhow::Result<()> {
     });
 
     // Refresh everything on start; the last good list stays visible meanwhile.
+    // (Not for the README demo: its subscription is made up.)
     let ids: Vec<String> = app.lock().unwrap().store.subscriptions.iter().map(|s| s.id.clone()).collect();
-    for id in ids {
+    for id in ids.into_iter().filter(|_| std::env::var_os("DUORAY_DEMO").is_none()) {
         refresh(&ui, &app, &device, id);
     }
 
-    // Dev hook: DUORAY_SNAPSHOT=/path/prefix saves PNGs of the servers and settings views.
-    if let Some(prefix) = std::env::var_os("DUORAY_SNAPSHOT") {
+    // Dev hook, README screenshot: with DUORAY_DEMO (and the store from
+    // `cargo run -p duoray-core --example demo_store`), one frame of the window
+    // as connected, nothing fetched or pinged, saved as <prefix>.demo.png.
+    if let (Some(prefix), Some(_)) = (std::env::var_os("DUORAY_SNAPSHOT"), std::env::var_os("DUORAY_DEMO")) {
+        let (ui_weak, prefix) = (ui.as_weak(), PathBuf::from(prefix));
+        ui.window().set_size(slint::LogicalSize::new(1290.0, 820.0));
+        // Time for a tiling compositor's size to be set by hand (niri msg).
+        slint::Timer::single_shot(std::time::Duration::from_secs(5), move || {
+            let ui = ui_weak.unwrap();
+            ui.set_conn_state("connected".into());
+            ui.set_conn_title("Подключено".into());
+            ui.set_conn_server("Wi-Fi • Авто-выбор".into());
+            ui.set_conn_node("Нидерланды (Амстердам)".into());
+            ui.set_conn_exit_text("Нидерланды".into());
+            ui.set_conn_exit_flag(flag_tile("NL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
+            ui.set_conn_ping_text("38 мс".into());
+            ui.set_conn_ping_level(1);
+            let ui_weak = ui.as_weak();
+            slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
+                snapshot(ui_weak.unwrap().window(), &prefix.with_extension("demo.png"));
+                let _ = slint::quit_event_loop();
+            });
+        });
+    } else if let Some(prefix) = std::env::var_os("DUORAY_SNAPSHOT") {
         let prefix = PathBuf::from(prefix);
         let ui_weak = ui.as_weak();
         {
