@@ -373,8 +373,10 @@ fn main() -> anyhow::Result<()> {
     {
         let st = app.lock().unwrap();
         apply_appearance(&ui, &st.store.settings);
-        if !restore_selection(&ui, &st) && !st.store.subscriptions.is_empty() {
-            ui.set_current_sub(0);
+        if !restore_selection(&ui, &st) {
+            // An empty "Мои серверы" is not listed: start on something that is.
+            let shown = st.store.subscriptions.iter().position(|s| !s.is_manual() || !s.servers.is_empty());
+            ui.set_current_sub(shown.map_or(-1, |i| i as i32));
         }
         render(&ui, &st);
     }
@@ -447,6 +449,13 @@ fn main() -> anyhow::Result<()> {
             // Preserve selection by identity, including when the list is sorted by ping.
             let next_row = selected.as_deref().and_then(|key| current(&ui, &st).and_then(|sub| row_of(&st, sub, key)));
             ui.set_current_server(next_row.map_or(-1, |row| row as i32));
+            // The last one gone: "Мои серверы" is no longer listed, show a subscription.
+            if current(&ui, &st).is_some_and(|s| s.servers.is_empty()) {
+                let first = st.store.subscriptions.iter().position(|s| !s.is_manual());
+                ui.set_current_sub(first.map_or(-1, |i| i as i32));
+                ui.set_current_server(-1);
+                restore_selection_in_current(&ui, &st);
+            }
             save(&mut st);
             render(&ui, &st);
             drop(st);
@@ -2114,6 +2123,7 @@ fn render(ui: &AppWindow, st: &App) {
     let manual = st.store.subscriptions.iter().find(|s| s.is_manual());
     ui.set_manual_meta(manual.map_or_else(|| "Нет серверов".to_string(), sub_meta).into());
     ui.set_manual_selected(current(ui, st).is_some_and(Subscription::is_manual));
+    ui.set_has_manual(manual.is_some_and(|m| !m.servers.is_empty()));
     let subs: Vec<SubRow> = st
         .store
         .subscriptions

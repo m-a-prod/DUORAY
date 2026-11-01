@@ -2729,6 +2729,8 @@ export component AppWindow inherits Window {
 
     in property <[SubRow]> subs;
     in property <bool> manual-selected;
+    // "Мои серверы" has servers: only then is it listed.
+    in property <bool> has-manual;
     in property <string> manual-meta;
     in property <[ServerRow]> servers;
     in-out property <int> current-sub: -1;
@@ -3193,8 +3195,9 @@ export component AppWindow inherits Window {
                         }
                     }
     
-                    // A permanent section for share links, above fetched subscriptions.
-                    Rectangle {
+                    // Share links added on their own, above fetched subscriptions;
+                    // listed once there are some (added with the «+» of ПОДПИСКИ).
+                    if root.has-manual: Rectangle {
                         height: manual-layout.preferred-height;
                         border-radius: Theme.radius;
                         background: root.manual-selected ? Theme.selection
@@ -3211,7 +3214,6 @@ export component AppWindow inherits Window {
                         }
                         manual-layout := VerticalLayout {
                             padding: 12px;
-                            padding-right: 48px;
                             spacing: 5px;
                             Text {
                                 text: "Мои серверы";
@@ -3225,20 +3227,6 @@ export component AppWindow inherits Window {
                                 font-size: Theme.fs-caption;
                                 color: root.manual-selected ? Theme.selected-fg : Theme.muted;
                                 overflow: elide;
-                            }
-                        }
-                        IconButton {
-                            x: parent.width - self.width - 8px;
-                            y: (parent.height - self.height) / 2;
-                            icon: Icons.add;
-                            tint: root.manual-selected ? Theme.selected-fg : Theme.accent;
-                            clicked => {
-                                root.settings-open = false;
-                                root.routing-open = false;
-                                root.editor-open = false;
-                                root.select-manual();
-                                root.add-error = "";
-                                root.adding = true;
                             }
                         }
                     }
@@ -3300,8 +3288,8 @@ export component AppWindow inherits Window {
                         }
                     }
     
-                    if root.subs.length == 0: Text {
-                        text: "Пока пусто. Добавьте ссылку на подписку.";
+                    if root.subs.length == 0 && !root.has-manual: Text {
+                        text: "Пока пусто. Добавьте ссылку на подписку или сервер.";
                         color: Theme.muted;
                         wrap: word-wrap;
                         font-size: Theme.fs-small;
@@ -4155,7 +4143,7 @@ export component AppWindow inherits Window {
                 if root.manual-selected && root.servers.length == 0: EmptyState {
                     vertical-stretch: 1;
                     title: "Пока нет серверов";
-                    hint: "Нажмите «+» рядом с «Мои серверы» и добавьте ссылку на сервер.";
+                    hint: "Нажмите «+» рядом с «Подписки» и добавьте ссылку на сервер.";
                 }
     
                 if root.current-sub >= 0 && (!root.manual-selected || root.servers.length > 0): servers-list := ListView {
