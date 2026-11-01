@@ -1,4 +1,5 @@
-//! Share-link parsing: vless://, vmess://, trojan://, ss://.
+//! Share-link parsing: vless://, vmess://, trojan://, ss://, hysteria2://
+//! (hy2://), socks://, http(s)://.
 
 use std::collections::HashMap;
 
@@ -30,6 +31,10 @@ pub enum Protocol {
     Vmess { id: String, alter_id: u32, cipher: String },
     Trojan { password: String },
     Shadowsocks { method: String, password: String },
+    /// `obfs_password`: Salamander obfuscation, empty when off.
+    Hysteria2 { auth: String, obfs_password: String },
+    Socks { user: String, pass: String },
+    Http { user: String, pass: String },
 }
 
 impl Protocol {
@@ -39,6 +44,9 @@ impl Protocol {
             Self::Vmess { .. } => "VMess",
             Self::Trojan { .. } => "Trojan",
             Self::Shadowsocks { .. } => "Shadowsocks",
+            Self::Hysteria2 { .. } => "Hysteria2",
+            Self::Socks { .. } => "SOCKS",
+            Self::Http { .. } => "HTTP",
         }
     }
 }
@@ -64,6 +72,9 @@ pub struct Stream {
     pub header_type: String,
     /// xhttp `extra` object, passed through verbatim.
     pub extra: Option<serde_json::Value>,
+    /// SHA-256 of the server's certificate (hex), `pinnedPeerCertSha256`.
+    #[serde(default)]
+    pub pinned_sha256: String,
 }
 
 pub fn parse(link: &str) -> Result<Profile> {
@@ -96,6 +107,9 @@ fn parse_plain(link: &str) -> Result<Profile> {
         "trojan" => parse_vless_trojan(link, false),
         "vmess" => parse_vmess(link),
         "ss" => parse_ss(link),
+        "hysteria2" | "hy2" => parse_hysteria2(link),
+        "socks" | "socks5" => parse_proxy(link, false),
+        "http" | "https" => parse_proxy(link, true),
         "" => bail!("not a link"),
         other => bail!("unsupported protocol: {other}"),
     }
@@ -151,6 +165,7 @@ fn stream_from_query(q: &HashMap<String, String>, default_security: &str) -> Res
         mode: get("mode"),
         header_type: get("headerType"),
         extra,
+        pinned_sha256: get("pcs").replace(':', "").to_lowercase(),
     })
 }
 
@@ -190,6 +205,86 @@ fn b64(s: &str) -> Result<Vec<u8>> {
         .decode(&s)
         .or_else(|_| URL_SAFE_NO_PAD_INDIFFERENT.decode(&s))
         .map_err(|e| anyhow!("bad base64: {e}"))
+}
+
+/// `hysteria2://auth@host:port/?sni=&insecure=1&obfs=salamander&obfs-password=&pinSHA256=#name`.
+/// A port range (port hopping) keeps its first port.
+fn parse_hysteria2(link: &str) -> Result<Profile> {
+    let link = first_port_of_range(link);
+    let url = Url::parse(&link)?;
+    let (address, port) = host_port(&url)?;
+    let auth = match url.password() {
+        Some(pass) => format!("{}:{}", decode(url.username()), decode(pass)),
+        None => decode(url.username()),
+    };
+    let q: HashMap<String, String> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+    let get = |k: &str| q.get(k).cloned().unwrap_or_default();
+    let obfs_password = if get("obfs") == "salamander" { get("obfs-password") } else { String::new() };
+    let alpn: Vec<String> = get("alpn").split(',').filter(|s| !s.is_empty()).map(String::from).collect();
+    Ok(Profile {
+        name: fragment_name(&url, &address),
+        description: None,
+        protocol: Protocol::Hysteria2 { auth, obfs_password },
+        address,
+        port,
+        stream: Stream {
+            network: "hysteria".into(),
+            security: "tls".into(),
+            sni: get("sni"),
+            alpn: if alpn.is_empty() { vec!["h3".into()] } else { alpn },
+            allow_insecure: matches!(get("insecure").as_str(), "1" | "true"),
+            pinned_sha256: get("pinSHA256").replace(':', "").to_lowercase(),
+            ..Default::default()
+        },
+        link: String::new(),
+    })
+}
+
+/// `host:20000-30000` -> `host:20000`, which a URL parser accepts.
+fn first_port_of_range(link: &str) -> String {
+    let Some(at) = link.find("://").map(|i| i + 3) else { return link.to_string() };
+    let end = link[at..].find(['/', '?', '#']).map_or(link.len(), |i| at + i);
+    let authority = &link[at..end];
+    match authority.rsplit_once(':') {
+        Some((host, ports)) if ports.contains(['-', ',']) => {
+            let first = ports.split(['-', ',']).next().unwrap_or_default();
+            format!("{}{host}:{first}{}", &link[..at], &link[end..])
+        }
+        _ => link.to_string(),
+    }
+}
+
+/// `socks://[user:pass@]host:port#name` (v2rayN puts `base64(user:pass)` as
+/// the user), `http(s)://user:pass@host:port#name`. An http(s) link with a
+/// path or without a port is a web address, not a proxy.
+fn parse_proxy(link: &str, http: bool) -> Result<Profile> {
+    let url = Url::parse(link)?;
+    if http && (url.port().is_none() || !matches!(url.path(), "" | "/") || url.query().is_some()) {
+        bail!("not a proxy link");
+    }
+    let (address, port) = host_port(&url)?;
+    let (mut user, mut pass) = (decode(url.username()), url.password().map(decode).unwrap_or_default());
+    if !http && pass.is_empty() && !user.is_empty() {
+        if let Some((u, p)) = b64(&user).ok().and_then(|b| String::from_utf8(b).ok()).and_then(|t| {
+            t.split_once(':').map(|(u, p)| (u.to_string(), p.to_string()))
+        }) {
+            (user, pass) = (u, p);
+        }
+    }
+    let tls = http && url.scheme() == "https";
+    Ok(Profile {
+        name: fragment_name(&url, &address),
+        description: None,
+        protocol: if http { Protocol::Http { user, pass } } else { Protocol::Socks { user, pass } },
+        address,
+        port,
+        stream: Stream {
+            network: "tcp".into(),
+            security: if tls { "tls".into() } else { "none".into() },
+            ..Default::default()
+        },
+        link: String::new(),
+    })
 }
 
 fn parse_vmess(link: &str) -> Result<Profile> {
@@ -298,6 +393,31 @@ fn parse_ss(link: &str) -> Result<Profile> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn hysteria2_links() {
+        let p = parse("hysteria2://pass%40word@hy.example.com:20000-30000/?sni=s.example&obfs=salamander&obfs-password=ob&pinSHA256=AB:CD&insecure=1#HY").unwrap();
+        assert_eq!(p.name, "HY");
+        assert_eq!((p.address.as_str(), p.port), ("hy.example.com", 20000));
+        assert_eq!(p.protocol, Protocol::Hysteria2 { auth: "pass@word".into(), obfs_password: "ob".into() });
+        assert_eq!((p.stream.network.as_str(), p.stream.security.as_str()), ("hysteria", "tls"));
+        assert_eq!((p.stream.sni.as_str(), p.stream.alpn.clone(), p.stream.pinned_sha256.as_str()), ("s.example", vec!["h3".to_string()], "abcd"));
+        assert!(p.stream.allow_insecure);
+        let q = parse("hy2://user:pw@1.2.3.4:443#X").unwrap();
+        assert_eq!(q.protocol, Protocol::Hysteria2 { auth: "user:pw".into(), obfs_password: String::new() });
+    }
+
+    #[test]
+    fn socks_and_http_links() {
+        let s = parse("socks://dXNlcjpwYXNz@1.2.3.4:1080#S").unwrap();
+        assert_eq!(s.protocol, Protocol::Socks { user: "user".into(), pass: "pass".into() });
+        assert_eq!(parse("socks5://1.2.3.4:1080").unwrap().protocol, Protocol::Socks { user: String::new(), pass: String::new() });
+        let h = parse("https://u:p@proxy.example:8443#H").unwrap();
+        assert_eq!(h.protocol, Protocol::Http { user: "u".into(), pass: "p".into() });
+        assert_eq!(h.stream.security, "tls");
+        assert!(parse("https://vip.example/sub/TOKEN").is_err(), "a subscription address is not a proxy");
+        assert!(parse("http://example.com:8080/page").is_err());
+    }
+
     const UUID: &str = "00000000-1111-2222-3333-444444444444";
 
     #[test]
@@ -371,7 +491,7 @@ mod tests {
 
     #[test]
     fn unsupported() {
-        assert!(parse("hysteria2://x@h:1").is_err());
+        assert!(parse("tuic://x@h:1").is_err());
         assert!(parse("garbage").is_err());
     }
 }

@@ -90,6 +90,14 @@ pub fn fields(p: &Profile) -> Vec<Field> {
             );
             f.add("password", "Пароль", password, &[], "");
         }
+        Protocol::Hysteria2 { auth, obfs_password } => {
+            f.add("auth", "Пароль", auth, &[], "");
+            f.add("obfs_password", "Salamander", obfs_password, &[], "пароль обфускации, если есть");
+        }
+        Protocol::Socks { user, pass } | Protocol::Http { user, pass } => {
+            f.add("user", "Логин", user, &[], "если нужен");
+            f.add("pass", "Пароль", pass, &[], "");
+        }
     }
 
     f.section("ТРАНСПОРТ");
@@ -161,6 +169,10 @@ pub fn set(p: &mut Profile, key: &str, value: &str) {
         ("cipher", Protocol::Vmess { cipher, .. }) => *cipher = v.into(),
         ("password", Protocol::Trojan { password } | Protocol::Shadowsocks { password, .. }) => *password = v.into(),
         ("method", Protocol::Shadowsocks { method, .. }) => *method = v.into(),
+        ("auth", Protocol::Hysteria2 { auth, .. }) => *auth = v.into(),
+        ("obfs_password", Protocol::Hysteria2 { obfs_password, .. }) => *obfs_password = v.into(),
+        ("user", Protocol::Socks { user, .. } | Protocol::Http { user, .. }) => *user = v.into(),
+        ("pass", Protocol::Socks { pass, .. } | Protocol::Http { pass, .. }) => *pass = v.into(),
         ("network", _) => s.network = v.into(),
         ("host", _) => s.host = v.into(),
         ("path", _) => s.path = v.into(),
@@ -198,6 +210,7 @@ pub fn validate(p: &Profile) -> Result<(), (&'static str, &'static str)> {
         Protocol::Trojan { password } | Protocol::Shadowsocks { password, .. } if password.is_empty() => {
             return Err(("password", "Укажите пароль"));
         }
+        Protocol::Hysteria2 { auth, .. } if auth.is_empty() => return Err(("auth", "Укажите пароль")),
         _ => {}
     }
     if p.stream.security == "reality" && p.stream.public_key.is_empty() {

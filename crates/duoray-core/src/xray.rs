@@ -43,12 +43,29 @@ pub fn outbound(p: &Profile, tag: &str) -> Value {
             "shadowsocks",
             json!({ "servers": [{ "address": p.address, "port": p.port, "method": method, "password": password }] }),
         ),
+        Protocol::Hysteria2 { .. } => ("hysteria", json!({ "version": 2, "address": p.address, "port": p.port })),
+        Protocol::Socks { user, pass } | Protocol::Http { user, pass } => {
+            let mut server = json!({ "address": p.address, "port": p.port });
+            if !user.is_empty() {
+                server["user"] = json!(user);
+                server["pass"] = json!(pass);
+            }
+            (if matches!(p.protocol, Protocol::Socks { .. }) { "socks" } else { "http" }, server)
+        }
     };
+    let mut stream = stream_settings(&p.stream, &p.address);
+    // Hysteria's auth and Salamander obfuscation live in the transport.
+    if let Protocol::Hysteria2 { auth, obfs_password } = &p.protocol {
+        stream["hysteriaSettings"] = json!({ "version": 2, "auth": auth });
+        if !obfs_password.is_empty() {
+            stream["finalmask"] = json!({ "udp": [{ "type": "salamander", "settings": { "password": obfs_password } }] });
+        }
+    }
     json!({
         "tag": tag,
         "protocol": protocol,
         "settings": settings,
-        "streamSettings": stream_settings(&p.stream, &p.address),
+        "streamSettings": stream,
     })
 }
 
@@ -65,7 +82,9 @@ fn stream_settings(s: &Stream, address: &str) -> Value {
             if !s.alpn.is_empty() {
                 tls["alpn"] = json!(s.alpn);
             }
-            if s.allow_insecure {
+            if !s.pinned_sha256.is_empty() {
+                tls["pinnedPeerCertSha256"] = json!(s.pinned_sha256);
+            } else if s.allow_insecure {
                 tls["allowInsecure"] = json!(true);
             }
             ss["tlsSettings"] = tls;

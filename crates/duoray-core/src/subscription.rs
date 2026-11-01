@@ -579,7 +579,7 @@ mod tests {
 
     const LINKS: &str = "vless://00000000-1111-2222-3333-444444444444@1.2.3.4:443?type=tcp&security=reality&pbk=K&sni=a.b#One\n\
         trojan://pw@t.example:443#Two\n\
-        hysteria2://pw@h.example:443#Three\n";
+        tuic://uuid:pw@h.example:443#Three\n";
 
     #[test]
     fn base64_links() {
