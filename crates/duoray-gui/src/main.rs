@@ -88,6 +88,47 @@ fn flag_tile(code: &str, width: u32) -> Option<slint::Image> {
 }
 
 /// Traffic through xray's SOCKS inbound, from its counters.
+/// A server's speed test, as its row shows it.
+#[derive(Clone, Copy)]
+enum SpeedCell {
+    Queued,
+    /// Megabits a second so far; `None` before the first figure.
+    Testing { down: Option<f64>, up: Option<f64> },
+    Done(speed::Speed),
+    Failed,
+}
+
+impl SpeedCell {
+    /// (state, down, up) for the row: state 0 none, 1 queued, 2 testing,
+    /// 3 done, 4 failed; figures without units, "…" while not known yet.
+    fn row(cell: Option<&SpeedCell>) -> (i32, String, String) {
+        let so_far = |v: Option<f64>| v.filter(|v| *v > 0.0).map_or_else(|| "…".into(), speed::number);
+        match cell {
+            None => (0, String::new(), String::new()),
+            Some(SpeedCell::Queued) => (1, String::new(), String::new()),
+            Some(SpeedCell::Testing { down, up }) => (2, so_far(*down), so_far(*up)),
+            Some(SpeedCell::Done(s)) => (3, speed::number(s.down_mbps), s.up_mbps.map(speed::number).unwrap_or_default()),
+            Some(SpeedCell::Failed) => (4, String::new(), String::new()),
+        }
+    }
+}
+
+/// The server under a running speed test, where it measures to and what it
+/// does now.
+struct SpeedLive {
+    server: String,
+    target: String,
+    phase: String,
+}
+
+impl SpeedLive {
+    /// "Germany-1 → Speedtest: Elisa, Tallinn · загрузка 94 Мбит/с".
+    fn label(&self) -> String {
+        let to = if self.target.is_empty() { String::new() } else { format!(" → {}", self.target) };
+        format!("{}{to} · {}", self.server, self.phase)
+    }
+}
+
 struct Traffic {
     /// The last reading: when, and the counters (up, down).
     at: std::time::Instant,
@@ -161,11 +202,13 @@ struct App {
     /// Names of the active balancer's nodes that match a single server.
     node_names: std::collections::HashMap<String, String>,
     /// Speed test results by server key (see [`speed_jobs`]), this session.
-    speed_results: std::collections::HashMap<String, String>,
+    speed_results: std::collections::HashMap<String, SpeedCell>,
     /// Stops the running speed tests; `None` when none runs.
     speed_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// (done, total) while speed tests run.
     speed_progress: Option<(usize, usize)>,
+    /// What the running speed test does, for the status line.
+    speed_live: Option<SpeedLive>,
     /// Traffic through the active connection (see [`measure_traffic`]).
     traffic: Option<Traffic>,
     traffic_busy: bool,
@@ -304,6 +347,7 @@ fn main() -> anyhow::Result<()> {
         speed_results: Default::default(),
         speed_cancel: None,
         speed_progress: None,
+        speed_live: None,
         ping_progress: None,
         ping_cancel: None,
         ping_render_pending: false,
@@ -1028,7 +1072,7 @@ fn main() -> anyhow::Result<()> {
     // `cargo run -p duoray-core --example demo_store`), one frame of the window
     // as connected, nothing fetched or pinged, saved as <prefix>.demo.png.
     if let (Some(prefix), Some(_)) = (std::env::var_os("DUORAY_SNAPSHOT"), std::env::var_os("DUORAY_DEMO")) {
-        let (ui_weak, prefix) = (ui.as_weak(), PathBuf::from(prefix));
+        let (ui_weak, prefix, app) = (ui.as_weak(), PathBuf::from(prefix), app.clone());
         ui.window().set_size(slint::LogicalSize::new(1290.0, 820.0));
         // Time for a tiling compositor's size to be set by hand (niri msg).
         slint::Timer::single_shot(std::time::Duration::from_secs(5), move || {
@@ -1041,6 +1085,30 @@ fn main() -> anyhow::Result<()> {
             ui.set_conn_exit_flag(flag_tile("NL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
             ui.set_conn_ping_text("38 мс".into());
             ui.set_conn_ping_level(1);
+            // Speed results in every state, and one test under way.
+            {
+                let mut st = app.lock().unwrap();
+                let done = |down, up| SpeedCell::Done(speed::Speed { down_mbps: down, up_mbps: up });
+                let cells = [
+                    done(212.4, Some(87.3)),
+                    done(94.0, Some(101.2)),
+                    SpeedCell::Testing { down: Some(173.0), up: None },
+                    SpeedCell::Queued,
+                    SpeedCell::Failed,
+                    done(8.24, Some(3.1)),
+                ];
+                if let Some(sub) = current(&ui, &st) {
+                    let keys: Vec<String> = sub.servers.iter().map(|s| key_of(sub, s)).collect();
+                    st.speed_results.extend(keys.into_iter().zip(cells));
+                }
+                st.speed_progress = Some((2, 6));
+                st.speed_live = Some(SpeedLive {
+                    server: "Германия (Франкфурт)".into(),
+                    target: "Speedtest: Deutsche Telekom, Frankfurt".into(),
+                    phase: "загрузка 173 Мбит/с".into(),
+                });
+                render(&ui, &st);
+            }
             let ui_weak = ui.as_weak();
             slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
                 snapshot(ui_weak.unwrap().window(), &prefix.with_extension("demo.png"));
@@ -2068,7 +2136,8 @@ fn render(ui: &AppWindow, st: &App) {
         if let Some((done, total)) = st.ping_progress {
             format!("Пинг: {done} из {total}")
         } else if let Some((done, total)) = st.speed_progress {
-            format!("Скорость: {done} из {total}")
+            let live = st.speed_live.as_ref().map(|l| format!(" · {}", l.label())).unwrap_or_default();
+            format!("Тест скорости {} из {total}{live}", (done + 1).min(total))
         } else if busy_count > 0 {
             format!("Обновление подписок… ({busy_count})")
         } else {
@@ -2160,6 +2229,7 @@ fn render(ui: &AppWindow, st: &App) {
             let (flag, name) = display_name(&s.name);
             let image = flag.as_deref().and_then(flag_image);
             let ping = st.ping_results.get(&key_of(sub, s)).cloned().unwrap_or_default();
+            let speed = SpeedCell::row(st.speed_results.get(&key_of(sub, s)));
             ServerRow {
                 has_flag_image: image.is_some(),
                 flag_image: image.unwrap_or_default(),
@@ -2173,7 +2243,9 @@ fn render(ui: &AppWindow, st: &App) {
                 proxies: s.proxies as i32,
                 ping_text: ping.0.into(),
                 ping_level: ping.1,
-                speed_text: st.speed_results.get(&key_of(sub, s)).cloned().unwrap_or_default().into(),
+                speed_state: speed.0,
+                speed_down: speed.1.into(),
+                speed_up: speed.2.into(),
                 edited: s.override_key.is_some(),
                 is_json: matches!(s.source, duoray_core::server::Source::Json(_)),
             }
@@ -2822,7 +2894,7 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
     st.speed_cancel = Some(cancel.clone());
     st.speed_progress = Some((0, jobs.len()));
     for (key, _) in &jobs {
-        st.speed_results.insert(key.clone(), "ждёт…".into());
+        st.speed_results.insert(key.clone(), SpeedCell::Queued);
     }
     let source = match st.store.settings.speedtest {
         SpeedSource::Ookla => speed::Source::Ookla,
@@ -2834,11 +2906,12 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
     drop(st);
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
-        let set = |key: String, text: String| {
+        // Applies `change` to the state and redraws.
+        let update = |change: Box<dyn FnOnce(&mut App) + Send>| {
             let app = app.clone();
             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                 let mut st = app.lock().unwrap();
-                st.speed_results.insert(key, text);
+                change(&mut st);
                 render(&ui, &st);
             });
         };
@@ -2847,36 +2920,61 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
             if cancel.load(Ordering::SeqCst) {
                 break;
             }
-            set(key.clone(), "тест…".into());
+            let (k, name, total) = (key.clone(), display_name(&server.name).1, jobs.len());
+            update(Box::new(move |st| {
+                st.speed_results.insert(k, SpeedCell::Testing { down: None, up: None });
+                st.speed_progress = Some((done, total));
+                st.speed_live = Some(SpeedLive { server: name, target: String::new(), phase: "подключение…".into() });
+            }));
+            let progress = |p: speed::Progress| {
+                let k = key.clone();
+                update(Box::new(move |st| {
+                    let (Some(live), Some(SpeedCell::Testing { down, up })) = (st.speed_live.as_mut(), st.speed_results.get_mut(&k)) else {
+                        return;
+                    };
+                    match p {
+                        speed::Progress::Target(t) => {
+                            live.target = t;
+                            live.phase = "загрузка…".into();
+                            (*down, *up) = (None, None);
+                        }
+                        speed::Progress::Down(r) => {
+                            live.phase = format!("загрузка {} Мбит/с", speed::number(r));
+                            *down = Some(r);
+                        }
+                        speed::Progress::Up(r) => {
+                            live.phase = if r > 0.0 { format!("отдача {} Мбит/с", speed::number(r)) } else { "отдача…".into() };
+                            *up = Some(r);
+                        }
+                    }
+                }));
+            };
             let result = iface.as_deref().ok_or_else(|| anyhow::anyhow!("нет подключения к сети")).and_then(|iface| {
                 ping::through_server(server, iface, &run_dir, "speed", |socks, user, pass| {
-                    speed::measure(socks, user, pass, &source, &cancel)
+                    speed::measure(socks, user, pass, &source, &cancel, &progress)
                 })
             });
             if cancel.load(Ordering::SeqCst) {
                 break;
             }
-            set(key.clone(), result.map_or_else(|_| "нет скорости".into(), |s| s.short_label()));
-            let (app, total) = (app.clone(), jobs.len());
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                let mut st = app.lock().unwrap();
+            let k = key.clone();
+            update(Box::new(move |st| {
+                st.speed_results.insert(k, result.map_or(SpeedCell::Failed, SpeedCell::Done));
                 st.speed_progress = Some((done + 1, total));
-                render(&ui, &st);
-            });
+            }));
         }
         let keys: Vec<String> = jobs.into_iter().map(|(k, _)| k).collect();
-        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-            let mut st = app.lock().unwrap();
+        update(Box::new(move |st| {
             st.speed_cancel = None;
             st.speed_progress = None;
+            st.speed_live = None;
             // Stopped: the ones not reached show nothing.
             for key in keys {
-                if st.speed_results.get(&key).is_some_and(|t| t == "ждёт…" || t == "тест…") {
+                if st.speed_results.get(&key).is_some_and(|c| matches!(c, SpeedCell::Queued | SpeedCell::Testing { .. })) {
                     st.speed_results.remove(&key);
                 }
             }
-            render(&ui, &st);
-        });
+        }));
     });
 }
 

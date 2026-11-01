@@ -33,8 +33,12 @@ export struct ServerRow {
     ping-text: string,
     // 0 none, 1 fast, 2 medium, 3 slow, 4 failed, 5 pending
     ping-level: int,
-    // Speed test result ("↓210 ↑38 Мбит/с", "тест…"); empty when not tested.
-    speed-text: string,
+    // Speed test: 0 none, 1 queued, 2 testing, 3 done, 4 failed.
+    speed-state: int,
+    // Megabits a second without units ("210", "8.2", "…" not known yet);
+    // speed-up is empty when only the download was measured.
+    speed-down: string,
+    speed-up: string,
     // The user changed this server (kept across subscription updates).
     edited: bool,
     // Edited as JSON (else as a form of share-link fields).
@@ -196,6 +200,68 @@ component PingChip inherits Rectangle {
             horizontal-alignment: center;
             vertical-alignment: center;
         }
+    }
+}
+
+// One direction of a speed result: "↓ 210 Мбит/с", the figure carrying the
+// weight, the arrow and unit quiet.
+component SpeedLine inherits HorizontalLayout {
+    in property <string> arrow;
+    in property <string> value;
+    in property <brush> tone;
+    alignment: end;
+    spacing: 3px;
+    Text {
+        text: root.arrow;
+        font-size: Theme.fs-caption;
+        color: Theme.muted;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.value;
+        font-size: Theme.fs-small;
+        font-weight: 700;
+        color: root.tone;
+        vertical-alignment: center;
+    }
+    Text {
+        text: "Мбит/с";
+        font-size: Theme.fs-caption;
+        color: Theme.muted;
+        vertical-alignment: center;
+    }
+}
+
+// A server's speed, a fixed-width column right of the chips so the figures
+// line up down the list: download over upload. Live figures while testing.
+component SpeedCell inherits VerticalLayout {
+    in property <int> state;
+    in property <string> down;
+    in property <string> up;
+    width: 92px * Theme.text-scale;
+    alignment: center;
+    spacing: 1px;
+    if root.state == 1: Text {
+        text: "в очереди";
+        font-size: Theme.fs-caption;
+        color: Theme.muted;
+        horizontal-alignment: right;
+    }
+    if root.state == 4: Text {
+        text: "нет скорости";
+        font-size: Theme.fs-caption;
+        color: Theme.danger;
+        horizontal-alignment: right;
+    }
+    if root.state == 2 || root.state == 3: SpeedLine {
+        arrow: "↓";
+        value: root.down;
+        tone: root.state == 2 ? Theme.accent : Theme.fg;
+    }
+    if (root.state == 2 || root.state == 3) && root.up != "": SpeedLine {
+        arrow: "↑";
+        value: root.up;
+        tone: root.state == 2 ? Theme.accent : Theme.muted;
     }
 }
 
@@ -4257,12 +4323,10 @@ export component AppWindow inherits Window {
                                         text: srv.transport;
                                     }
                                 }
-                                if srv.speed-text != "": VerticalLayout {
-                                    alignment: center;
-                                    Chip {
-                                        text: srv.speed-text;
-                                        accent: true;
-                                    }
+                                if srv.speed-state != 0: SpeedCell {
+                                    state: srv.speed-state;
+                                    down: srv.speed-down;
+                                    up: srv.speed-up;
                                 }
                                 // Last, in a column of its own: pings line up down the list
                                 // whatever chips a row has.
