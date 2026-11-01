@@ -1100,22 +1100,51 @@ fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     slint::Timer::single_shot(std::time::Duration::ZERO, move || {
         let Some(ui) = ui_weak.upgrade() else { return };
-        let state = tray_state(&ui, &app.lock().unwrap());
-        let ui_weak = ui.as_weak();
-        let started = tray::start(state, move |action| {
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| match action {
-                tray::Action::Show => show_window(&ui),
-                tray::Action::Toggle => ui.invoke_toggle_connection(),
-                tray::Action::Quit => {
-                    let _ = slint::quit_event_loop();
-                }
-            });
-        });
+        let started = start_tray(&ui, &app);
         diag::log(format!("tray: {}", if started { "on" } else { "not available" }));
-        ui.set_tray_available(started);
         // Started hidden at login, but there is no tray to bring it back from.
         if !started && !ui.window().is_visible() {
             show_window(&ui);
+        }
+        if !started {
+            retry_tray(&ui, &app);
+        }
+    });
+}
+
+/// Creates the tray icon; false if the desktop has no tray (yet).
+fn start_tray(ui: &AppWindow, app: &Shared) -> bool {
+    let state = tray_state(ui, &app.lock().unwrap());
+    let ui_weak = ui.as_weak();
+    let started = tray::start(state, move |action| {
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| match action {
+            tray::Action::Show => show_window(&ui),
+            tray::Action::Toggle => ui.invoke_toggle_connection(),
+            tray::Action::Quit => {
+                let _ = slint::quit_event_loop();
+            }
+        });
+    });
+    ui.set_tray_available(started);
+    started
+}
+
+/// At login the desktop may bring up its tray after us (COSMIC on Pop!_OS
+/// did: "tray: not available", then no icon for the whole session, and
+/// closing the window quit the app). Tries again every 3 s for two minutes.
+fn retry_tray(ui: &AppWindow, app: &Shared) {
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    let tries = std::cell::Cell::new(0);
+    let timer = std::rc::Rc::new(slint::Timer::default());
+    let handle = timer.clone();
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(3), move || {
+        let Some(ui) = ui_weak.upgrade() else { return handle.stop() };
+        tries.set(tries.get() + 1);
+        if start_tray(&ui, &app) {
+            diag::log(format!("tray: on after {} s", tries.get() * 3));
+            handle.stop();
+        } else if tries.get() >= 40 {
+            handle.stop();
         }
     });
 }
