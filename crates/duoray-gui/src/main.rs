@@ -160,6 +160,10 @@ struct App {
     exit_busy: bool,
     /// Names of the active balancer's nodes that match a single server.
     node_names: std::collections::HashMap<String, String>,
+    /// Speed test results by server key (see [`speed_jobs`]), this session.
+    speed_results: std::collections::HashMap<String, String>,
+    /// Stops the running speed tests; `None` when none runs.
+    speed_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// Traffic through the active connection (see [`measure_traffic`]).
     traffic: Option<Traffic>,
     traffic_busy: bool,
@@ -295,6 +299,8 @@ fn main() -> anyhow::Result<()> {
         node_names: Default::default(),
         traffic: None,
         traffic_busy: false,
+        speed_results: Default::default(),
+        speed_cancel: None,
         ping_progress: None,
         ping_cancel: None,
         ping_render_pending: false,
@@ -738,6 +744,25 @@ fn main() -> anyhow::Result<()> {
             let ui = ui_weak.unwrap();
             load_happ(&ui, &HappSpoof::default());
             ui.invoke_settings_changed();
+        }
+    });
+
+    ui.on_speed_test_all({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            if let Some(cancel) = &st.speed_cancel {
+                cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                return;
+            }
+            let Some(sub) = current(&ui, &st) else { return };
+            let jobs: Vec<_> = sub.servers.iter().map(|s| (key_of(sub, s), s.clone())).collect();
+            if jobs.is_empty() {
+                return;
+            }
+            st.status.clear();
+            speed_jobs(&ui, &app, st, jobs);
         }
     });
 
@@ -2089,6 +2114,7 @@ fn render(ui: &AppWindow, st: &App) {
         exit.map(|t| duoray_core::balancer::country_name(&t.loc).unwrap_or(&t.loc).to_string()).unwrap_or_default().into(),
     );
     ui.set_conn_node(st.exit_node.clone().filter(|_| connected).unwrap_or_default().into());
+    ui.set_speed_testing(st.speed_cancel.is_some());
     ui.set_conn_traffic(st.traffic.as_ref().filter(|_| connected).map(Traffic::label).unwrap_or_default().into());
     ui.set_can_connect(selected_server(ui, st).is_some());
     render_expiry(ui, st);
@@ -2138,6 +2164,7 @@ fn render(ui: &AppWindow, st: &App) {
                 proxies: s.proxies as i32,
                 ping_text: ping.0.into(),
                 ping_level: ping.1,
+                speed_text: st.speed_results.get(&key_of(sub, s)).cloned().unwrap_or_default().into(),
                 edited: s.override_key.is_some(),
                 is_json: matches!(s.source, duoray_core::server::Source::Json(_)),
             }
@@ -2765,6 +2792,60 @@ fn measure_exit(ui: &AppWindow, app: &Shared, st: &mut App) {
             }
             // Only a node with a name says something; a bare tag or index does not.
             st.exit_node = node.flatten().and_then(|tag| st.node_names.get(&tag)).map(|name| display_name(name).1);
+            render(&ui, &st);
+        });
+    });
+}
+
+/// Speed-tests `jobs` (key, server) one after another, each through a
+/// throwaway xray with its config; the results show on the rows. One run at
+/// a time: it saturates the link.
+fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, jobs: Vec<(String, duoray_core::server::Server)>) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    if st.speed_cancel.is_some() {
+        flash_status(ui, app, &mut st, "Тест скорости уже идёт".into());
+        return render(ui, &st);
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    st.speed_cancel = Some(cancel.clone());
+    for (key, _) in &jobs {
+        st.speed_results.insert(key.clone(), "ждёт…".into());
+    }
+    let url = st.store.settings.speedtest_url.clone();
+    let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
+    render(ui, &st);
+    drop(st);
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    std::thread::spawn(move || {
+        let set = |key: String, text: String| {
+            let app = app.clone();
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                let mut st = app.lock().unwrap();
+                st.speed_results.insert(key, text);
+                render(&ui, &st);
+            });
+        };
+        let iface = connection::uplink_interface();
+        for (key, server) in &jobs {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
+            set(key.clone(), "тест…".into());
+            let result = iface.as_deref().ok_or_else(|| anyhow::anyhow!("нет подключения к сети")).and_then(|iface| {
+                ping::through_server(server, iface, &run_dir, "speed", |socks, user, pass| speed::measure(socks, user, pass, &url))
+            });
+            set(key.clone(), result.map_or_else(|_| "нет скорости".into(), |s| s.short_label()));
+        }
+        let keys: Vec<String> = jobs.into_iter().map(|(k, _)| k).collect();
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            let mut st = app.lock().unwrap();
+            st.speed_cancel = None;
+            // Stopped: the ones not reached show nothing.
+            for key in keys {
+                if st.speed_results.get(&key).is_some_and(|t| t == "ждёт…" || t == "тест…") {
+                    st.speed_results.remove(&key);
+                }
+            }
             render(&ui, &st);
         });
     });

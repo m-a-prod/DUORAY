@@ -33,6 +33,8 @@ export struct ServerRow {
     ping-text: string,
     // 0 none, 1 fast, 2 medium, 3 slow, 4 failed, 5 pending
     ping-level: int,
+    // Speed test result ("↓210 ↑38 Мбит/с", "тест…"); empty when not tested.
+    speed-text: string,
     // The user changed this server (kept across subscription updates).
     edited: bool,
     // Edited as JSON (else as a form of share-link fields).
@@ -2905,6 +2907,9 @@ export component AppWindow inherits Window {
     callback show-sub-qr();
     callback show-server-qr(int);
     callback speed-test-server(int);
+    // Speed test of every server of the subscription (or stop it).
+    callback speed-test-all();
+    in property <bool> speed-testing;
     callback qr-copy();
     callback save-ident();
     callback ident-new-hwid();
@@ -4008,6 +4013,13 @@ export component AppWindow inherits Window {
                                         sub-menu.close();
                                     }
                                 }
+                                MenuItem {
+                                    text: root.speed-testing ? "Остановить тест скорости" : "Проверить скорость всех";
+                                    clicked => {
+                                        root.speed-test-all();
+                                        sub-menu.close();
+                                    }
+                                }
                                 if !root.manual-selected: MenuItem {
                                     text: "Подмена HWID";
                                     // Callback first: close() drops this item with the popup.
@@ -4236,6 +4248,13 @@ export component AppWindow inherits Window {
                                     alignment: center;
                                     Chip {
                                         text: srv.transport;
+                                    }
+                                }
+                                if srv.speed-text != "": VerticalLayout {
+                                    alignment: center;
+                                    Chip {
+                                        text: srv.speed-text;
+                                        accent: true;
                                     }
                                 }
                                 // Last, in a column of its own: pings line up down the list

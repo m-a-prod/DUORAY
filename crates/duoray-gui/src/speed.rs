@@ -22,12 +22,12 @@ pub struct Speed {
 }
 
 impl Speed {
-    /// "↓ 85.3 Мбит/с · ↑ 21.0 Мбит/с"
-    pub fn label(&self) -> String {
-        let down = format!("↓ {:.1} Мбит/с", self.down_mbps);
+    /// For the server list: "↓210 ↑38 Мбит/с".
+    pub fn short_label(&self) -> String {
+        let n = |v: f64| if v < 10.0 { format!("{v:.1}") } else { format!("{v:.0}") };
         match self.up_mbps {
-            Some(up) => format!("{down} · ↑ {up:.1} Мбит/с"),
-            None => down,
+            Some(up) => format!("↓{} ↑{} Мбит/с", n(self.down_mbps), n(up)),
+            None => format!("↓{} Мбит/с", n(self.down_mbps)),
         }
     }
 }
@@ -94,14 +94,14 @@ mod tests {
     fn measures_through_a_proxy() {
         let socks = std::env::var("DUORAY_SPEED_SOCKS").expect("DUORAY_SPEED_SOCKS").parse().unwrap();
         let speed = measure(socks, "", "", "").unwrap();
-        eprintln!("{}", speed.label());
+        eprintln!("{}", speed.short_label());
         assert!(speed.down_mbps > 0.0 && speed.up_mbps.is_some());
     }
 
     #[test]
     fn labels_and_math() {
         assert!((mbps(12_500_000, Duration::from_secs(1)) - 100.0).abs() < 1e-9);
-        assert_eq!(Speed { down_mbps: 85.34, up_mbps: Some(21.0) }.label(), "↓ 85.3 Мбит/с · ↑ 21.0 Мбит/с");
-        assert_eq!(Speed { down_mbps: 5.0, up_mbps: None }.label(), "↓ 5.0 Мбит/с");
+        assert_eq!(Speed { down_mbps: 5.0, up_mbps: None }.short_label(), "↓5.0 Мбит/с");
+        assert_eq!(Speed { down_mbps: 209.6, up_mbps: Some(8.24) }.short_label(), "↓210 ↑8.2 Мбит/с");
     }
 }
