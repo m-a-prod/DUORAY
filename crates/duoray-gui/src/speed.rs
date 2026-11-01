@@ -3,6 +3,7 @@
 
 use std::io::Read;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -33,8 +34,8 @@ impl Speed {
 }
 
 /// Measures through xray's SOCKS inbound. `url` is an own file to download,
-/// or empty for Cloudflare.
-pub fn measure(socks: SocketAddr, user: &str, pass: &str, url: &str) -> Result<Speed> {
+/// or empty for Cloudflare. `cancel` stops it mid-download.
+pub fn measure(socks: SocketAddr, user: &str, pass: &str, url: &str, cancel: &AtomicBool) -> Result<Speed> {
     let proxy = ureq::Proxy::new(&if user.is_empty() { format!("socks5://{socks}") } else { format!("socks5://{user}:{pass}@{socks}") })?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .proxy(Some(proxy))
@@ -43,18 +44,21 @@ pub fn measure(socks: SocketAddr, user: &str, pass: &str, url: &str) -> Result<S
         .build()
         .into();
     let cloudflare = url.trim().is_empty();
-    let down_mbps = download(&agent, if cloudflare { CLOUDFLARE_DOWN } else { url.trim() })?;
+    let down_mbps = download(&agent, if cloudflare { CLOUDFLARE_DOWN } else { url.trim() }, cancel)?;
     // Upload is a nice-to-have: a failure leaves it out.
-    let up_mbps = if cloudflare { upload(&agent).ok() } else { None };
+    let up_mbps = if cloudflare && !cancel.load(Ordering::SeqCst) { upload(&agent).ok() } else { None };
     Ok(Speed { down_mbps, up_mbps })
 }
 
-fn download(agent: &ureq::Agent, url: &str) -> Result<f64> {
+fn download(agent: &ureq::Agent, url: &str, cancel: &AtomicBool) -> Result<f64> {
     let mut resp = agent.get(url).call().with_context(|| format!("GET {url}"))?;
     let mut body = resp.body_mut().as_reader();
     let mut buf = vec![0; 64 * 1024];
     let (start, mut total) = (Instant::now(), 0usize);
     while start.elapsed() < MAX_TIME {
+        if cancel.load(Ordering::SeqCst) {
+            bail!("остановлено");
+        }
         let n = body.read(&mut buf).context("загрузка оборвалась")?;
         if n == 0 {
             break;
@@ -93,7 +97,7 @@ mod tests {
     #[ignore]
     fn measures_through_a_proxy() {
         let socks = std::env::var("DUORAY_SPEED_SOCKS").expect("DUORAY_SPEED_SOCKS").parse().unwrap();
-        let speed = measure(socks, "", "", "").unwrap();
+        let speed = measure(socks, "", "", "", &AtomicBool::new(false)).unwrap();
         eprintln!("{}", speed.short_label());
         assert!(speed.down_mbps > 0.0 && speed.up_mbps.is_some());
     }

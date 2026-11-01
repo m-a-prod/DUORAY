@@ -164,6 +164,8 @@ struct App {
     speed_results: std::collections::HashMap<String, String>,
     /// Stops the running speed tests; `None` when none runs.
     speed_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// (done, total) while speed tests run.
+    speed_progress: Option<(usize, usize)>,
     /// Traffic through the active connection (see [`measure_traffic`]).
     traffic: Option<Traffic>,
     traffic_busy: bool,
@@ -301,6 +303,7 @@ fn main() -> anyhow::Result<()> {
         traffic_busy: false,
         speed_results: Default::default(),
         speed_cancel: None,
+        speed_progress: None,
         ping_progress: None,
         ping_cancel: None,
         ping_render_pending: false,
@@ -2060,6 +2063,8 @@ fn render(ui: &AppWindow, st: &App) {
     ui.set_status(
         if let Some((done, total)) = st.ping_progress {
             format!("Пинг: {done} из {total}")
+        } else if let Some((done, total)) = st.speed_progress {
+            format!("Скорость: {done} из {total}")
         } else if busy_count > 0 {
             format!("Обновление подписок… ({busy_count})")
         } else {
@@ -2808,6 +2813,7 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
     }
     let cancel = Arc::new(AtomicBool::new(false));
     st.speed_cancel = Some(cancel.clone());
+    st.speed_progress = Some((0, jobs.len()));
     for (key, _) in &jobs {
         st.speed_results.insert(key.clone(), "ждёт…".into());
     }
@@ -2826,20 +2832,32 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
             });
         };
         let iface = connection::uplink_interface();
-        for (key, server) in &jobs {
+        for (done, (key, server)) in jobs.iter().enumerate() {
             if cancel.load(Ordering::SeqCst) {
                 break;
             }
             set(key.clone(), "тест…".into());
             let result = iface.as_deref().ok_or_else(|| anyhow::anyhow!("нет подключения к сети")).and_then(|iface| {
-                ping::through_server(server, iface, &run_dir, "speed", |socks, user, pass| speed::measure(socks, user, pass, &url))
+                ping::through_server(server, iface, &run_dir, "speed", |socks, user, pass| {
+                    speed::measure(socks, user, pass, &url, &cancel)
+                })
             });
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
             set(key.clone(), result.map_or_else(|_| "нет скорости".into(), |s| s.short_label()));
+            let (app, total) = (app.clone(), jobs.len());
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                let mut st = app.lock().unwrap();
+                st.speed_progress = Some((done + 1, total));
+                render(&ui, &st);
+            });
         }
         let keys: Vec<String> = jobs.into_iter().map(|(k, _)| k).collect();
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
             st.speed_cancel = None;
+            st.speed_progress = None;
             // Stopped: the ones not reached show nothing.
             for key in keys {
                 if st.speed_results.get(&key).is_some_and(|t| t == "ждёт…" || t == "тест…") {
