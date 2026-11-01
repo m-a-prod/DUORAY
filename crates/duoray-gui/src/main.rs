@@ -24,6 +24,7 @@ mod exit;
 mod helper;
 mod instance;
 mod ping;
+mod qr;
 mod routing_ui;
 mod server_edit;
 #[cfg(unix)]
@@ -737,6 +738,30 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    ui.on_show_sub_qr({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some(sub) = current(&ui, &st).filter(|s| !s.is_manual()) else { return };
+            let (title, url) = (sub.display_name(), sub.url.clone());
+            show_qr(&ui, &app, &mut st, &title, &url);
+        }
+    });
+    ui.on_qr_copy({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let msg = match arboard::Clipboard::new().and_then(|mut c| c.set_text(ui.get_qr_text().to_string())) {
+                Ok(()) => "Скопировано в буфер обмена".into(),
+                Err(e) => format!("Не удалось скопировать: {e}"),
+            };
+            flash_status(&ui, &app, &mut st, msg);
+            render(&ui, &st);
+        }
+    });
+
     ui.on_open_web_page({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || {
@@ -1100,8 +1125,14 @@ fn main() -> anyhow::Result<()> {
                                                     ui.set_conn_ping_level(0);
                                                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                                     slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
-                                                        snapshot(ui_weak.unwrap().window(), &prefix.with_extension("connection-error.png"));
-                                                        let _ = slint::quit_event_loop();
+                                                        let ui = ui_weak.unwrap();
+                                                        snapshot(ui.window(), &prefix.with_extension("connection-error.png"));
+                                                        ui.invoke_show_sub_qr();
+                                                        let ui_weak = ui.as_weak();
+                                                        slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
+                                                            snapshot(ui_weak.unwrap().window(), &prefix.with_extension("qr.png"));
+                                                            let _ = slint::quit_event_loop();
+                                                        });
                                                     });
                                                 });
                                             });
@@ -2728,6 +2759,22 @@ fn measure_exit(ui: &AppWindow, app: &Shared, st: &mut App) {
             render(&ui, &st);
         });
     });
+}
+
+/// Opens the QR dialog for `text`, or says it does not fit in a QR code.
+fn show_qr(ui: &AppWindow, app: &Shared, st: &mut App, title: &str, text: &str) {
+    match qr::image(text) {
+        Some(image) => {
+            ui.set_qr_title(emoji::strip(title).trim().to_string().into());
+            ui.set_qr_text(text.into());
+            ui.set_qr_image(image);
+            ui.set_qr_open(true);
+        }
+        None => {
+            flash_status(ui, app, st, "Ссылка слишком длинная для QR-кода. Скопируйте её".into());
+            render(ui, st);
+        }
+    }
 }
 
 /// Shows a status line that disappears after a few seconds.

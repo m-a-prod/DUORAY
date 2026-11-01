@@ -2856,6 +2856,14 @@ export component AppWindow inherits Window {
     in-out property <string> ih-hwid;
     in property <string> ident-error;
     callback open-ident();
+    // A link as a QR code, to scan with a phone.
+    in-out property <bool> qr-open;
+    in property <image> qr-image;
+    in property <string> qr-title;
+    in property <string> qr-text;
+    callback show-sub-qr();
+    callback show-server-qr(int);
+    callback qr-copy();
     callback save-ident();
     callback ident-new-hwid();
     callback ident-new-ids();
@@ -2987,7 +2995,7 @@ export component AppWindow inherits Window {
     forward-focus: shortcuts;
     shortcuts := FocusScope {
         key-pressed(e) => {
-            if root.adding || root.consent-open || root.report-open || root.editor-open || root.helper-dialog || root.ident-open {
+            if root.adding || root.consent-open || root.report-open || root.editor-open || root.helper-dialog || root.ident-open || root.qr-open {
                 return reject;
             }
             if e.text == Key.Return && !e.modifiers.control && !e.modifiers.alt && !e.modifiers.meta {
@@ -3951,6 +3959,13 @@ export component AppWindow inherits Window {
                                         sub-menu.close();
                                     }
                                 }
+                                MenuItem {
+                                    text: "QR-код";
+                                    clicked => {
+                                        root.show-sub-qr();
+                                        sub-menu.close();
+                                    }
+                                }
                                 if !root.manual-selected: MenuItem {
                                     text: "Подмена HWID";
                                     // Callback first: close() drops this item with the popup.
@@ -4077,6 +4092,13 @@ export component AppWindow inherits Window {
                                             clicked => {
                                                 row-menu.close();
                                                 root.copy-server-link(i);
+                                            }
+                                        }
+                                        MenuItem {
+                                            text: "QR-код";
+                                            clicked => {
+                                                root.show-server-qr(i);
+                                                row-menu.close();
                                             }
                                         }
                                         MenuItem {
@@ -4340,6 +4362,79 @@ export component AppWindow inherits Window {
                         primary: true;
                         clicked => {
                             root.add-subscription(url-edit.text, name-edit.text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── A link as a QR code ─────────────────────────────────────
+    if root.qr-open: Rectangle {
+        property <float> shown: 0;
+        init => {
+            self.shown = 1;
+        }
+        animate shown { duration: 180ms; easing: ease-out; }
+        background: #000000a0;
+        opacity: self.shown;
+        TouchArea {
+            clicked => {
+                root.qr-open = false;
+            }
+        }
+        Rectangle {
+            transform-scale: 0.96 + 0.04 * parent.shown;
+            width: min(380px, parent.width - 40px);
+            height: qr-layout.preferred-height;
+            border-radius: 16px;
+            background: Theme.bg;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            TouchArea { }
+            qr-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: root.qr-title;
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                    overflow: elide;
+                }
+                Rectangle {
+                    height: self.width;
+                    border-radius: 12px;
+                    background: white;
+                    clip: true;
+                    Image {
+                        source: root.qr-image;
+                        width: parent.width;
+                        height: parent.height;
+                        image-fit: contain;
+                        image-rendering: pixelated;
+                    }
+                }
+                Text {
+                    text: "Откройте Happ на телефоне: «+» → «Сканировать QR-код». Подойдёт и камера.";
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: "Скопировать";
+                        clicked => {
+                            root.qr-copy();
+                        }
+                    }
+                    Button {
+                        text: "Закрыть";
+                        primary: true;
+                        clicked => {
+                            root.qr-open = false;
                         }
                     }
                 }

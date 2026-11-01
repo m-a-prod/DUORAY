@@ -85,6 +85,32 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
 
+    ui.on_show_server_qr({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move |row| {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some((sub, index)) = server_at(&ui, &st, row) else { return };
+            let server = &sub.servers[index];
+            let links = duoray_core::share::links(server);
+            match links.as_slice() {
+                [link] => {
+                    let (title, link) = (server.name.clone(), link.clone());
+                    crate::show_qr(&ui, &app, &mut st, &title, &link);
+                }
+                [] => {
+                    crate::flash_status(&ui, &app, &mut st, "У этого сервера нет ссылки: его протокол передаётся только конфигом".into());
+                    crate::render(&ui, &st);
+                }
+                // Dozens of links do not fit one code; the subscription's does.
+                _ => {
+                    crate::flash_status(&ui, &app, &mut st, "Это балансировщик: для телефона откройте QR-код подписки (меню ⋯)".into());
+                    crate::render(&ui, &st);
+                }
+            }
+        }
+    });
+
     ui.on_edit_server({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move |row| open(&ui_weak.unwrap(), &app, row)

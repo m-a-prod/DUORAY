@@ -18,6 +18,7 @@ fastrand = "2.5.0"
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 duoray-core = { path = "../duoray-core" }
 png = "0.18.1"
+qrcodegen = "1.8.0"
 regex = "1.13.1"
 resvg = { version = "0.48.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
