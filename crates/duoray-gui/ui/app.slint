@@ -899,7 +899,7 @@ component SettingsPage inherits Rectangle {
     in-out property <int> ping-proxy-mode;
     in-out property <string> ping-threads: "1";
     in-out property <string> ping-url;
-    // Speed test: 0 Cloudflare, 1 an own file at speedtest-url.
+    // Speed test: 0 Speedtest (Ookla), 1 Cloudflare, 2 an own file at speedtest-url.
     in-out property <int> speedtest-source;
     in-out property <string> speedtest-url;
     in-out property <bool> send-device-info: true;
@@ -1311,14 +1311,14 @@ component SettingsPage inherits Rectangle {
                         }
                         ComboBox {
                             height: 36px;
-                            model: ["Cloudflare", "Свой сервер"];
+                            model: ["Speedtest (Ookla)", "Cloudflare", "Свой сервер"];
                             current-index <=> root.speedtest-source;
                             selected => {
                                 root.changed();
                             }
                         }
                     }
-                    if root.speedtest-source == 1: HorizontalLayout {
+                    if root.speedtest-source == 2: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
                             text: "Файл";
@@ -1333,7 +1333,9 @@ component SettingsPage inherits Rectangle {
                     }
                     Text {
                         text: root.speedtest-source == 0
-                            ? "«Проверить скорость» в меню сервера: загрузка и отдача через сервер, до 10 секунд на каждую."
+                            ? "«Проверить скорость» в меню сервера: загрузка и отдача через сервер до ближайшего к нему сервера Speedtest, в 4 потока, до 10 секунд на каждую."
+                            : root.speedtest-source == 1
+                            ? "Загрузка и отдача через сервер до Cloudflare, до 10 секунд на каждую."
                             : "Загрузка файла через сервер, до 10 секунд. Положите на свой сервер файл на 50–100 МБ и укажите его адрес.";
                         font-size: Theme.fs-small;
                         color: Theme.muted;

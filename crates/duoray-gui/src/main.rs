@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use duoray_core::device::Device;
 use duoray_core::identity::{self, HappSpoof, SubIdentityMode};
 use duoray_core::server::display_name;
-use duoray_core::store::{self, Store, Subscription};
+use duoray_core::store::{self, SpeedSource, Store, Subscription};
 use duoray_core::subscription;
 use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 
@@ -655,7 +655,11 @@ fn main() -> anyhow::Result<()> {
             let st = app.lock().unwrap();
             load_happ(&ui, &st.store.settings.happ);
             load_ping(&ui, &st.store.settings.ping);
-            ui.set_speedtest_source(i32::from(!st.store.settings.speedtest_url.is_empty()));
+            ui.set_speedtest_source(match st.store.settings.speedtest {
+                SpeedSource::Ookla => 0,
+                SpeedSource::Cloudflare => 1,
+                SpeedSource::Own => 2,
+            });
             ui.set_speedtest_url(st.store.settings.speedtest_url.clone().into());
             ui.set_send_device_info(st.store.settings.send_device_info);
             ui.set_hysteria_restart(st.store.settings.hysteria_restart);
@@ -2453,12 +2457,15 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     let mut st = app.lock().unwrap();
     st.store.settings.happ = read_happ(ui);
     st.store.settings.ping = read_ping(ui, &st.store.settings.ping);
-    // Cloudflare, or an own file (an address that is not a URL is not kept).
+    // An own file needs a URL; without one the test falls back to Ookla.
     let speed_url = ui.get_speedtest_url().trim().to_string();
-    st.store.settings.speedtest_url = match ui.get_speedtest_source() {
-        1 if speed_url.starts_with("http://") || speed_url.starts_with("https://") => speed_url,
-        _ => String::new(),
+    let is_url = speed_url.starts_with("http://") || speed_url.starts_with("https://");
+    st.store.settings.speedtest = match ui.get_speedtest_source() {
+        1 => SpeedSource::Cloudflare,
+        2 if is_url => SpeedSource::Own,
+        _ => SpeedSource::Ookla,
     };
+    st.store.settings.speedtest_url = if is_url { speed_url } else { String::new() };
     st.store.settings.send_device_info = ui.get_send_device_info();
     st.store.settings.hysteria_restart = ui.get_hysteria_restart();
     st.store.settings.hysteria_restart_minutes = ui.get_hysteria_minutes().parse().unwrap_or(5);
@@ -2817,7 +2824,11 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
     for (key, _) in &jobs {
         st.speed_results.insert(key.clone(), "ждёт…".into());
     }
-    let url = st.store.settings.speedtest_url.clone();
+    let source = match st.store.settings.speedtest {
+        SpeedSource::Ookla => speed::Source::Ookla,
+        SpeedSource::Cloudflare => speed::Source::Cloudflare,
+        SpeedSource::Own => speed::Source::Own(st.store.settings.speedtest_url.clone()),
+    };
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
     render(ui, &st);
     drop(st);
@@ -2839,7 +2850,7 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
             set(key.clone(), "тест…".into());
             let result = iface.as_deref().ok_or_else(|| anyhow::anyhow!("нет подключения к сети")).and_then(|iface| {
                 ping::through_server(server, iface, &run_dir, "speed", |socks, user, pass| {
-                    speed::measure(socks, user, pass, &url, &cancel)
+                    speed::measure(socks, user, pass, &source, &cancel)
                 })
             });
             if cancel.load(Ordering::SeqCst) {

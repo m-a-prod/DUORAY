@@ -1,24 +1,39 @@
-//! Speed test of a server: download (and, from Cloudflare, upload) through
-//! it, in megabits a second.
+//! Speed test of a server: download and upload through it, in megabits a
+//! second, against the nearest Speedtest (Ookla) server, Cloudflare, or an
+//! own file.
 
 use std::io::Read;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 
-/// Cloudflare's speed test endpoints, used when no own file is set.
+/// Cloudflare's speed test endpoints.
 const CLOUDFLARE_DOWN: &str = "https://speed.cloudflare.com/__down?bytes=25000000";
 const CLOUDFLARE_UP: &str = "https://speed.cloudflare.com/__up";
-/// A test stops after this long, or once the file is in.
+/// Speedtest servers nearest to who asks: through the server, to its exit.
+const OOKLA_SERVERS: &str = "https://www.speedtest.net/api/js/servers?engine=js&limit=5&https_functional=true";
+/// Parallel connections to a Speedtest server, as its own client opens.
+const OOKLA_STREAMS: usize = 4;
+/// Bytes per request to a Speedtest server, each way.
+const OOKLA_CHUNK: usize = 25_000_000;
+/// Each direction stops after this long, or once the file is in.
 const MAX_TIME: Duration = Duration::from_secs(10);
 const UPLOAD_BYTES: usize = 10_000_000;
+
+pub enum Source {
+    Ookla,
+    Cloudflare,
+    /// A file to download (no upload).
+    Own(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Speed {
     pub down_mbps: f64,
-    /// Only measured against Cloudflare.
+    /// Not measured against an own file.
     pub up_mbps: Option<f64>,
 }
 
@@ -33,9 +48,8 @@ impl Speed {
     }
 }
 
-/// Measures through xray's SOCKS inbound. `url` is an own file to download,
-/// or empty for Cloudflare. `cancel` stops it mid-download.
-pub fn measure(socks: SocketAddr, user: &str, pass: &str, url: &str, cancel: &AtomicBool) -> Result<Speed> {
+/// Measures through xray's SOCKS inbound. `cancel` stops it mid-transfer.
+pub fn measure(socks: SocketAddr, user: &str, pass: &str, source: &Source, cancel: &AtomicBool) -> Result<Speed> {
     let proxy = ureq::Proxy::new(&if user.is_empty() { format!("socks5://{socks}") } else { format!("socks5://{user}:{pass}@{socks}") })?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .proxy(Some(proxy))
@@ -43,11 +57,138 @@ pub fn measure(socks: SocketAddr, user: &str, pass: &str, url: &str, cancel: &At
         .timeout_recv_response(Some(Duration::from_secs(10)))
         .build()
         .into();
-    let cloudflare = url.trim().is_empty();
-    let down_mbps = download(&agent, if cloudflare { CLOUDFLARE_DOWN } else { url.trim() }, cancel)?;
-    // Upload is a nice-to-have: a failure leaves it out.
-    let up_mbps = if cloudflare && !cancel.load(Ordering::SeqCst) { upload(&agent).ok() } else { None };
-    Ok(Speed { down_mbps, up_mbps })
+    match source {
+        Source::Ookla => ookla(&agent, cancel),
+        Source::Cloudflare => {
+            let down_mbps = download(&agent, CLOUDFLARE_DOWN, cancel)?;
+            // Upload is a nice-to-have: a failure leaves it out.
+            let up_mbps = if cancel.load(Ordering::SeqCst) { None } else { upload(&agent).ok() };
+            Ok(Speed { down_mbps, up_mbps })
+        }
+        Source::Own(url) => Ok(Speed { down_mbps: download(&agent, url.trim(), cancel)?, up_mbps: None }),
+    }
+}
+
+#[derive(Deserialize)]
+struct OoklaServer {
+    /// "host:port".
+    host: String,
+}
+
+/// The nearest Speedtest server that answers; the next ones on failure.
+fn ookla(agent: &ureq::Agent, cancel: &AtomicBool) -> Result<Speed> {
+    let servers: Vec<OoklaServer> = agent.get(OOKLA_SERVERS).call().context("список серверов Speedtest")?.body_mut().read_json()?;
+    let mut last = anyhow::anyhow!("Speedtest не дал серверов");
+    for server in servers.iter().take(3) {
+        if cancel.load(Ordering::SeqCst) {
+            bail!("остановлено");
+        }
+        let base = format!("https://{}", server.host);
+        match ookla_download(agent, &base, cancel) {
+            Ok(down_mbps) => {
+                let up_mbps = if cancel.load(Ordering::SeqCst) { None } else { ookla_upload(agent, &base, cancel).ok() };
+                return Ok(Speed { down_mbps, up_mbps });
+            }
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+/// Downloads in parallel streams until MAX_TIME.
+fn ookla_download(agent: &ureq::Agent, base: &str, cancel: &AtomicBool) -> Result<f64> {
+    let total = AtomicUsize::new(0);
+    let start = Instant::now();
+    let running = || start.elapsed() < MAX_TIME && !cancel.load(Ordering::SeqCst);
+    let errors: Vec<_> = std::thread::scope(|scope| {
+        let streams: Vec<_> = (0..OOKLA_STREAMS)
+            .map(|_| {
+                scope.spawn(|| -> Result<()> {
+                    let mut buf = vec![0; 64 * 1024];
+                    while running() {
+                        let url = format!("{base}/download?nocache={}&size={OOKLA_CHUNK}", fastrand::u64(..));
+                        let mut resp = agent.get(&url).call()?;
+                        let mut body = resp.body_mut().as_reader();
+                        while running() {
+                            let n = body.read(&mut buf)?;
+                            if n == 0 {
+                                break;
+                            }
+                            total.fetch_add(n, Ordering::Relaxed);
+                        }
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        streams.into_iter().filter_map(|s| s.join().ok()?.err()).collect()
+    });
+    if cancel.load(Ordering::SeqCst) {
+        bail!("остановлено");
+    }
+    let total = total.into_inner();
+    if total < 100_000 {
+        return Err(errors.into_iter().next().unwrap_or_else(|| anyhow::anyhow!("получено слишком мало данных"))).context(base.to_string());
+    }
+    Ok(mbps(total, start.elapsed()))
+}
+
+/// Uploads in parallel streams until MAX_TIME. A request cut at the end
+/// still counts what it sent.
+fn ookla_upload(agent: &ureq::Agent, base: &str, cancel: &AtomicBool) -> Result<f64> {
+    let total = AtomicUsize::new(0);
+    let start = Instant::now();
+    let running = || start.elapsed() < MAX_TIME && !cancel.load(Ordering::SeqCst);
+    std::thread::scope(|scope| {
+        for _ in 0..OOKLA_STREAMS {
+            scope.spawn(|| {
+                while running() {
+                    let url = format!("{base}/upload?nocache={}", fastrand::u64(..));
+                    let mut body = Counted { left: OOKLA_CHUNK, total: &total, running: &running };
+                    // The server needs a length: it does not take chunked bodies.
+                    let sent = agent
+                        .post(&url)
+                        .header("Content-Length", OOKLA_CHUNK.to_string())
+                        .config()
+                        .timeout_global(Some(MAX_TIME + Duration::from_secs(5)))
+                        .build()
+                        .send(ureq::SendBody::from_reader(&mut body));
+                    if sent.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    if cancel.load(Ordering::SeqCst) {
+        bail!("остановлено");
+    }
+    let total = total.into_inner();
+    if total < 100_000 {
+        bail!("отдача не удалась");
+    }
+    Ok(mbps(total, start.elapsed()))
+}
+
+/// Zeros for an upload body, counted as they go out; ends the request with an
+/// error once time is up.
+struct Counted<'a, F: Fn() -> bool> {
+    left: usize,
+    total: &'a AtomicUsize,
+    running: &'a F,
+}
+
+impl<F: Fn() -> bool> Read for Counted<'_, F> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if !(self.running)() {
+            return Err(std::io::Error::other("time is up"));
+        }
+        let n = buf.len().min(self.left);
+        buf[..n].fill(0);
+        self.left -= n;
+        self.total.fetch_add(n, Ordering::Relaxed);
+        Ok(n)
+    }
 }
 
 fn download(agent: &ureq::Agent, url: &str, cancel: &AtomicBool) -> Result<f64> {
@@ -97,9 +238,11 @@ mod tests {
     #[ignore]
     fn measures_through_a_proxy() {
         let socks = std::env::var("DUORAY_SPEED_SOCKS").expect("DUORAY_SPEED_SOCKS").parse().unwrap();
-        let speed = measure(socks, "", "", "", &AtomicBool::new(false)).unwrap();
-        eprintln!("{}", speed.short_label());
-        assert!(speed.down_mbps > 0.0 && speed.up_mbps.is_some());
+        for source in [Source::Ookla, Source::Cloudflare] {
+            let speed = measure(socks, "", "", &source, &AtomicBool::new(false)).unwrap();
+            eprintln!("{}", speed.short_label());
+            assert!(speed.down_mbps > 0.0 && speed.up_mbps.is_some());
+        }
     }
 
     #[test]
