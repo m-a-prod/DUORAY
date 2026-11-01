@@ -61,13 +61,128 @@ pub fn fetch_with_proxy(url: &str, fallback: Option<&str>, headers: &[(String, S
         config = config.proxy(Some(ureq::Proxy::new(proxy)?));
     }
     let agent: ureq::Agent = config.build().into();
-    match fetch_one(&agent, url, headers) {
-        Ok(f) => Ok(f),
-        Err(e) => match fallback.filter(|f| !f.trim().eq_ignore_ascii_case(url.trim())) {
-            // The primary failure is the actionable one if both fail.
-            Some(fb) => fetch_one(&agent, fb, headers).map_err(|_| e),
-            None => Err(e),
-        },
+    // Through xray the proxy resolves the name; directly, a panel with several
+    // addresses gets each one tried in turn.
+    let fetch = |url: &str| match proxy {
+        None => fetch_any_address(url, headers, &host_addresses(url), AttemptTimeouts::default())
+            .unwrap_or_else(|| fetch_one(&agent, url, headers)),
+        Some(_) => fetch_one(&agent, url, headers),
+    };
+    // The primary failure is the actionable one if everything fails.
+    let error = match fetch(url) {
+        Ok(f) => return Ok(f),
+        Err(e) => e,
+    };
+    // The panel's own spare address (`fallback-url`), known from a past fetch.
+    if let Some(fb) = fallback.filter(|f| !f.trim().eq_ignore_ascii_case(url.trim()))
+        && let Ok(f) = fetch_one(&agent, fb, headers)
+    {
+        return Ok(f);
+    }
+    // Spare hosts published in DNS, which work on the first fetch too.
+    for spare in crate::mirrors::spare_urls(url, &agent) {
+        if let Ok(f) = fetch(&spare) {
+            return Ok(f);
+        }
+    }
+    Err(error)
+}
+
+/// How long one address may take before the next one is tried.
+#[derive(Clone, Copy)]
+struct AttemptTimeouts {
+    connect: Duration,
+    /// Until the response headers.
+    response: Duration,
+    /// For the whole body: a link that freezes mid-transfer (DPI often
+    /// stalls TLS to a blocked address after the first ~16 KB) ends here.
+    body: Duration,
+}
+
+impl Default for AttemptTimeouts {
+    fn default() -> Self {
+        Self { connect: Duration::from_secs(5), response: Duration::from_secs(10), body: Duration::from_secs(15) }
+    }
+}
+
+/// The addresses of the URL's host, when it has more than one.
+fn host_addresses(url: &str) -> Vec<std::net::SocketAddr> {
+    use std::net::ToSocketAddrs;
+    let Ok(u) = Url::parse(url) else { return vec![] };
+    let (Some(host), Some(port)) = (u.host_str(), u.port_or_known_default()) else { return vec![] };
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return vec![];
+    }
+    let mut addrs: Vec<_> = (host, port).to_socket_addrs().map(Iterator::collect).unwrap_or_default();
+    addrs.dedup();
+    if addrs.len() < 2 { vec![] } else { addrs }
+}
+
+/// The address of each panel host that last answered, tried first next time.
+static LAST_GOOD: std::sync::Mutex<Option<std::collections::HashMap<String, std::net::IpAddr>>> = std::sync::Mutex::new(None);
+
+/// Tries the panel's addresses one by one, each with its own short timeouts:
+/// a client that takes the first address hangs when it is blocked, and DPI
+/// freezes are not connection errors, so nothing else moves on to the next
+/// one (several A records were no failover for other clients). `None` when
+/// there are fewer than two addresses.
+fn fetch_any_address(
+    url: &str,
+    headers: &[(String, String)],
+    addrs: &[std::net::SocketAddr],
+    timeouts: AttemptTimeouts,
+) -> Option<Result<Fetched>> {
+    if addrs.len() < 2 {
+        return None;
+    }
+    let host = Url::parse(url).ok()?.host_str()?.to_string();
+    let mut order = addrs.to_vec();
+    if let Some(good) = LAST_GOOD.lock().unwrap().get_or_insert_default().get(&host) {
+        order.sort_by_key(|a| a.ip() != *good);
+    }
+    let mut first_error = None;
+    for addr in order {
+        let config = ureq::Agent::config_builder()
+            .timeout_connect(Some(timeouts.connect))
+            .timeout_recv_response(Some(timeouts.response))
+            .timeout_recv_body(Some(timeouts.body))
+            .build();
+        let resolver = PinnedResolver { host: host.clone(), addr };
+        let agent = ureq::Agent::with_parts(config, ureq::unversioned::transport::DefaultConnector::new(), resolver);
+        match fetch_one(&agent, url, headers) {
+            Ok(fetched) => {
+                LAST_GOOD.lock().unwrap().get_or_insert_default().insert(host, addr.ip());
+                return Some(Ok(fetched));
+            }
+            Err(e) => {
+                first_error.get_or_insert(e.context(format!("{host} ({})", addr.ip())));
+            }
+        }
+    }
+    first_error.map(Err)
+}
+
+/// Resolves one host to the one address being tried; others (a redirect to
+/// another host) as usual.
+#[derive(Debug)]
+struct PinnedResolver {
+    host: String,
+    addr: std::net::SocketAddr,
+}
+
+impl ureq::unversioned::resolver::Resolver for PinnedResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        if uri.host() == Some(self.host.as_str()) {
+            let mut addrs = self.empty();
+            addrs.push(self.addr);
+            return Ok(addrs);
+        }
+        ureq::unversioned::resolver::DefaultResolver::default().resolve(uri, config, timeout)
     }
 }
 
@@ -83,7 +198,14 @@ fn fetch_one(agent: &ureq::Agent, url: &str, headers: &[(String, String)]) -> Re
     }
 
     // 2. Share links (or an error): full JSON configs beat links, try `/json`.
-    if let Some(json_url) = json_endpoint(url)
+    //    Not after a network failure: the same host would fail again, and on a
+    //    blocked address that doubled the wait before the next one was tried.
+    let answered = match &base {
+        Ok(_) => true,
+        Err(e) => e.chain().any(|c| matches!(c.downcast_ref::<ureq::Error>(), Some(ureq::Error::StatusCode(_)))),
+    };
+    if answered
+        && let Some(json_url) = json_endpoint(url)
         && let Ok(f) = get(agent, &json_url, headers)
         && f.json
         && !f.servers.is_empty()
@@ -362,6 +484,52 @@ pub fn replacement_url(info: &SubInfo, current: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn blocked_addresses_are_skipped() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        // Answers every request with `body`, or (frozen) sends the headers and
+        // the first bytes, then stalls the way DPI does.
+        fn server(ip: [u8; 4], body: &'static str, frozen: bool) -> std::net::SocketAddr {
+            let listener = TcpListener::bind((std::net::Ipv4Addr::from(ip), 0)).unwrap();
+            let addr = listener.local_addr().unwrap();
+            std::thread::spawn(move || {
+                for mut stream in listener.incoming().flatten() {
+                    let mut buf = [0; 4096];
+                    let _ = stream.read(&mut buf);
+                    if frozen {
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\nvless://");
+                        std::thread::sleep(Duration::from_secs(5));
+                    } else {
+                        let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    }
+                }
+            });
+            addr
+        }
+        let frozen = server([127, 0, 0, 2], "", true);
+        let refused = {
+            let l = TcpListener::bind("127.0.0.3:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        let good = server([127, 0, 0, 1], LINKS, false);
+        let quick = AttemptTimeouts {
+            connect: Duration::from_secs(1),
+            response: Duration::from_secs(1),
+            body: Duration::from_secs(1),
+        };
+        let url = "http://panel.test/sub/x";
+        let started = std::time::Instant::now();
+        let got = fetch_any_address(url, &[], &[frozen, refused, good], quick).unwrap().unwrap();
+        assert_eq!(got.servers.len(), 2);
+        assert!(started.elapsed() < Duration::from_secs(4), "one stall of ~1 s, not two per address");
+        // The address that answered goes first next time.
+        let started = std::time::Instant::now();
+        fetch_any_address(url, &[], &[frozen, refused, good], quick).unwrap().unwrap();
+        assert!(started.elapsed() < Duration::from_millis(500));
+        assert!(fetch_any_address(url, &[], &[good], quick).is_none(), "a single address takes the usual path");
+    }
+
     use super::*;
 
     #[test]
