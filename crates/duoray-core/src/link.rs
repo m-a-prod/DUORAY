@@ -264,12 +264,15 @@ fn parse_proxy(link: &str, http: bool) -> Result<Profile> {
     }
     let (address, port) = host_port(&url)?;
     let (mut user, mut pass) = (decode(url.username()), url.password().map(decode).unwrap_or_default());
-    if !http && pass.is_empty() && !user.is_empty() {
-        if let Some((u, p)) = b64(&user).ok().and_then(|b| String::from_utf8(b).ok()).and_then(|t| {
-            t.split_once(':').map(|(u, p)| (u.to_string(), p.to_string()))
-        }) {
-            (user, pass) = (u, p);
-        }
+    if !http
+        && pass.is_empty()
+        && !user.is_empty()
+        && let Some((u, p)) = b64(&user)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .and_then(|t| t.split_once(':').map(|(u, p)| (u.to_string(), p.to_string())))
+    {
+        (user, pass) = (u, p);
     }
     let tls = http && url.scheme() == "https";
     Ok(Profile {
