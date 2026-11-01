@@ -897,6 +897,9 @@ component SettingsPage inherits Rectangle {
     in-out property <int> ping-proxy-mode;
     in-out property <string> ping-threads: "1";
     in-out property <string> ping-url;
+    // Speed test: 0 Cloudflare, 1 an own file at speedtest-url.
+    in-out property <int> speedtest-source;
+    in-out property <string> speedtest-url;
     in-out property <bool> send-device-info: true;
     in-out property <string> text-scale-choice: "100%";
     in-out property <string> font-choice: "Системный";
@@ -1296,6 +1299,42 @@ component SettingsPage inherits Rectangle {
                         text: "1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их.";
                         font-size: Theme.fs-small;
                         color: Theme.warn;
+                        wrap: word-wrap;
+                    }
+                    Divider { }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Тест скорости";
+                        }
+                        ComboBox {
+                            height: 36px;
+                            model: ["Cloudflare", "Свой сервер"];
+                            current-index <=> root.speedtest-source;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    if root.speedtest-source == 1: HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Файл";
+                        }
+                        TextField {
+                            text <=> root.speedtest-url;
+                            placeholder: "https://ваш-сервер/100mb.bin";
+                            edited => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    Text {
+                        text: root.speedtest-source == 0
+                            ? "«Проверить скорость» в меню сервера: загрузка и отдача через сервер, до 10 секунд на каждую."
+                            : "Загрузка файла через сервер, до 10 секунд. Положите на свой сервер файл на 50–100 МБ и укажите его адрес.";
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
                         wrap: word-wrap;
                     }
                 }
@@ -2710,6 +2749,8 @@ export component AppWindow inherits Window {
     in-out property <int> ping-proxy-mode <=> settings-page.ping-proxy-mode;
     in-out property <string> ping-threads <=> settings-page.ping-threads;
     in-out property <string> ping-url <=> settings-page.ping-url;
+    in-out property <int> speedtest-source <=> settings-page.speedtest-source;
+    in-out property <string> speedtest-url <=> settings-page.speedtest-url;
     in-out property <bool> send-device-info <=> settings-page.send-device-info;
     in-out property <bool> switch-on-select <=> settings-page.switch-on-select;
     in-out property <bool> show-server-type <=> settings-page.show-server-type;
@@ -2863,6 +2904,7 @@ export component AppWindow inherits Window {
     in property <string> qr-text;
     callback show-sub-qr();
     callback show-server-qr(int);
+    callback speed-test-server(int);
     callback qr-copy();
     callback save-ident();
     callback ident-new-hwid();
@@ -4098,6 +4140,13 @@ export component AppWindow inherits Window {
                                             text: "QR-код";
                                             clicked => {
                                                 root.show-server-qr(i);
+                                                row-menu.close();
+                                            }
+                                        }
+                                        MenuItem {
+                                            text: "Проверить скорость";
+                                            clicked => {
+                                                root.speed-test-server(i);
                                                 row-menu.close();
                                             }
                                         }

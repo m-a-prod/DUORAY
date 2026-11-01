@@ -25,6 +25,7 @@ mod helper;
 mod instance;
 mod ping;
 mod qr;
+mod speed;
 mod routing_ui;
 mod server_edit;
 #[cfg(unix)]
@@ -645,6 +646,8 @@ fn main() -> anyhow::Result<()> {
             let st = app.lock().unwrap();
             load_happ(&ui, &st.store.settings.happ);
             load_ping(&ui, &st.store.settings.ping);
+            ui.set_speedtest_source(i32::from(!st.store.settings.speedtest_url.is_empty()));
+            ui.set_speedtest_url(st.store.settings.speedtest_url.clone().into());
             ui.set_send_device_info(st.store.settings.send_device_info);
             ui.set_hysteria_restart(st.store.settings.hysteria_restart);
             ui.set_hysteria_minutes(st.store.settings.hysteria_restart_minutes.to_string().into());
@@ -2418,6 +2421,12 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     let mut st = app.lock().unwrap();
     st.store.settings.happ = read_happ(ui);
     st.store.settings.ping = read_ping(ui, &st.store.settings.ping);
+    // Cloudflare, or an own file (an address that is not a URL is not kept).
+    let speed_url = ui.get_speedtest_url().trim().to_string();
+    st.store.settings.speedtest_url = match ui.get_speedtest_source() {
+        1 if speed_url.starts_with("http://") || speed_url.starts_with("https://") => speed_url,
+        _ => String::new(),
+    };
     st.store.settings.send_device_info = ui.get_send_device_info();
     st.store.settings.hysteria_restart = ui.get_hysteria_restart();
     st.store.settings.hysteria_restart_minutes = ui.get_hysteria_minutes().parse().unwrap_or(5);
@@ -2779,11 +2788,16 @@ fn show_qr(ui: &AppWindow, app: &Shared, st: &mut App, title: &str, text: &str) 
 
 /// Shows a status line that disappears after a few seconds.
 fn flash_status(ui: &AppWindow, app: &Shared, st: &mut App, msg: String) {
+    flash_status_for(ui, app, st, msg, 4);
+}
+
+/// A status line that stays `secs` seconds.
+fn flash_status_for(ui: &AppWindow, app: &Shared, st: &mut App, msg: String, secs: u64) {
     st.status = msg;
     st.status_gen += 1;
     let generation = st.status_gen;
     let (ui_weak, app) = (ui.as_weak(), app.clone());
-    slint::Timer::single_shot(std::time::Duration::from_secs(4), move || {
+    slint::Timer::single_shot(std::time::Duration::from_secs(secs), move || {
         let Some(ui) = ui_weak.upgrade() else { return };
         let mut st = app.lock().unwrap();
         if st.status_gen == generation {

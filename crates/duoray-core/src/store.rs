@@ -22,6 +22,9 @@ pub struct Store {
 pub struct Settings {
     pub happ: HappSpoof,
     pub ping: PingSettings,
+    /// Speed test: a file to download through the server; empty means
+    /// Cloudflare's speed test (download and upload).
+    pub speedtest_url: String,
     /// Last selected server (GUI selection key), restored on start.
     pub last_server: Option<String>,
     /// Send x-hwid and device headers with subscription requests. Panels with
@@ -80,6 +83,7 @@ impl Default for Settings {
             happ: HappSpoof::default(),
             ping: PingSettings::default(),
             last_server: None,
+            speedtest_url: String::new(),
             send_device_info: true,
             text_scale: 100,
             font: String::new(),

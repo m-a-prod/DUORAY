@@ -192,9 +192,25 @@ fn parse_ping_time(text: &str) -> Option<Duration> {
 /// requests through it according to the selected proxy ping mode.
 fn http(server: &Server, settings: &PingSettings, iface: Option<&str>, timeout: Duration, run_dir: &Path, worker: usize) -> Result<Duration> {
     let Some(iface) = iface else { bail!("нет подключения к сети") };
+    through_server(server, iface, run_dir, &format!("ping-{worker}"), |socks, user, pass| {
+        via_socks_mode(socks, user, pass, &settings.url, settings.mode == PingMode::HttpHead, timeout, settings.proxy_mode)
+    })
+}
+
+/// Runs `job` against a throwaway xray with `server`'s own config, bound to
+/// the physical interface (so it goes straight to the server, also while the
+/// VPN is up); `job` gets xray's SOCKS address and credentials. `name` names
+/// its config file in `run_dir`.
+pub fn through_server<T>(
+    server: &Server,
+    iface: &str,
+    run_dir: &Path,
+    name: &str,
+    job: impl FnOnce(SocketAddr, &str, &str) -> Result<T>,
+) -> Result<T> {
     let rt = runtime::build(server, iface, None)?;
     std::fs::create_dir_all(run_dir)?;
-    let config = run_dir.join(format!("ping-{worker}.json"));
+    let config = run_dir.join(format!("{name}.json"));
     connection::write_private(&config, &serde_json::to_vec(&rt.config)?)?;
 
     let (bin, assets) = connection::find_xray()?;
@@ -206,15 +222,7 @@ fn http(server: &Server, settings: &PingSettings, iface: Option<&str>, timeout: 
     let mut child = connection::hidden(&mut cmd).spawn().context("запуск xray")?;
     let result = (|| {
         connection::wait_listening(rt.socks, &mut child, Duration::from_secs(5), None)?;
-        via_socks_mode(
-            rt.socks,
-            &rt.user,
-            &rt.pass,
-            &settings.url,
-            settings.mode == PingMode::HttpHead,
-            timeout,
-            settings.proxy_mode,
-        )
+        job(rt.socks, &rt.user, &rt.pass)
     })();
     let _ = child.kill();
     let _ = child.wait();

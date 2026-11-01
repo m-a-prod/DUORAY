@@ -62,6 +62,49 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
 
+    // One speed test at a time: it saturates the link.
+    static SPEED_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    ui.on_speed_test_server({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move |row| {
+            use std::sync::atomic::Ordering;
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some((sub, index)) = server_at(&ui, &st, row) else { return };
+            let server = sub.servers[index].clone();
+            let name = crate::emoji::strip(&server.name).trim().to_string();
+            if SPEED_TEST.swap(true, Ordering::SeqCst) {
+                crate::flash_status(&ui, &app, &mut st, "Тест скорости уже идёт".into());
+                return crate::render(&ui, &st);
+            }
+            let url = st.store.settings.speedtest_url.clone();
+            let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| "run".into());
+            crate::flash_status_for(&ui, &app, &mut st, format!("Тест скорости: {name}…"), 60);
+            crate::render(&ui, &st);
+            drop(st);
+            let (ui_weak, app) = (ui.as_weak(), app.clone());
+            std::thread::spawn(move || {
+                let result = crate::connection::uplink_interface()
+                    .ok_or_else(|| anyhow::anyhow!("нет подключения к сети"))
+                    .and_then(|iface| {
+                        crate::ping::through_server(&server, &iface, &run_dir, "speed", |socks, user, pass| {
+                            crate::speed::measure(socks, user, pass, &url)
+                        })
+                    });
+                SPEED_TEST.store(false, Ordering::SeqCst);
+                let msg = match result {
+                    Ok(speed) => format!("{name}: {}", speed.label()),
+                    Err(e) => format!("{name}: скорость не измерить — {}", crate::humanize(&format!("{e:#}"))),
+                };
+                let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                    let mut st = app.lock().unwrap();
+                    crate::flash_status_for(&ui, &app, &mut st, msg, 20);
+                    crate::render(&ui, &st);
+                });
+            });
+        }
+    });
+
     // vless:// and friends for another client; one per server of a balancer.
     ui.on_copy_server_link({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
