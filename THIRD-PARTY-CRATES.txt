@@ -2202,9 +2202,9 @@ insights.
 ------------------------------------------------------------------------
 GNU General Public License v3.0 only (GPL-3.0-only)
 Used by:
-  - duoray-core 0.4.1
-  - duoray-gui 0.4.1
-  - duoray-helper 0.4.1
+  - duoray-core 0.4.2
+  - duoray-gui 0.4.2
+  - duoray-helper 0.4.2
   - i-slint-backend-selector 1.18.1 <https://github.com/slint-ui/slint>
   - i-slint-backend-winit 1.18.1 <https://github.com/slint-ui/slint>
   - i-slint-common 1.18.1 <https://github.com/slint-ui/slint>
@@ -7204,6 +7204,7 @@ Used by:
   - objc2-quartz-core 0.3.2 <https://github.com/madsmtm/objc2>
   - objc2 0.5.2 <https://github.com/madsmtm/objc2>
   - objc2 0.6.4 <https://github.com/madsmtm/objc2>
+  - qrcodegen 1.8.0 <https://github.com/nayuki/QR-Code-generator>
   - rspolib 0.1.2 <https://github.com/mondeja/rspolib>
   - taffy 0.10.1 <https://github.com/DioxusLabs/taffy>
   - windows-collections 0.2.0 <https://github.com/microsoft/windows-rs>
