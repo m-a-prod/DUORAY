@@ -706,6 +706,8 @@ component MenuItem inherits Rectangle {
     animate background { duration: 100ms; easing: ease-out; }
     Text {
         x: 10px;
+        width: parent.width - 20px;
+        overflow: elide;
         text: root.text;
         font-size: Theme.fs-body;
         color: root.danger ? Theme.danger : Theme.fg;
@@ -3349,9 +3351,9 @@ export component AppWindow inherits Window {
                                 }
                             }
                             add-menu := PopupWindow {
-                                x: -180px;
+                                width: 212px * Theme.text-scale;
+                                x: 32px - self.width;
                                 y: 36px;
-                                width: 212px;
                                 close-policy: close-on-click-outside;
                                 Rectangle {
                                     background: Theme.bg;
@@ -4148,9 +4150,10 @@ export component AppWindow inherits Window {
                     }
     
                     sub-menu := PopupWindow {
-                        x: parent.width - 230px;
+                        // Wide enough for its longest item at any text size.
+                        width: 270px * Theme.text-scale;
+                        x: parent.width - self.width - 10px;
                         y: 48px;
-                        width: 220px;
                         close-policy: close-on-click-outside;
                         Rectangle {
                             background: Theme.bg;
@@ -4292,7 +4295,7 @@ export component AppWindow inherits Window {
                             row-menu := PopupWindow {
                                 x: srv-row.menu-x;
                                 y: srv-row.menu-y;
-                                width: 230px;
+                                width: 240px * Theme.text-scale;
                                 close-policy: close-on-click-outside;
                                 Rectangle {
                                     background: Theme.bg;
