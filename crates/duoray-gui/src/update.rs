@@ -117,6 +117,13 @@ impl Package {
     }
 }
 
+/// The last lines of a command's output, blank ones left out.
+fn tail(output: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(output);
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    lines[lines.len().saturating_sub(6)..].iter().map(|l| l.to_string()).collect()
+}
+
 /// Full path of a program on PATH (pkexec wants one).
 fn which(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|p| p.is_file())
@@ -353,16 +360,23 @@ fn install_package(package: Package, file: &Path) -> Result<()> {
     let (Some(pkexec), Some(program)) = (which("pkexec"), which(&command[0])) else {
         return Err(fallback("нет pkexec".into()));
     };
-    let status = std::process::Command::new(pkexec)
+    let out = std::process::Command::new(pkexec)
         .arg(program)
         .args(&command[1..])
-        .status()
+        .output()
         .context("запуск pkexec")?;
-    match status.code() {
+    match out.status.code() {
         Some(0) => {}
         // pkexec: 126 the password prompt was dismissed, 127 no polkit agent.
         Some(126 | 127) => return Err(fallback("нет прав администратора".into())),
-        _ => return Err(fallback(format!("{} завершился с ошибкой ({status})", command[0]))),
+        _ => {
+            // What the package manager said goes to the log sent with the
+            // report: the error alone does not tell why.
+            for line in tail(&out.stderr).into_iter().chain(tail(&out.stdout)) {
+                crate::diag::log(format!("{}: {line}", command[0]));
+            }
+            return Err(fallback(format!("{} завершился с ошибкой ({})", command[0], out.status)));
+        }
     }
     let program = ["/usr/bin/duoray", "/usr/lib/duoray/duoray"].into_iter().map(Path::new).find(|p| p.exists());
     let program = program.map(Path::to_path_buf).or_else(|| std::env::current_exe().ok()).context("путь к DUORAY")?;

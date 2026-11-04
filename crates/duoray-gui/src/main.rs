@@ -1760,31 +1760,47 @@ fn switch_connection(ui: &AppWindow, app: &Shared, force: bool) {
 }
 
 /// "Подключаться при запуске": the last server, a moment after start. Right
-/// after login the network may not be up yet: two more tries 10 s apart.
+/// after login the network may not be up yet: each try first waits for a
+/// default route (up to two minutes), and two more tries follow 10 s apart.
 fn autoconnect(ui: &AppWindow, app: &Shared, attempt: u32) {
+    const NETWORK_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
     let delay = if attempt == 0 { 1500 } else { 10_000 };
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     slint::Timer::single_shot(std::time::Duration::from_millis(delay), move || {
-        let Some(ui) = ui_weak.upgrade() else { return };
-        let ready = {
-            let st = app.lock().unwrap();
-            matches!(st.conn_state, ConnState::Idle | ConnState::Failed(_)) && selected_server(&ui, &st).is_some()
-        };
-        if !ready {
-            return;
-        }
-        diag::log(format!("autoconnect (try {})", attempt + 1));
-        start_connect(&ui, &app);
-        if attempt < 2 {
-            let (ui_weak, app) = (ui.as_weak(), app.clone());
-            slint::Timer::single_shot(std::time::Duration::from_secs(15), move || {
-                let Some(ui) = ui_weak.upgrade() else { return };
-                if matches!(app.lock().unwrap().conn_state, ConnState::Failed(_)) {
-                    autoconnect(&ui, &app, attempt + 1);
+        // Off the UI thread: finding the default route runs a command.
+        std::thread::spawn(move || {
+            let (start, mut waiting) = (std::time::Instant::now(), false);
+            while connection::uplink_interface().is_none() && start.elapsed() < NETWORK_WAIT {
+                if !waiting {
+                    diag::log("autoconnect: ждём сеть");
+                    waiting = true;
                 }
-            });
-        }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| autoconnect_now(&ui, &app, attempt));
+        });
     });
+}
+
+fn autoconnect_now(ui: &AppWindow, app: &Shared, attempt: u32) {
+    let ready = {
+        let st = app.lock().unwrap();
+        matches!(st.conn_state, ConnState::Idle | ConnState::Failed(_)) && selected_server(ui, &st).is_some()
+    };
+    if !ready {
+        return;
+    }
+    diag::log(format!("autoconnect (try {})", attempt + 1));
+    start_connect(ui, app);
+    if attempt < 2 {
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        slint::Timer::single_shot(std::time::Duration::from_secs(15), move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            if matches!(app.lock().unwrap().conn_state, ConnState::Failed(_)) {
+                autoconnect(&ui, &app, attempt + 1);
+            }
+        });
+    }
 }
 
 fn toggle_connection(ui: &AppWindow, app: &Shared) {
@@ -1948,7 +1964,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     ui.set_helper_dialog(true);
                 }
                 Err(ConnectError::Other(e)) => {
-                    diag::auto("connect_failed", &format!("{e:#}"));
+                    diag::auto_online("connect_failed", &format!("{e:#}"));
                     st.conn_state = ConnState::Failed(humanize(&format!("{e:#}")));
                 }
             }
@@ -2100,7 +2116,7 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
                     let failures = st.fetch_failures.entry(id.clone()).or_default();
                     *failures += 1;
                     if *failures >= 2 {
-                        diag::auto("subscription", e);
+                        diag::auto_online("subscription", e);
                     } else {
                         diag::log(format!("subscription: {} (will retry)", first_line(e)));
                     }
@@ -2495,6 +2511,11 @@ fn humanize(e: &str) -> String {
         ("timed out", "Сервер подписки не ответил вовремя."),
         ("status: 404", "Подписка не найдена (404)."),
         ("status: 403", "Доступ к подписке запрещён (403). Возможно, поможет Happ Spoof в настройках."),
+        // The helper runs as SYSTEM: only security software refuses it a program.
+        (
+            "spawning netsh",
+            "Windows не дал запустить netsh: похоже, мешает антивирус. Добавьте папку DUORAY в его исключения и подключитесь снова.",
+        ),
     ];
     if let Some((_, app)) = e.split_once("the panel redirects to the ") {
         let app = app.split(' ').next().unwrap_or_default();

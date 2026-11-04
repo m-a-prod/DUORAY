@@ -809,11 +809,19 @@ pub fn physical_interface() -> Result<String> {
     }
 }
 
+/// Our xray on Windows: a name of its own, as other VPN apps (Happ) end every
+/// "xray.exe" they find, ours included (reports: exit code 1, nothing in its
+/// log). A bare xray.exe beside us is an older install or a dev build.
+const WINDOWS_XRAY: &str = "duoray-xray.exe";
+
 pub fn find_xray() -> Result<(PathBuf, Option<PathBuf>)> {
     let exe_dir = std::env::current_exe()?.parent().map(Path::to_path_buf);
     let name = if cfg!(windows) { "xray.exe" } else { "xray" };
     let mut candidates: Vec<PathBuf> = vec![];
     if let Some(d) = &exe_dir {
+        if cfg!(windows) {
+            candidates.push(d.join(WINDOWS_XRAY));
+        }
         candidates.push(d.join(name));
     }
     // Linux packages put xray (with network capabilities) here.
@@ -949,13 +957,14 @@ pub fn other_vpn_processes() -> Vec<String> {
 fn processes() -> Vec<(String, String)> {
     #[cfg(windows)]
     {
-        // tasklist gives names only, and our own xray.exe always runs: any
-        // xray.exe is left out (Happ shows up as happd.exe anyway).
+        // tasklist gives names only. Our own xray is left out by its name;
+        // another app's xray.exe is worth seeing, unless ours is called that.
+        let ours = find_xray().ok().and_then(|(bin, _)| bin.file_name().map(|n| n.to_string_lossy().into_owned()));
         let Ok(out) = hidden(Command::new("tasklist").args(["/FO", "CSV", "/NH"])).output() else { return vec![] };
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter_map(|l| l.split(',').next().map(|n| n.trim_matches('"').to_string()))
-            .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("xray.exe"))
+            .filter(|n| !n.is_empty() && !ours.as_deref().is_some_and(|o| n.eq_ignore_ascii_case(o)))
             .map(|n| (n.clone(), n))
             .collect()
     }

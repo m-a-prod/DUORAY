@@ -30,13 +30,15 @@ cargo xwin build --release --target "$TARGET" -p duoray-gui -p duoray-helper
 stage=packaging/windows/stage-$ARCH
 mkdir -p "$stage" dist
 # A stage left by an earlier build may hold an older xray.
-if [ ! -f "$stage/xray.exe" ] || [ "$(cat "$stage/xray.version" 2>/dev/null)" != "$XRAY_VERSION" ]; then
+if [ ! -f "$stage/duoray-xray.exe" ] || [ "$(cat "$stage/xray.version" 2>/dev/null)" != "$XRAY_VERSION" ]; then
     XRAY_SHA256=$(xray_sha256 "$XRAY_VERSION" "$XRAY_ZIP")
     tmp=$(mktemp -d)
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 600 -o "$tmp/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/$XRAY_ZIP"
     echo "$XRAY_SHA256  $tmp/xray.zip" | shasum -a 256 -c -
     # wintun's license was LICENSE-wintun.txt, newer archives call it LICENSE-Wintun.
     unzip -o -q "$tmp/xray.zip" xray.exe geoip.dat geosite.dat wintun.dll LICENSE 'LICENSE-[Ww]intun*' -d "$stage"
+    # A name of its own: other VPN apps (Happ) end every xray.exe they find.
+    mv "$stage/xray.exe" "$stage/duoray-xray.exe"
     mv "$stage/LICENSE" "$stage/LICENSE-xray.txt"
     for f in "$stage"/LICENSE-[Ww]intun*; do
         [ "$f" = "$stage/LICENSE-wintun.txt" ] || mv "$f" "$stage/LICENSE-wintun.txt"

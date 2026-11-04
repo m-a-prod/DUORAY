@@ -570,7 +570,7 @@ fn running_apps() -> Vec<String> {
             "lsass.exe", "winlogon.exe", "svchost.exe", "dwm.exe", "fontdrvhost.exe", "conhost.exe", "sihost.exe",
             "runtimebroker.exe", "ctfmon.exe", "taskhostw.exe", "dllhost.exe", "wmiprvse.exe", "searchhost.exe",
             "searchindexer.exe", "spoolsv.exe", "audiodg.exe", "memory compression", "secure system",
-            "duoray-helper.exe", "xray.exe",
+            "duoray-helper.exe", "duoray-xray.exe", "xray.exe",
         ];
         let mut cmd = std::process::Command::new("tasklist");
         cmd.args(["/fo", "csv", "/nh"]);

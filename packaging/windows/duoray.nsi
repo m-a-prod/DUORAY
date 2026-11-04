@@ -74,12 +74,20 @@ Function .onInit
 !endif
 FunctionEnd
 
+; Ends DUORAY's xray: duoray-xray.exe by name, and an older install's
+; xray.exe only if it runs from our folder (another app's xray.exe, Happ's
+; say, is left alone).
+!macro StopXray
+  nsExec::Exec 'taskkill /IM duoray-xray.exe /F'
+  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process -Filter \"Name='xray.exe'\" | Where-Object { $$_.ExecutablePath -eq '$INSTDIR\xray.exe' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force }"`
+!macroend
+
 ; Stops a running DUORAY and its service so the files can be replaced.
 !macro StopRunning
   nsExec::Exec 'taskkill /IM duoray.exe /F'
   nsExec::Exec 'sc.exe stop ${SERVICE}'
   Sleep 2500
-  nsExec::Exec 'taskkill /IM xray.exe /F'
+  !insertmacro StopXray
 !macroend
 
 Section "DUORAY" SecMain
@@ -90,7 +98,9 @@ Section "DUORAY" SecMain
   SetOutPath "$INSTDIR"
   File "${STAGE}\duoray.exe"
   File "${STAGE}\duoray-helper.exe"
-  File "${STAGE}\xray.exe"
+  File "${STAGE}\duoray-xray.exe"
+  ; An older install's xray, under the name other apps kill.
+  Delete "$INSTDIR\xray.exe"
   File "${STAGE}\geoip.dat"
   File "${STAGE}\geosite.dat"
   File "${STAGE}\wintun.dll"
@@ -158,7 +168,7 @@ Section "Uninstall"
   nsExec::ExecToLog 'sc.exe stop ${SERVICE}'
   Sleep 3000
   nsExec::ExecToLog 'sc.exe delete ${SERVICE}'
-  nsExec::Exec 'taskkill /IM xray.exe /F'
+  !insertmacro StopXray
   ; Leftover firewall rule if the service died mid-session.
   nsExec::Exec 'netsh advfirewall firewall delete rule name="DUORAY DNS guard"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="DUORAY IPv6 guard"'
@@ -171,6 +181,7 @@ Section "Uninstall"
 
   Delete "$INSTDIR\duoray.exe"
   Delete "$INSTDIR\duoray-helper.exe"
+  Delete "$INSTDIR\duoray-xray.exe"
   Delete "$INSTDIR\xray.exe"
   Delete "$INSTDIR\geoip.dat"
   Delete "$INSTDIR\geosite.dat"

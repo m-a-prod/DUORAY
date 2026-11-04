@@ -116,6 +116,40 @@ pub fn log(line: impl AsRef<str>) {
 /// is reported once per run.
 pub fn auto(kind: &str, message: &str) {
     log(format!("{kind}: {}", first_line(message)));
+    report_auto(kind, message);
+}
+
+/// Like [`auto`], for failures that being offline also causes (asleep, the
+/// Wi-Fi not up yet after login): reported only if the internet answers,
+/// which is checked off the calling thread. Most such reports were noise.
+pub fn auto_online(kind: &str, message: &str) {
+    log(format!("{kind}: {}", first_line(message)));
+    if !ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    let (kind, message) = (kind.to_string(), message.to_string());
+    std::thread::spawn(move || {
+        if online() {
+            report_auto(&kind, &message);
+        } else {
+            log(format!("{kind}: нет интернета, не отправлено"));
+        }
+    });
+}
+
+/// Whether the internet answers at all, straight or through a running
+/// tunnel. Any HTTP answer will do: no redirects followed, no TLS.
+fn online() -> bool {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .build()
+        .into();
+    ["http://www.gstatic.com/generate_204", "http://ya.ru/"].iter().any(|url| agent.get(*url).call().is_ok())
+}
+
+fn report_auto(kind: &str, message: &str) {
     if !ENABLED.load(Ordering::Relaxed) || SENT_AUTO.load(Ordering::Relaxed) >= AUTO_LIMIT {
         return;
     }
