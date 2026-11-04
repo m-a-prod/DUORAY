@@ -249,6 +249,9 @@ fn override_key(sub: &Subscription, index: usize) -> String {
 /// Name of the group that holds servers added as plain share links.
 pub const MANUAL_GROUP_NAME: &str = "Мои серверы";
 
+/// The format of [`Store::export`].
+const EXPORT_VERSION: u32 = 1;
+
 /// True if the text holds share links (vless://, ss://, …) rather than a subscription URL.
 pub fn looks_like_links(text: &str) -> bool {
     text.lines().map(str::trim).any(|l| {
@@ -413,6 +416,68 @@ impl Store {
         true
     }
 
+    /// Settings and subscriptions as a file to move to another computer.
+    /// Left out: what belongs to this device (install id, report consent,
+    /// autostart) and what is fetched anew (a subscription's servers; "Мои
+    /// серверы" keep theirs, they come from nowhere else).
+    pub fn export(&self) -> serde_json::Value {
+        let mut settings = self.settings.clone();
+        settings.install_id.clear();
+        settings.telemetry = None;
+        let subscriptions: Vec<Subscription> = self
+            .subscriptions
+            .iter()
+            .map(|s| Subscription {
+                servers: if s.is_manual() { s.servers.clone() } else { Vec::new() },
+                last_error: None,
+                updated_at: if s.is_manual() { s.updated_at } else { None },
+                ..s.clone()
+            })
+            .collect();
+        serde_json::json!({ "duoray_export": EXPORT_VERSION, "settings": settings, "subscriptions": subscriptions })
+    }
+
+    /// Takes a file from [`export`](Self::export): its settings replace ours
+    /// (this device's own stay), its subscriptions not here yet (by URL) are
+    /// added, and so are its own servers not in "Мои серверы" yet. Returns the
+    /// ids of the added subscriptions (to fetch) and the count of added servers.
+    pub fn import(&mut self, text: &str) -> Result<(Vec<String>, usize)> {
+        #[derive(Deserialize)]
+        struct Export {
+            duoray_export: u32,
+            settings: Settings,
+            subscriptions: Vec<Subscription>,
+        }
+        let export: Export = serde_json::from_str(text.trim()).context("это не файл настроек DUORAY")?;
+        anyhow::ensure!(export.duoray_export <= EXPORT_VERSION, "файл из более новой версии DUORAY, обновите её");
+        let mine = std::mem::replace(&mut self.settings, export.settings);
+        self.settings.install_id = mine.install_id;
+        self.settings.telemetry = mine.telemetry;
+        self.settings.autostart = mine.autostart;
+        let (mut added, mut servers) = (Vec::new(), 0);
+        for sub in export.subscriptions {
+            if sub.is_manual() {
+                let index = self.ensure_manual_group();
+                let group = &mut self.subscriptions[index];
+                for server in sub.servers {
+                    if !group.servers.contains(&server) {
+                        group.servers.push(server);
+                        servers += 1;
+                    }
+                }
+                continue;
+            }
+            if self.subscriptions.iter().any(|s| s.url == sub.url) {
+                continue;
+            }
+            // Keep its id (favourites and the last server name it) unless taken.
+            let id = if self.get(&sub.id).is_some() { format!("{:x}{:04x}", now(), fastrand::u16(..)) } else { sub.id.clone() };
+            added.push(id.clone());
+            self.subscriptions.push(Subscription { id, ..sub });
+        }
+        Ok((added, servers))
+    }
+
     pub fn get(&self, id: &str) -> Option<&Subscription> {
         self.subscriptions.iter().find(|s| s.id == id)
     }
@@ -452,6 +517,38 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_moves_settings_and_subscriptions_but_not_this_device() {
+        let mut a = Store::default();
+        a.settings.install_id = "aaaa".into();
+        a.settings.telemetry = Some(true);
+        a.settings.kill_switch = true;
+        a.settings.favorites = vec!["x".into()];
+        let id = a.add("https://panel.example/sub/1", "VPN").unwrap();
+        a.add_links("vless://u@1.2.3.4:443?security=tls#Mine").unwrap();
+        // As if fetched: the export leaves these out.
+        let fetched = a.subscriptions[1].servers[0].clone();
+        a.subscriptions[0].servers.push(fetched);
+        let text = a.export().to_string();
+        assert!(!text.contains("aaaa"), "no install id");
+
+        let mut b = Store::default();
+        b.settings.install_id = "bbbb".into();
+        b.settings.telemetry = Some(false);
+        b.add("https://panel.example/sub/2", "Other").unwrap();
+        let (added, servers) = b.import(&text).unwrap();
+        assert_eq!(added, vec![id.clone()]);
+        assert_eq!(servers, 1);
+        assert!(b.settings.kill_switch);
+        assert_eq!(b.settings.favorites, vec!["x".to_string()]);
+        assert_eq!((b.settings.install_id.as_str(), b.settings.telemetry), ("bbbb", Some(false)));
+        assert!(b.get(&id).unwrap().servers.is_empty(), "fetched anew");
+        // Again: nothing doubles.
+        let (added, servers) = b.import(&text).unwrap();
+        assert_eq!((added.len(), servers), (0, 0));
+        assert!(b.import("{}").is_err());
+    }
 
     #[test]
     fn old_ping_targets_become_googles_over_http() {

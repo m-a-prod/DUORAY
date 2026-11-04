@@ -1005,6 +1005,9 @@ component SettingsPage inherits Rectangle {
     callback uninstall-helper();
     callback report-problem();
     callback check-update();
+    // Settings to and from a file (another computer).
+    callback export-settings();
+    callback import-settings();
     callback open-link(string);
 
     // Section on the right; the list on the left picks it.
@@ -1107,6 +1110,41 @@ component SettingsPage inherits Rectangle {
                         checked <=> root.switch-on-select;
                         toggled => {
                             root.changed();
+                        }
+                    }
+                    Divider { }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text {
+                                text: "Перенос на другой компьютер";
+                                font-size: Theme.fs-title;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: "«Экспорт» сохраняет настройки, подписки и ваши серверы в файл в папке «Загрузки». На другом компьютере перетащите этот файл в окно DUORAY или скопируйте его и нажмите «Импорт».";
+                                font-size: Theme.fs-small;
+                                color: Theme.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 6px;
+                            Button {
+                                text: "Экспорт";
+                                clicked => {
+                                    root.export-settings();
+                                }
+                            }
+                            Button {
+                                text: "Импорт";
+                                clicked => {
+                                    root.import-settings();
+                                }
+                            }
                         }
                     }
                 }
@@ -2860,6 +2898,8 @@ export component AppWindow inherits Window {
     callback report-problem <=> settings-page.report-problem;
     callback open-link <=> settings-page.open-link;
     callback check-update <=> settings-page.check-update;
+    callback export-settings <=> settings-page.export-settings;
+    callback import-settings <=> settings-page.import-settings;
     // First start: ask about error reports.
     in-out property <bool> consent-open;
     callback consent(bool);
@@ -2941,6 +2981,8 @@ export component AppWindow inherits Window {
     callback open-support();
     callback copy-sub-link();
     callback ping-current();
+    // A settings file dropped onto the window.
+    callback import-file(string);
     // Pings the subscription, then connects to its fastest server.
     callback connect-best();
     callback cancel-ping();

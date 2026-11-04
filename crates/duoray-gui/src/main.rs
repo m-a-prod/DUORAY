@@ -707,6 +707,47 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // ── Moving settings to another computer ─────────────────────
+    ui.on_export_settings({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let dir = downloads_dir();
+            let path = dir.join(format!("duoray-settings-{}.json", chrono::Local::now().format("%Y-%m-%d")));
+            let text = serde_json::to_string_pretty(&st.store.export()).unwrap_or_default();
+            let msg = match std::fs::write(&path, text) {
+                Ok(()) => {
+                    open_path(&dir);
+                    format!("Настройки сохранены в {}", path.display())
+                }
+                Err(e) => format!("Не удалось сохранить настройки: {e}"),
+            };
+            flash_status_for(&ui, &app, &mut st, msg, 8);
+            render(&ui, &st);
+        }
+    });
+    // From the clipboard: the file's text, or the file itself copied in a
+    // file manager (its path or file:// URI).
+    ui.on_import_settings({
+        let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let text = arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default();
+            let line = text.lines().next().unwrap_or_default().trim();
+            let file = url::Url::parse(line).ok().and_then(|u| u.to_file_path().ok()).or_else(|| Some(PathBuf::from(line)));
+            match file.filter(|p| p.is_file()) {
+                Some(path) => import_file(&ui, &app, &device, &path),
+                None => import_settings(&ui, &app, &device, &text),
+            }
+        }
+    });
+    // A file dropped onto the window.
+    ui.on_import_file({
+        let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
+        move |path| import_file(&ui_weak.unwrap(), &app, &device, std::path::Path::new(path.as_str()))
+    });
+
     // ── Settings page ───────────────────────────────────────────
     ui.on_open_settings({
         let (ui_weak, app, device) = (ui.as_weak(), app.clone(), device.clone());
@@ -1706,8 +1747,15 @@ fn window_event_filter(ui: &AppWindow) {
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         let ui_weak = ui.as_weak();
         let mut mods = ModifiersState::empty();
+        let drop_ui = ui.as_weak();
         ui.window().on_winit_window_event(move |window, event| {
             match event {
+                // A settings file dragged onto the window: import it.
+                WindowEvent::DroppedFile(path) => {
+                    if let Some(ui) = drop_ui.upgrade() {
+                        ui.invoke_import_file(path.to_string_lossy().to_string().into());
+                    }
+                }
                 WindowEvent::ModifiersChanged(m) => mods = m.state(),
                 WindowEvent::KeyboardInput { event, is_synthetic: false, .. } => {
                     if let (Key::Character(typed), PhysicalKey::Code(code)) = (&event.logical_key, event.physical_key)
@@ -2459,6 +2507,63 @@ fn usage_line(s: &Subscription) -> (String, f32) {
 
 /// Opens a web or Telegram link in the system handler.
 /// Opens a local file with its default app (a downloaded .dmg, say).
+fn import_file(ui: &AppWindow, app: &Shared, device: &Arc<Device>, path: &std::path::Path) {
+    match std::fs::read_to_string(path) {
+        Ok(text) => import_settings(ui, app, device, &text),
+        Err(e) => {
+            let mut st = app.lock().unwrap();
+            flash_status_for(ui, app, &mut st, format!("Не удалось открыть файл: {e}"), 8);
+            render(ui, &st);
+        }
+    }
+}
+
+/// Applies an exported settings file (see `Store::import`). The store as it
+/// was stays next to it as store.json.bak.
+fn import_settings(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &str) {
+    let mut st = app.lock().unwrap();
+    let backup = st.path.with_extension("json.bak");
+    let _ = std::fs::copy(&st.path, backup);
+    match st.store.import(text) {
+        Ok((added, servers)) => {
+            save(&mut st);
+            diag::log(format!("settings imported: {} subscriptions, {servers} servers", added.len()));
+            apply_appearance(ui, &st.store.settings);
+            let msg = format!(
+                "Настройки перенесены. Добавлено: {}, {}",
+                plural(added.len(), "подписка", "подписки", "подписок"),
+                plural(servers, "сервер", "сервера", "серверов")
+            );
+            flash_status_for(ui, app, &mut st, msg, 8);
+            render(ui, &st);
+            drop(st);
+            // The settings page shows what was imported.
+            ui.invoke_open_settings();
+            for id in added {
+                refresh(ui, app, device, id);
+            }
+        }
+        Err(e) => {
+            flash_status_for(ui, app, &mut st, format!("Импорт не удался: {e:#}"), 8);
+            render(ui, &st);
+        }
+    }
+}
+
+/// The user's Downloads folder (XDG's, localized, on Linux), else home.
+fn downloads_dir() -> PathBuf {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map_or_else(|| PathBuf::from("."), PathBuf::from);
+    #[cfg(target_os = "linux")]
+    if let Ok(out) = std::process::Command::new("xdg-user-dir").arg("DOWNLOAD").output() {
+        let dir = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        if dir.is_dir() && dir != home {
+            return dir;
+        }
+    }
+    let dir = home.join("Downloads");
+    if dir.is_dir() { dir } else { home }
+}
+
 fn open_path(path: &std::path::Path) {
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("/usr/bin/open").arg(path).spawn();
