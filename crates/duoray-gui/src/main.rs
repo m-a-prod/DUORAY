@@ -221,6 +221,9 @@ struct App {
     ping_progress: Option<(usize, usize)>,
     /// Stops the active ping run.
     ping_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// The subscription whose fastest server to connect to once the running
+    /// ping ends («Подключиться к самому быстрому»).
+    connect_best: Option<String>,
     /// A render is already scheduled for incoming ping results.
     ping_render_pending: bool,
     /// Bumped per transient status message, so an old timer never clears a newer one.
@@ -357,6 +360,7 @@ fn main() -> anyhow::Result<()> {
         speed_live: None,
         ping_progress: None,
         ping_cancel: None,
+        connect_best: None,
         ping_render_pending: false,
         status_gen: 0,
         xray_started: None,
@@ -934,9 +938,27 @@ fn main() -> anyhow::Result<()> {
     ui.on_cancel_ping({
         let app = app.clone();
         move || {
-            if let Some(c) = &app.lock().unwrap().ping_cancel {
+            let mut st = app.lock().unwrap();
+            // Stopped: no connecting to the fastest either.
+            st.connect_best = None;
+            if let Some(c) = &st.ping_cancel {
                 c.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+        }
+    });
+    ui.on_connect_best({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some(sub) = current(&ui, &st) else { return };
+            if st.ping_progress.is_some() {
+                flash_status(&ui, &app, &mut st, "Дождитесь конца пинга".into());
+                return render(&ui, &st);
+            }
+            st.connect_best = Some(sub.id.clone());
+            drop(st);
+            start_ping(&ui, &app);
         }
     });
     ui.on_add_from_clipboard({
@@ -3257,6 +3279,30 @@ fn add_input(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &str, nam
     Ok(())
 }
 
+/// The fastest answering server of the subscription `id` by the last ping:
+/// selected and connected to (switched to, while connected).
+fn connect_fastest(ui: &AppWindow, app: &Shared, id: &str) {
+    let mut st = app.lock().unwrap();
+    let Some(sub) = st.store.subscriptions.iter().find(|s| s.id == id) else { return };
+    let best = sub
+        .servers
+        .iter()
+        .filter_map(|s| {
+            let key = key_of(sub, s);
+            let (_, level, ms) = st.ping_results.get(&key)?;
+            (1..=3).contains(level).then(|| (*ms, key, display_name(&s.name).1))
+        })
+        .min_by_key(|(ms, ..)| *ms);
+    let Some((ms, key, name)) = best else {
+        flash_status_for(ui, app, &mut st, "Ни один сервер подписки не ответил".into(), 6);
+        return render(ui, &st);
+    };
+    diag::log(format!("fastest: {ms} ms"));
+    flash_status_for(ui, app, &mut st, format!("Самый быстрый: «{name}», {ms} мс"), 6);
+    drop(st);
+    connect_to(ui, app, key);
+}
+
 fn start_ping(ui: &AppWindow, app: &Shared) {
     let st = app.lock().unwrap();
     let Some(sub) = current(ui, &st) else { return };
@@ -3324,6 +3370,10 @@ fn ping_jobs(
                 save_pings(&st);
                 ui.set_pinging(false);
                 render(&ui, &st);
+                if let Some(id) = st.connect_best.take() {
+                    drop(st);
+                    connect_fastest(&ui, &app, &id);
+                }
             });
         }
     };

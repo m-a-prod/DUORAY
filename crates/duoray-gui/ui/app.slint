@@ -2941,6 +2941,8 @@ export component AppWindow inherits Window {
     callback open-support();
     callback copy-sub-link();
     callback ping-current();
+    // Pings the subscription, then connects to its fastest server.
+    callback connect-best();
     callback cancel-ping();
     callback toggle-sort();
     callback filter-changed();
@@ -4087,6 +4089,14 @@ export component AppWindow inherits Window {
                                     text: "QR-код";
                                     clicked => {
                                         root.show-sub-qr();
+                                        sub-menu.close();
+                                    }
+                                }
+                                MenuItem {
+                                    text: "Подключиться к самому быстрому";
+                                    enabled: !root.pinging;
+                                    clicked => {
+                                        root.connect-best();
                                         sub-menu.close();
                                     }
                                 }
