@@ -948,8 +948,9 @@ pub fn other_vpn_processes() -> Vec<String> {
             !n.starts_with("duoray") && NAMES.iter().any(|k| n.contains(k))
         })
         .collect();
-    found.sort();
-    found.dedup();
+    // "Throne" and "throne" (two processes of one app) once.
+    found.sort_by_key(|n| n.to_lowercase());
+    found.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     found
 }
 

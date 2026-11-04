@@ -1,6 +1,14 @@
 import { ListView, Palette, Spinner, ScrollView, TextEdit } from "std-widgets.slint";
 
 // A run of a name: text, or (text empty) a colour emoji image.
+// One check of "Диагностика сети". state: 0 running, 1 ok, 2 warning,
+// 3 failed, 4 nothing to check.
+export struct DiagRow {
+    state: int,
+    title: string,
+    detail: string,
+}
+
 export struct NamePart {
     text: string,
     emoji: image,
@@ -1008,6 +1016,7 @@ component SettingsPage inherits Rectangle {
     // Settings to and from a file (another computer).
     callback export-settings();
     callback import-settings();
+    callback run-diagnostics();
     callback open-link(string);
 
     // Section on the right; the list on the left picks it.
@@ -1683,6 +1692,34 @@ component SettingsPage inherits Rectangle {
                                 text: "Написать";
                                 clicked => {
                                     root.report-problem();
+                                }
+                            }
+                        }
+                    }
+                    Divider { }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text {
+                                text: "Диагностика сети";
+                                font-size: Theme.fs-title;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: "Проверяет по шагам сеть, DNS, интернет, часы, сервер подписки, выбранный сервер и путь через VPN. Результат можно скопировать для поддержки.";
+                                font-size: Theme.fs-small;
+                                color: Theme.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: "Проверить";
+                                clicked => {
+                                    root.run-diagnostics();
                                 }
                             }
                         }
@@ -2899,6 +2936,12 @@ export component AppWindow inherits Window {
     callback open-link <=> settings-page.open-link;
     callback check-update <=> settings-page.check-update;
     callback export-settings <=> settings-page.export-settings;
+    callback run-diagnostics <=> settings-page.run-diagnostics;
+    // "Диагностика сети" dialog.
+    in-out property <bool> diag-open;
+    in property <bool> diag-running;
+    in property <[DiagRow]> diag-rows;
+    callback copy-diagnostics();
     callback import-settings <=> settings-page.import-settings;
     // First start: ask about error reports.
     in-out property <bool> consent-open;
@@ -4579,6 +4622,100 @@ export component AppWindow inherits Window {
     }
 
     // ── A link as a QR code ─────────────────────────────────────
+    if root.diag-open: Rectangle {
+        property <float> shown: 0;
+        init => {
+            self.shown = 1;
+        }
+        animate shown { duration: 180ms; easing: ease-out; }
+        background: #000000a0;
+        opacity: self.shown;
+        TouchArea {
+            clicked => {
+                root.diag-open = false;
+            }
+        }
+        Rectangle {
+            transform-scale: 0.96 + 0.04 * parent.shown;
+            width: min(520px, parent.width - 40px);
+            height: diag-layout.preferred-height;
+            border-radius: 16px;
+            background: Theme.bg;
+            drop-shadow-blur: 32px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: Theme.shadow;
+            TouchArea { }
+            diag-layout := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: "Диагностика сети";
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                for row in root.diag-rows: HorizontalLayout {
+                    spacing: 10px;
+                    // A dot coloured by the outcome; a spinner while it runs.
+                    VerticalLayout {
+                        width: 12px;
+                        alignment: start;
+                        padding-top: 3px;
+                        if row.state == 0: Spinner {
+                            indeterminate: true;
+                            width: 12px;
+                            height: 12px;
+                        }
+                        if row.state != 0: Rectangle {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: row.state == 1 ? Theme.ok : row.state == 2 ? Theme.warn : row.state == 3 ? Theme.danger : Theme.muted.with-alpha(0.5);
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 1px;
+                        Text {
+                            text: row.title;
+                            font-size: Theme.fs-small;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: row.state == 0 ? "проверяем…" : row.detail;
+                            font-size: Theme.fs-caption;
+                            color: row.state == 3 ? Theme.danger : Theme.muted;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: "Повторить";
+                        enabled: !root.diag-running;
+                        clicked => {
+                            root.run-diagnostics();
+                        }
+                    }
+                    Button {
+                        text: "Скопировать";
+                        enabled: !root.diag-running;
+                        clicked => {
+                            root.copy-diagnostics();
+                        }
+                    }
+                    Button {
+                        text: "Закрыть";
+                        clicked => {
+                            root.diag-open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if root.qr-open: Rectangle {
         property <float> shown: 0;
         init => {

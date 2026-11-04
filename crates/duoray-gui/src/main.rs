@@ -25,6 +25,7 @@ mod helper;
 mod instance;
 mod ping;
 mod qr;
+mod netcheck;
 mod speed;
 mod routing_ui;
 mod server_edit;
@@ -703,6 +704,72 @@ fn main() -> anyhow::Result<()> {
                 ui.set_current_server(-1);
                 restore_selection_in_current(&ui, &st);
             }
+            render(&ui, &st);
+        }
+    });
+
+    // ── Диагностика сети ────────────────────────────────────────
+    ui.on_run_diagnostics({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            let ui = ui_weak.unwrap();
+            if ui.get_diag_running() {
+                return;
+            }
+            let input = {
+                let st = app.lock().unwrap();
+                let server = selected_server(&ui, &st).filter(|s| s.proxies <= 1 && !s.address.is_empty()).map(|s| {
+                    let tcp = s.protocol != "Hysteria2" && !matches!(s.network.as_str(), "kcp" | "quic");
+                    (s.address.clone(), s.port, tcp)
+                });
+                let vpn = match (&st.conn_state, &st.conn) {
+                    (ConnState::Connected { .. }, Some(c)) => Some((c.socks, c.user.clone(), c.pass.clone())),
+                    _ => None,
+                };
+                netcheck::Input {
+                    subscription: current(&ui, &st).filter(|s| !s.is_manual()).map(|s| s.url.clone()),
+                    server,
+                    vpn,
+                    ping_url: st.store.settings.ping.url.clone(),
+                }
+            };
+            let rows: Vec<DiagRow> =
+                netcheck::TITLES.iter().map(|t| DiagRow { state: netcheck::Level::Running as i32, title: (*t).into(), detail: "".into() }).collect();
+            ui.set_diag_rows(ModelRc::new(VecModel::from(rows)));
+            ui.set_diag_running(true);
+            ui.set_diag_open(true);
+            let ui_weak = ui.as_weak();
+            std::thread::spawn(move || {
+                netcheck::run(input, |i, level, detail| {
+                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                        use slint::Model;
+                        let rows = ui.get_diag_rows();
+                        if let Some(mut row) = rows.row_data(i) {
+                            (row.state, row.detail) = (level as i32, detail.into());
+                            rows.set_row_data(i, row);
+                        }
+                    });
+                });
+                let _ = ui_weak.upgrade_in_event_loop(|ui| ui.set_diag_running(false));
+            });
+        }
+    });
+    ui.on_copy_diagnostics({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            use slint::Model;
+            let ui = ui_weak.unwrap();
+            let level = |state: i32| match state {
+                1 => netcheck::Level::Ok,
+                2 => netcheck::Level::Warn,
+                3 => netcheck::Level::Fail,
+                4 => netcheck::Level::Skip,
+                _ => netcheck::Level::Running,
+            };
+            let rows: Vec<_> = ui.get_diag_rows().iter().map(|r| (level(r.state), r.title.to_string(), r.detail.to_string())).collect();
+            let copied = arboard::Clipboard::new().and_then(|mut c| c.set_text(netcheck::as_text(&rows))).is_ok();
+            let mut st = app.lock().unwrap();
+            flash_status(&ui, &app, &mut st, if copied { "Результат скопирован".into() } else { "Не удалось скопировать".into() });
             render(&ui, &st);
         }
     });
