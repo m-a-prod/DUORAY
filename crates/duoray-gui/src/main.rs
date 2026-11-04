@@ -2139,7 +2139,7 @@ fn render(ui: &AppWindow, st: &App) {
             error: s.last_error.as_deref().map(first_line).unwrap_or_default().into(),
         })
         .collect();
-    ui.set_subs(ModelRc::new(VecModel::from(subs)));
+    update_model(ui.get_subs(), subs, |m| ui.set_subs(m));
 
     let busy_count = st.refreshing.len();
     ui.set_status(
@@ -2208,7 +2208,7 @@ fn render(ui: &AppWindow, st: &App) {
     render_expiry(ui, st);
 
     let Some(sub) = current(ui, st) else {
-        ui.set_servers(ModelRc::new(VecModel::from(Vec::<ServerRow>::new())));
+        update_model(ui.get_servers(), Vec::new(), |m| ui.set_servers(m));
         return;
     };
     ui.set_header_title(sub.display_name().into());
@@ -2261,7 +2261,26 @@ fn render(ui: &AppWindow, st: &App) {
             }
         })
         .collect();
-    ui.set_servers(ModelRc::new(VecModel::from(rows)));
+    update_model(ui.get_servers(), rows, |m| ui.set_servers(m));
+}
+
+/// Puts `rows` into the list model in place, touching only rows that
+/// changed: the list keeps its elements, so a context menu open on a row
+/// survives the redraws of a ping or a speed test. A new model only the
+/// first time.
+fn update_model<T: Clone + PartialEq + 'static>(model: ModelRc<T>, rows: Vec<T>, set: impl FnOnce(ModelRc<T>)) {
+    use slint::Model;
+    let Some(vec) = model.as_any().downcast_ref::<VecModel<T>>() else {
+        return set(ModelRc::new(VecModel::from(rows)));
+    };
+    if vec.row_count() != rows.len() {
+        return vec.set_vec(rows);
+    }
+    for (i, row) in rows.into_iter().enumerate() {
+        if vec.row_data(i).as_ref() != Some(&row) {
+            vec.set_row_data(i, row);
+        }
+    }
 }
 
 fn transport(network: &str, security: &str) -> String {

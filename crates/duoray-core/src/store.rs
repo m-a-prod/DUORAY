@@ -162,14 +162,29 @@ pub struct PingSettings {
     pub timeout_ms: u64,
 }
 
+/// Google's connectivity check over plain HTTP: no TLS handshake on top of
+/// the round trip.
+pub const DEFAULT_PING_URL: &str = "http://www.gstatic.com/generate_204";
+
 impl Default for PingSettings {
     fn default() -> Self {
         Self {
             mode: PingMode::HttpGet,
             proxy_mode: ProxyPingMode::Default,
             threads: 1,
-            url: "http://cp.cloudflare.com/generate_204".into(),
+            url: DEFAULT_PING_URL.into(),
             timeout_ms: 5000,
+        }
+    }
+}
+
+impl PingSettings {
+    /// Earlier targets, Cloudflare's check (the old default) or Google's over
+    /// HTTPS, become today's default.
+    fn upgrade(&mut self) {
+        let Ok(url) = url::Url::parse(self.url.trim()) else { return };
+        if url.path() == "/generate_204" && matches!(url.host_str(), Some("cp.cloudflare.com" | "www.gstatic.com")) {
+            self.url = DEFAULT_PING_URL.into();
         }
     }
 }
@@ -270,7 +285,11 @@ impl Store {
 
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read(path) {
-            Ok(data) => serde_json::from_slice(&data).with_context(|| format!("parsing {}", path.display())),
+            Ok(data) => {
+                let mut store: Self = serde_json::from_slice(&data).with_context(|| format!("parsing {}", path.display()))?;
+                store.settings.ping.upgrade();
+                Ok(store)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
@@ -425,6 +444,19 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_ping_targets_become_googles_over_http() {
+        for old in ["http://cp.cloudflare.com/generate_204", "https://cp.cloudflare.com/generate_204", "https://www.gstatic.com/generate_204"] {
+            let mut p = PingSettings { url: old.into(), ..Default::default() };
+            p.upgrade();
+            assert_eq!(p.url, DEFAULT_PING_URL, "{old}");
+        }
+        // An own target stays.
+        let mut p = PingSettings { url: "https://example.com/ping".into(), ..Default::default() };
+        p.upgrade();
+        assert_eq!(p.url, "https://example.com/ping");
+    }
 
     #[test]
     fn manual_links() {
