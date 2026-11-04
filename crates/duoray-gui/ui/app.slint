@@ -979,6 +979,7 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> telemetry-enabled;
     in-out property <bool> auto-update: true;
     in-out property <bool> switch-on-select: true;
+    in-out property <bool> keep-connected: true;
     in-out property <bool> show-server-type: true;
     in-out property <bool> filter-enabled;
     in-out property <bool> close-to-tray: true;
@@ -1109,6 +1110,15 @@ component SettingsPage inherits Rectangle {
 
                 // ── Подключение ──
                 if root.section == 1: SettingsCard {
+                    ToggleRow {
+                        title: "Держать подключение";
+                        description: "Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, а интернет есть, DUORAY перейдёт на другой сервер той же подписки, самый быстрый по последнему пингу.";
+                        checked <=> root.keep-connected;
+                        toggled => {
+                            root.changed();
+                        }
+                    }
+                    Divider { }
                     ToggleRow {
                         title: "Аварийная блокировка (kill switch)";
                         description: "Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться».";
@@ -2825,6 +2835,7 @@ export component AppWindow inherits Window {
     in-out property <string> speedtest-url <=> settings-page.speedtest-url;
     in-out property <bool> send-device-info <=> settings-page.send-device-info;
     in-out property <bool> switch-on-select <=> settings-page.switch-on-select;
+    in-out property <bool> keep-connected <=> settings-page.keep-connected;
     in-out property <bool> show-server-type <=> settings-page.show-server-type;
     in-out property <bool> filter-enabled <=> settings-page.filter-enabled;
     in-out property <bool> close-to-tray <=> settings-page.close-to-tray;

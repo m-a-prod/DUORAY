@@ -188,6 +188,11 @@ struct App {
     /// Latest ping per server key: (label, level) as shown in the row.
     /// Latest ping per server key: (label, level, sort key in ms).
     ping_results: std::collections::HashMap<String, (String, i32, u128)>,
+    /// Live pings through the tunnel that failed in a row (see
+    /// [`server_unresponsive`]).
+    live_failures: u32,
+    /// Servers moved away from since the last answer through the tunnel.
+    failover_tried: std::collections::HashSet<String>,
     /// Show servers ordered by ping instead of the panel's order.
     sort_by_ping: bool,
     /// Latency of the active connection, re-measured every 5 s: (label, level).
@@ -335,6 +340,8 @@ fn main() -> anyhow::Result<()> {
         conn_cancel: Default::default(),
         connect_after_install: false,
         ping_results: pings,
+        live_failures: 0,
+        failover_tried: Default::default(),
         sort_by_ping: false,
         live_ping: None,
         live_ping_busy: false,
@@ -720,6 +727,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_telemetry_enabled(st.store.settings.telemetry == Some(true));
             ui.set_auto_update(st.store.settings.auto_update);
             ui.set_switch_on_select(st.store.settings.switch_on_select);
+            ui.set_keep_connected(st.store.settings.keep_connected);
             ui.set_close_to_tray(st.store.settings.close_to_tray);
             ui.set_autostart(st.store.settings.autostart);
             ui.set_autoconnect(st.store.settings.autoconnect);
@@ -983,18 +991,21 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // While connected: latency through the live tunnel every 5 s, only while
-    // the window is shown (no one sees it from the tray or the dock).
+    // While connected: latency through the live tunnel every 5 s while the
+    // window is shown. Hidden (the tray, the dock), nobody sees the figure:
+    // every 10 s, and only to keep the connection.
     let live_ping_timer = slint::Timer::default();
     live_ping_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(5), {
         let (ui_weak, app) = (ui.as_weak(), app.clone());
+        let odd_tick = std::cell::Cell::new(false);
         move || {
             let Some(ui) = ui_weak.upgrade() else { return };
-            if !ui.window().is_visible() || ui.window().is_minimized() {
-                return;
-            }
+            odd_tick.set(!odd_tick.get());
+            let shown = ui.window().is_visible() && !ui.window().is_minimized();
             let mut st = app.lock().unwrap();
-            measure_live_ping(&ui, &app, &mut st);
+            if shown || (st.store.settings.keep_connected && odd_tick.get()) {
+                measure_live_ping(&ui, &app, &mut st);
+            }
         }
     });
 
@@ -1925,6 +1936,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     st.conn = Some(conn);
                     st.xray_started = Some(std::time::Instant::now());
                     st.live_ping = None;
+                    st.live_failures = 0;
                     (st.exit, st.exit_node, st.traffic) = (None, None, None);
                     st.node_names = node_names.into_iter().collect();
                     // First reading right away, then every 5 s from the timer.
@@ -1978,9 +1990,10 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
 
 fn connection_failed(ui: &AppWindow, app: &Shared, generation: u64, msg: String, blocked: bool) {
     let mut st = app.lock().unwrap();
-    if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
-        return;
-    }
+    let key = match &st.conn_state {
+        ConnState::Connected { key, .. } if st.conn_gen == generation => key.clone(),
+        _ => return,
+    };
     diag::auto("tunnel_stopped", if msg.is_empty() { "helper disconnected" } else { &msg });
     // Kill switch: the tunnel stays up (and blocks) until "Отключиться".
     if blocked {
@@ -1990,9 +2003,20 @@ fn connection_failed(ui: &AppWindow, app: &Shared, generation: u64, msg: String,
     }
     let conn = st.conn.take();
     st.conn_state = ConnState::Failed(if msg.is_empty() { "Помощник отключился".into() } else { msg });
+    // "Держать подключение": the same server again, once the network is there.
+    let keep = st.store.settings.keep_connected;
+    if keep {
+        diag::log("keep connected: туннель упал, переподключаемся");
+        st.store.settings.last_server = Some(key);
+        restore_selection(ui, &st);
+    }
     render(ui, &st);
+    drop(st);
     if let Some(c) = conn {
         std::thread::spawn(move || c.disconnect());
+    }
+    if keep {
+        autoconnect(ui, app, 0);
     }
 }
 
@@ -2593,6 +2617,7 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     st.store.settings.hysteria_restart_minutes = ui.get_hysteria_minutes().parse().unwrap_or(5);
     st.store.settings.auto_update = ui.get_auto_update();
     st.store.settings.switch_on_select = ui.get_switch_on_select();
+    st.store.settings.keep_connected = ui.get_keep_connected();
     st.store.settings.show_server_type = ui.get_show_server_type();
     st.store.settings.server_filter_enabled = ui.get_filter_enabled();
     // Off: the list shows every server; the pattern is kept for later.
@@ -2846,13 +2871,97 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
             if st.conn_gen != generation || !matches!(st.conn_state, ConnState::Connected { .. }) {
                 return;
             }
+            let answered = result.is_ok();
             let entry = ping_entry(result.ok().map(|d| d.as_millis()));
             st.live_ping = Some((entry.0.clone(), entry.1));
             st.ping_results.insert(key, entry);
             save_pings(&st);
+            if answered {
+                st.live_failures = 0;
+                st.failover_tried.clear();
+            } else {
+                st.live_failures += 1;
+            }
+            let unresponsive = st.live_failures >= LIVE_FAILURES && st.store.settings.keep_connected;
             render(&ui, &st);
+            drop(st);
+            if unresponsive {
+                server_unresponsive(&ui, &app);
+            }
         });
     });
+}
+
+/// Live pings in a row that a server may miss before "Держать подключение"
+/// moves away from it: 15 s with the window shown, 30 s hidden.
+const LIVE_FAILURES: u32 = 3;
+
+/// "Держать подключение": the connected server has missed LIVE_FAILURES live
+/// pings. With the network up, move to the best other server of the same
+/// subscription; with it down, there is nothing to do but wait.
+fn server_unresponsive(ui: &AppWindow, app: &Shared) {
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    // Off the UI thread: finding the default route runs a command.
+    std::thread::spawn(move || {
+        if connection::uplink_interface().is_none() {
+            diag::log("keep connected: нет сети, ждём");
+            return;
+        }
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            let mut st = app.lock().unwrap();
+            // Answered meanwhile, or no longer connected.
+            let ConnState::Connected { key, name, .. } = &st.conn_state else { return };
+            if st.live_failures < LIVE_FAILURES {
+                return;
+            }
+            let (key, name) = (key.clone(), name.clone());
+            st.live_failures = 0;
+            st.failover_tried.insert(key.clone());
+            let Some((next, next_name)) = failover_target(&st, &key) else {
+                // Every one tried: start over after the next misses.
+                st.failover_tried.clear();
+                diag::log(format!("keep connected: {name} не отвечает, другим некуда"));
+                flash_status_for(&ui, &app, &mut st, "Серверы подписки не отвечают. Проверьте интернет".into(), 8);
+                return render(&ui, &st);
+            };
+            diag::log(format!("keep connected: {name} не отвечает, переходим на {next_name}"));
+            st.store.settings.last_server = Some(next);
+            save(&mut st);
+            restore_selection(&ui, &st);
+            flash_status_for(&ui, &app, &mut st, format!("«{name}» не отвечает, переключаемся на «{next_name}»"), 8);
+            drop(st);
+            switch_connection(&ui, &app, false);
+        });
+    });
+}
+
+/// Where to move from the server `key`: another of its subscription, see
+/// [`failover_pick`]. (key, name).
+fn failover_target(st: &App, key: &str) -> Option<(String, String)> {
+    let sub = st.store.subscriptions.iter().find(|s| s.servers.iter().any(|x| key_of(s, x) == key))?;
+    let servers: Vec<(String, Option<(i32, u128)>)> = sub
+        .servers
+        .iter()
+        .map(|s| key_of(sub, s))
+        .map(|k| {
+            let ping = st.ping_results.get(&k).map(|(_, level, ms)| (*level, *ms));
+            (k, ping)
+        })
+        .collect();
+    let i = failover_pick(&servers, key, &st.failover_tried)?;
+    Some((servers[i].0.clone(), display_name(&sub.servers[i].name).1))
+}
+
+/// Of `servers` (key, last ping as (level, ms)): the fastest by the last
+/// ping, then the ones not pinged in list order. Not `current`, not one
+/// already tried, not one whose last ping failed (level 4).
+fn failover_pick(servers: &[(String, Option<(i32, u128)>)], current: &str, tried: &std::collections::HashSet<String>) -> Option<usize> {
+    servers
+        .iter()
+        .enumerate()
+        .filter(|(_, (k, ping))| k != current && !tried.contains(k) && !matches!(ping, Some((4, _))))
+        .min_by_key(|(i, (_, ping))| (ping.map_or(u128::MAX, |(_, ms)| ms), *i))
+        .map(|(i, _)| i)
 }
 
 /// Reads the traffic counters of the active connection, every second while
@@ -3189,6 +3298,20 @@ fn ping_jobs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failover_picks_the_fastest_untried_answering_server() {
+        use std::collections::HashSet;
+        let s = |k: &str, ping: Option<(i32, u128)>| (k.to_string(), ping);
+        let servers = [s("a", Some((1, 40))), s("b", Some((4, u128::MAX))), s("c", None), s("d", Some((2, 200))), s("e", Some((1, 90)))];
+        // e is the fastest other one; b failed its last ping.
+        assert_eq!(failover_pick(&servers, "a", &HashSet::new()), Some(4));
+        // Pinged ones first, then the ones not pinged.
+        let tried: HashSet<String> = ["e", "d"].map(String::from).into();
+        assert_eq!(failover_pick(&servers, "a", &tried), Some(2));
+        let all: HashSet<String> = ["c", "d", "e"].map(String::from).into();
+        assert_eq!(failover_pick(&servers, "a", &all), None);
+    }
 
     #[test]
     fn traffic_counts_across_xray_restarts() {

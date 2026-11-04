@@ -71,6 +71,9 @@ pub struct Settings {
     pub auto_update: bool,
     /// While connected, picking another server switches the connection to it.
     pub switch_on_select: bool,
+    /// Reconnect after the tunnel drops, and move to another server of the
+    /// subscription when the connected one stops answering.
+    pub keep_connected: bool,
     /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
     pub show_server_type: bool,
     /// Closing the window hides it to the tray; the VPN keeps running.
@@ -113,6 +116,7 @@ impl Default for Settings {
             install_id: String::new(),
             auto_update: true,
             switch_on_select: true,
+            keep_connected: true,
             show_server_type: true,
             close_to_tray: true,
             hide_buy: false,
