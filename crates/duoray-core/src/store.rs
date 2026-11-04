@@ -74,6 +74,9 @@ pub struct Settings {
     /// Reconnect after the tunnel drops, and move to another server of the
     /// subscription when the connected one stops answering.
     pub keep_connected: bool,
+    /// Starred servers, by the GUI's server key, in the order starred: marked
+    /// in the list, and in the tray menu to switch to.
+    pub favorites: Vec<String>,
     /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
     pub show_server_type: bool,
     /// Closing the window hides it to the tray; the VPN keeps running.
@@ -117,6 +120,7 @@ impl Default for Settings {
             auto_update: true,
             switch_on_select: true,
             keep_connected: true,
+            favorites: Vec::new(),
             show_server_type: true,
             close_to_tray: true,
             hide_buy: false,

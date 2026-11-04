@@ -1119,6 +1119,7 @@ fn main() -> anyhow::Result<()> {
                 ];
                 if let Some(sub) = current(&ui, &st) {
                     let keys: Vec<String> = sub.servers.iter().map(|s| key_of(sub, s)).collect();
+                    st.store.settings.favorites = [0, 3].iter().filter_map(|&i| keys.get(i).cloned()).collect();
                     st.speed_results.extend(keys.into_iter().zip(cells));
                 }
                 st.speed_progress = Some((2, 6));
@@ -1346,11 +1347,13 @@ fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
 /// Creates the tray icon; false if the desktop has no tray (yet).
 fn start_tray(ui: &AppWindow, app: &Shared) -> bool {
     let state = tray_state(ui, &app.lock().unwrap());
-    let ui_weak = ui.as_weak();
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
     let started = tray::start(state, move |action| {
+        let app = app.clone();
         let _ = ui_weak.upgrade_in_event_loop(move |ui| match action {
             tray::Action::Show => show_window(&ui),
             tray::Action::Toggle => ui.invoke_toggle_connection(),
+            tray::Action::Server(key) => connect_to(&ui, &app, key),
             tray::Action::Quit => {
                 let _ = slint::quit_event_loop();
             }
@@ -1417,10 +1420,41 @@ fn tray_state(ui: &AppWindow, st: &App) -> tray::State {
         ConnState::Idle | ConnState::Failed(_) if selected_server(ui, st).is_some() => "Подключиться",
         ConnState::Idle | ConnState::Failed(_) => "",
     };
-    tray::State {
-        connected: matches!(st.conn_state, ConnState::Connected { .. }),
-        status: ui.get_conn_title().to_string(),
-        toggle: toggle.into(),
+    let current = match &st.conn_state {
+        ConnState::Connected { key, .. } => Some(key.as_str()),
+        _ => st.store.settings.last_server.as_deref(),
+    };
+    // Starred servers that still exist, in the order starred.
+    let servers = st
+        .store
+        .settings
+        .favorites
+        .iter()
+        .filter_map(|key| {
+            let sub = st.store.subscriptions.iter().find(|s| key.starts_with(&format!("{}\u{1f}", s.id)))?;
+            let server = sub.servers.iter().find(|s| key_of(sub, s) == *key)?;
+            Some(tray::Server { key: key.clone(), label: display_name(&server.name).1, current: current == Some(key.as_str()) })
+        })
+        .collect();
+    tray::State { connected: matches!(st.conn_state, ConnState::Connected { .. }), status: ui.get_conn_title().to_string(), toggle: toggle.into(), servers }
+}
+
+/// A server picked in the tray menu: selected, and connected to (or switched
+/// to, while connected).
+fn connect_to(ui: &AppWindow, app: &Shared, key: String) {
+    let mut st = app.lock().unwrap();
+    st.store.settings.last_server = Some(key);
+    save(&mut st);
+    if !restore_selection(ui, &st) {
+        return;
+    }
+    let idle = matches!(st.conn_state, ConnState::Idle | ConnState::Failed(_));
+    render(ui, &st);
+    drop(st);
+    if idle {
+        toggle_connection(ui, app);
+    } else {
+        switch_connection(ui, app, false);
     }
 }
 
@@ -2297,6 +2331,7 @@ fn render(ui: &AppWindow, st: &App) {
                 speed_down: speed.1.into(),
                 speed_up: speed.2.into(),
                 edited: s.override_key.is_some(),
+                favorite: st.store.settings.favorites.contains(&key_of(sub, s)),
                 is_json: matches!(s.source, duoray_core::server::Source::Json(_)),
             }
         })

@@ -1,5 +1,6 @@
-//! The tray icon (menu bar on macOS): open, connect/disconnect, quit. The
-//! window can then close to the tray while the VPN keeps running.
+//! The tray icon (menu bar on macOS): open, connect/disconnect, the starred
+//! servers to switch to, quit. The window can then close to the tray while
+//! the VPN keeps running.
 //!
 //! Linux uses StatusNotifierItem over D-Bus (ksni, no GTK); Windows and macOS
 //! use tray-icon, whose objects live on the main thread. Without a tray (GNOME
@@ -9,10 +10,12 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Show,
     Toggle,
+    /// Connect to (or switch to) the server with this key.
+    Server(String),
     Quit,
 }
 
@@ -24,6 +27,15 @@ pub struct State {
     pub status: String,
     /// The connect/disconnect item; empty disables it (nothing to do).
     pub toggle: String,
+    /// Starred servers, one item each; the current one checked.
+    pub servers: Vec<Server>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Server {
+    pub key: String,
+    pub label: String,
+    pub current: bool,
 }
 
 type Handler = Arc<dyn Fn(Action) + Send + Sync>;
@@ -153,22 +165,39 @@ mod imp {
             (self.on_action)(Action::Show);
         }
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-            use ksni::menu::StandardItem;
+            use ksni::menu::{CheckmarkItem, StandardItem};
             let item = |label: &str, enabled: bool, action: Action| {
                 StandardItem {
                     label: label.into(),
                     enabled,
-                    activate: Box::new(move |this: &mut Self| (this.on_action)(action)),
+                    activate: Box::new(move |this: &mut Self| (this.on_action)(action.clone())),
                     ..Default::default()
                 }
                 .into()
             };
-            vec![
+            let mut menu = vec![
                 item("Открыть DUORAY", true, Action::Show),
                 item(&self.state.toggle, !self.state.toggle.is_empty(), Action::Toggle),
-                ksni::MenuItem::Separator,
-                item("Выход", true, Action::Quit),
-            ]
+            ];
+            if !self.state.servers.is_empty() {
+                menu.push(ksni::MenuItem::Separator);
+            }
+            for server in &self.state.servers {
+                let action = Action::Server(server.key.clone());
+                menu.push(
+                    CheckmarkItem {
+                        // A lone "_" would be taken for an access key.
+                        label: server.label.replace('_', "__"),
+                        checked: server.current,
+                        activate: Box::new(move |this: &mut Self| (this.on_action)(action.clone())),
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
+            menu.push(ksni::MenuItem::Separator);
+            menu.push(item("Выход", true, Action::Quit));
+            menu
         }
     }
 
@@ -188,14 +217,19 @@ mod imp {
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod imp {
-    use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+    use std::sync::{Arc, Mutex};
+
+    use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
     use super::{Action, Handler, State, logo_rgba};
 
+    /// What each item of the menu shown now does; rebuilt with the menu.
+    type Items = Arc<Mutex<Vec<(MenuId, Action)>>>;
+
     pub struct Tray {
         icon: TrayIcon,
-        toggle: MenuItem,
+        items: Items,
     }
 
     /// The menu bar draws the icon 18 pt high whatever the image: a mark
@@ -207,19 +241,43 @@ mod imp {
         Icon::from_rgba(logo_rgba(size, connected, FILL), size, size).ok()
     }
 
+    /// The menu for `state`, and what its items do. The starred servers come
+    /// and go, so the menu is built anew whenever the state changes.
+    fn menu(state: &State) -> Option<(Menu, Vec<(MenuId, Action)>)> {
+        let menu = Menu::new();
+        let mut items = vec![];
+        let mut add = |item: &dyn tray_icon::menu::IsMenuItem, id: MenuId, action: Action| {
+            items.push((id, action));
+            menu.append(item).ok()
+        };
+        let show = MenuItem::new("Открыть DUORAY", true, None);
+        add(&show, show.id().clone(), Action::Show)?;
+        let toggle = MenuItem::new(&state.toggle, !state.toggle.is_empty(), None);
+        add(&toggle, toggle.id().clone(), Action::Toggle)?;
+        if !state.servers.is_empty() {
+            menu.append(&PredefinedMenuItem::separator()).ok()?;
+        }
+        for server in &state.servers {
+            // "&" marks an access key on Windows.
+            let item = CheckMenuItem::new(server.label.replace('&', "&&"), true, server.current, None);
+            add(&item, item.id().clone(), Action::Server(server.key.clone()))?;
+        }
+        menu.append(&PredefinedMenuItem::separator()).ok()?;
+        let quit = MenuItem::new("Выход", true, None);
+        add(&quit, quit.id().clone(), Action::Quit)?;
+        Some((menu, items))
+    }
+
     impl Tray {
         pub fn new(state: &State, on_action: Handler) -> Option<Self> {
-            let show = MenuItem::new("Открыть DUORAY", true, None);
-            let toggle = MenuItem::new(&state.toggle, !state.toggle.is_empty(), None);
-            let quit = MenuItem::new("Выход", true, None);
-            let menu = Menu::new();
-            menu.append_items(&[&show, &toggle, &PredefinedMenuItem::separator(), &quit]).ok()?;
-            let ids = [(show.id().clone(), Action::Show), (toggle.id().clone(), Action::Toggle), (quit.id().clone(), Action::Quit)];
+            let (menu, ids) = menu(state)?;
+            let items: Items = Arc::new(Mutex::new(ids));
             {
-                let on_action = on_action.clone();
+                let (on_action, items) = (on_action.clone(), items.clone());
                 MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
-                    if let Some((_, action)) = ids.iter().find(|(id, _)| *id == e.id) {
-                        on_action(*action);
+                    let action = items.lock().unwrap().iter().find(|(id, _)| *id == e.id).map(|(_, a)| a.clone());
+                    if let Some(action) = action {
+                        on_action(action);
                     }
                 }));
             }
@@ -236,14 +294,16 @@ mod imp {
                 .with_icon(icon(state.connected)?)
                 .build()
                 .ok()?;
-            Some(Tray { icon, toggle })
+            Some(Tray { icon, items })
         }
 
         pub fn update(&self, state: &State) {
             let _ = self.icon.set_icon(icon(state.connected));
             let _ = self.icon.set_tooltip(Some(format!("DUORAY · {}", state.status)));
-            self.toggle.set_text(&state.toggle);
-            self.toggle.set_enabled(!state.toggle.is_empty());
+            if let Some((menu, ids)) = menu(state) {
+                self.icon.set_menu(Some(Box::new(menu)));
+                *self.items.lock().unwrap() = ids;
+            }
         }
     }
 }

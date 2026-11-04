@@ -41,6 +41,8 @@ export struct ServerRow {
     speed-up: string,
     // The user changed this server (kept across subscription updates).
     edited: bool,
+    // Starred: marked here and listed in the tray menu.
+    favorite: bool,
     // Edited as JSON (else as a form of share-link fields).
     is-json: bool,
 }
@@ -310,6 +312,7 @@ global Icons {
     out property <image> arrow-down: @image-url("icons/arrow-down.svg");
     out property <image> delete: @image-url("icons/delete.svg");
     out property <image> speed: @image-url("icons/speed.svg");
+    out property <image> star: @image-url("icons/star.svg");
 }
 
 // ── Controls ───────────────────────────────────────────────────
@@ -2987,6 +2990,8 @@ export component AppWindow inherits Window {
     in property <string> qr-text;
     callback show-sub-qr();
     callback show-server-qr(int);
+    // Stars or unstars the server of a row (tray menu, ★ in the list).
+    callback toggle-favorite(int);
     callback speed-test-server(int);
     // Speed test of every server of the subscription (or stop it).
     callback speed-test-all();
@@ -4206,6 +4211,13 @@ export component AppWindow inherits Window {
                                         padding: 6px;
                                         spacing: 2px;
                                         MenuItem {
+                                            text: srv.favorite ? "Убрать из избранного" : "В избранное";
+                                            clicked => {
+                                                row-menu.close();
+                                                root.toggle-favorite(i);
+                                            }
+                                        }
+                                        MenuItem {
                                             text: "Пропинговать";
                                             enabled: !root.pinging;
                                             clicked => {
@@ -4274,6 +4286,13 @@ export component AppWindow inherits Window {
                                     horizontal-stretch: 1;
                                     HorizontalLayout {
                                         spacing: 8px;
+                                        if srv.favorite: Image {
+                                            source: Icons.star;
+                                            colorize: Theme.accent;
+                                            width: 14px * Theme.text-scale;
+                                            height: 14px * Theme.text-scale;
+                                            y: (parent.height - self.height) / 2;
+                                        }
                                         if srv.name-parts.length == 0: Text {
                                             text: srv.name;
                                             font-size: Theme.fs-title;

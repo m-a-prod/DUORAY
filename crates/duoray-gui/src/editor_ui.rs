@@ -62,6 +62,25 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
 
+    ui.on_toggle_favorite({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move |row| {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some((sub, index)) = server_at(&ui, &st, row) else { return };
+            let key = key_of(sub, &sub.servers[index]);
+            let favorites = &mut st.store.settings.favorites;
+            match favorites.iter().position(|k| *k == key) {
+                Some(i) => {
+                    favorites.remove(i);
+                }
+                None => favorites.push(key),
+            }
+            crate::save(&mut st);
+            crate::render(&ui, &st);
+        }
+    });
+
     ui.on_speed_test_server({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move |row| {
