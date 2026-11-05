@@ -1553,16 +1553,55 @@ fn show_window(ui: &AppWindow) {
     // does nothing there), so the window never came up, from the tray or a
     // second launch (Pop!_OS / COSMIC, niri). Hiding destroys it on Wayland
     // and showing again creates it mapped.
+    //
+    // Wayland also lets no app raise its own window without an activation
+    // token from the user's click, and tray menus pass none (niri with
+    // Noctalia): a window open behind others or on another workspace stayed
+    // there. niri, Hyprland and sway focus it when asked over their IPC;
+    // elsewhere a window mapped anew is usually focused, so it is made anew.
     static SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed) && is_wayland(ui) {
-        let _ = ui.hide();
-        let _ = ui.show();
+    if is_wayland(ui) {
+        let first = !SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
+        let focused = ui.window().with_winit_window(|w| w.has_focus()).unwrap_or(false);
+        if first || (!focused && !compositor_can_focus()) {
+            let _ = ui.hide();
+            let _ = ui.show();
+        }
+        if !focused && compositor_can_focus() {
+            // Once the window is mapped.
+            slint::Timer::single_shot(std::time::Duration::from_millis(200), || {
+                std::thread::spawn(compositor_focus);
+            });
+        }
     }
     ui.window().with_winit_window(|w| {
         w.set_minimized(false);
         w.set_visible(true);
         w.focus_window();
     });
+}
+
+/// A compositor that focuses a window on request over its IPC: niri,
+/// Hyprland, sway.
+fn compositor_can_focus() -> bool {
+    cfg!(target_os = "linux") && ["NIRI_SOCKET", "HYPRLAND_INSTANCE_SIGNATURE", "SWAYSOCK"].iter().any(|v| std::env::var_os(v).is_some())
+}
+
+/// Asks the compositor to focus our window, found by our process id.
+fn compositor_focus() {
+    let pid = std::process::id();
+    let run = |program: &str, args: &[&str]| std::process::Command::new(program).args(args).output().ok().filter(|o| o.status.success());
+    if std::env::var_os("NIRI_SOCKET").is_some() {
+        let Some(out) = run("niri", &["msg", "--json", "windows"]) else { return };
+        let windows: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).unwrap_or_default();
+        if let Some(id) = windows.iter().find(|w| w["pid"].as_u64() == Some(u64::from(pid))).and_then(|w| w["id"].as_u64()) {
+            run("niri", &["msg", "action", "focus-window", "--id", &id.to_string()]);
+        }
+    } else if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+        run("hyprctl", &["dispatch", "focuswindow", &format!("pid:{pid}")]);
+    } else if std::env::var_os("SWAYSOCK").is_some() {
+        run("swaymsg", &[&format!("[pid={pid}]"), "focus"]);
+    }
 }
 
 fn is_wayland(ui: &AppWindow) -> bool {
