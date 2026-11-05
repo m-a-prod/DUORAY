@@ -85,6 +85,10 @@ export struct CodeLine {
 export global Theme {
     // Text size multiplier from the settings (1.0 = 100 %).
     in-out property <float> text-scale: 1.0;
+    // «Матовое стекло»: how opaque the window's own background is, 1 when
+    // solid. Panels on glass get a light tint instead of their fill.
+    in-out property <float> glass: 1;
+    out property <bool> glassy: glass < 1;
     out property <length> radius: 12px;
     // A palette theme (Графитовая, OLED, Catppuccin, ...): the app sets the
     // c-* colors and custom; otherwise everything follows Slint's Material
@@ -310,6 +314,57 @@ component PinKey inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
+        }
+    }
+}
+
+// A slider in the shape of the other controls: a track, its filled part and
+// a round thumb. Whole numbers.
+component ValueSlider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in-out property <float> value;
+    callback moved(float);
+    height: 28px;
+    property <float> t: (root.value - root.minimum) / (root.maximum - root.minimum);
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.track;
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: root.t * root.width;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+    Rectangle {
+        x: root.t * (root.width - self.width);
+        y: (parent.height - self.height) / 2;
+        width: touch.pressed ? 22px : 18px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+        animate width { duration: 100ms; }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        function set(x: length) {
+            root.value = round(clamp(x / root.width, 0, 1) * (root.maximum - root.minimum) + root.minimum);
+            root.moved(root.value);
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.set(self.mouse-x);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                self.set(self.mouse-x);
+            }
         }
     }
 }
@@ -998,7 +1053,7 @@ component NavItem inherits Rectangle {
 }
 
 component SettingsPage inherits Rectangle {
-    background: Theme.bg;
+    background: Theme.glassy ? transparent : Theme.bg;
 
     in-out property <bool> happ-enabled;
     in-out property <string> app-version;
@@ -1034,6 +1089,12 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> switch-on-select: true;
     // The PIN lock is on; the switch only starts setting or removing it.
     in-out property <bool> pin-enabled;
+    // «Матовое стекло»: the setting, its opacity, and whether this run has
+    // the transparent window it needs (chosen at start).
+    in-out property <bool> glass-enabled;
+    in-out property <float> glass-opacity: 75;
+    in property <bool> glass-active;
+    callback restart-app();
     callback pin-toggle();
     callback pin-change();
     in-out property <bool> keep-connected: true;
@@ -1076,7 +1137,7 @@ component SettingsPage inherits Rectangle {
         // ── Section list ──
         Rectangle {
             width: 200px;
-            background: Theme.card;
+            background: Theme.glassy ? Theme.card.with-alpha(0.45) : Theme.card;
             // Edge line, for themes with an outline.
             Rectangle {
                 x: parent.width - 1px;
@@ -1403,6 +1464,60 @@ component SettingsPage inherits Rectangle {
                         checked <=> root.filter-enabled;
                         toggled => {
                             root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Матовое стекло";
+                        description: "Окно становится полупрозрачным, а то, что за ним, размывается. Размывает система: Windows 10 и 11, macOS, KDE, Hyprland; в других окружениях окно будет просто полупрозрачным. Окно рисуется видеокартой: если появятся артефакты, выключите.";
+                        checked <=> root.glass-enabled;
+                        toggled => {
+                            Theme.glass = root.glass-enabled && root.glass-active ? root.glass-opacity / 100 : 1;
+                            root.changed();
+                        }
+                    }
+                    if root.glass-enabled: HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: "Непрозрачность";
+                        }
+                        ValueSlider {
+                            horizontal-stretch: 1;
+                            minimum: 30;
+                            maximum: 95;
+                            value <=> root.glass-opacity;
+                            moved(v) => {
+                                if (root.glass-active) {
+                                    Theme.glass = v / 100;
+                                }
+                                root.changed();
+                            }
+                        }
+                        Text {
+                            min-width: 40px;
+                            text: round(root.glass-opacity) + "%";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+                    // The transparent window is chosen at start.
+                    if root.glass-enabled != root.glass-active: HorizontalLayout {
+                        spacing: 12px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.glass-enabled ? "Стекло включится после перезапуска DUORAY." : "Стекло выключится после перезапуска DUORAY.";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                        Button {
+                            text: "Перезапустить";
+                            clicked => {
+                                root.restart-app();
+                            }
                         }
                     }
                 }
@@ -2003,7 +2118,7 @@ component RuleCard inherits Rectangle {
 }
 
 component RoutingPage inherits Rectangle {
-    background: Theme.bg;
+    background: Theme.glassy ? transparent : Theme.bg;
 
     in-out property <bool> advanced;
     in-out property <bool> lan;
@@ -2464,7 +2579,7 @@ component RoutingPage inherits Rectangle {
 // Share-link servers: a form; "Как JSON" turns the server into a JSON one.
 
 component ServerEditor inherits Rectangle {
-    background: Theme.bg;
+    background: Theme.glassy ? transparent : Theme.bg;
 
     // 0 JSON text, 1 share-link form
     in property <int> mode;
@@ -2871,7 +2986,7 @@ export component AppWindow inherits Window {
     preferred-height: 700px;
     min-width: 780px;
     min-height: 500px;
-    background: Theme.bg;
+    background: Theme.glassy ? Theme.bg.with-alpha(Theme.glass) : Theme.bg;
     default-font-size: Theme.fs-body;
     default-font-family: root.font-family;
 
@@ -3001,6 +3116,10 @@ export component AppWindow inherits Window {
     callback check-update <=> settings-page.check-update;
     callback export-settings <=> settings-page.export-settings;
     in-out property <bool> pin-enabled <=> settings-page.pin-enabled;
+    in-out property <bool> glass-enabled <=> settings-page.glass-enabled;
+    in-out property <float> glass-opacity <=> settings-page.glass-opacity;
+    in property <bool> glass-active <=> settings-page.glass-active;
+    callback restart-app <=> settings-page.restart-app;
     callback pin-toggle <=> settings-page.pin-toggle;
     callback pin-change <=> settings-page.pin-change;
     // PIN pad: 0 hidden, 1 the window is locked, 2 the current PIN (to remove
@@ -3331,7 +3450,7 @@ export component AppWindow inherits Window {
                 min-width: 260px;
                 max-width: 380px;
                 horizontal-stretch: 26;
-                background: Theme.card;
+                background: Theme.glassy ? Theme.card.with-alpha(0.45) : Theme.card;
                 // Edge line, for themes with an outline.
                 Rectangle {
                     x: parent.width - 1px;
@@ -4044,7 +4163,7 @@ export component AppWindow inherits Window {
     
                 // Subscription header, laid out like Happ: title row, traffic row, announcement.
                 if root.current-sub >= 0: Rectangle {
-                    background: Theme.card;
+                    background: Theme.glassy ? Theme.card.with-alpha(0.45) : Theme.card;
                     border-radius: Theme.radius;
                     border-width: 1px;
                     border-color: Theme.outline;

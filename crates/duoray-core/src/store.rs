@@ -79,6 +79,11 @@ pub struct Settings {
     pub favorites: Vec<String>,
     /// The window asks for this PIN at start and when opened from the tray.
     pub pin_lock: Option<crate::pin::PinLock>,
+    /// «Матовое стекло»: a translucent window, blurred behind where the
+    /// system can (takes effect at the next start).
+    pub glass: bool,
+    /// How opaque the glass is, percent.
+    pub glass_opacity: u32,
     /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
     pub show_server_type: bool,
     /// Closing the window hides it to the tray; the VPN keeps running.
@@ -124,6 +129,8 @@ impl Default for Settings {
             keep_connected: true,
             favorites: Vec::new(),
             pin_lock: None,
+            glass: false,
+            glass_opacity: 75,
             show_server_type: true,
             close_to_tray: true,
             hide_buy: false,
