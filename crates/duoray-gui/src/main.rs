@@ -806,7 +806,17 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    ui.on_restart_app(restart_app);
+    ui.on_restart_app({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move || {
+            if let Err(e) = restart_app() {
+                let ui = ui_weak.unwrap();
+                let mut st = app.lock().unwrap();
+                flash_status_for(&ui, &app, &mut st, format!("Не удалось перезапустить DUORAY ({e}). Закройте и откройте его вручную"), 8);
+                render(&ui, &st);
+            }
+        }
+    });
 
     // ── Moving settings to another computer ─────────────────────
     ui.on_export_settings({
@@ -1595,14 +1605,26 @@ fn apply_glass(ui: &AppWindow) {
 
 /// Starts DUORAY anew (a setting read at start changed), then quits this
 /// one; the new one waits for it.
-fn restart_app() {
+fn restart_app() -> std::io::Result<()> {
     // An AppImage runs from a mount that goes away with this process.
-    let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
-    if let Some(exe) = exe
-        && std::process::Command::new(exe).arg("--wait-for-instance").spawn().is_ok()
-    {
-        let _ = slint::quit_event_loop();
-    }
+    let exe = match std::env::var_os("APPIMAGE") {
+        Some(appimage) => PathBuf::from(appimage),
+        None => own_exe()?,
+    };
+    std::process::Command::new(exe).arg("--wait-for-instance").spawn()?;
+    let _ = slint::quit_event_loop();
+    Ok(())
+}
+
+/// This program's file. On Linux an update (pacman, a rebuild) replaces it
+/// while it runs, and the kernel then names it "… (deleted)": the new file
+/// is at the same path, the name with the suffix does not exist.
+fn own_exe() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    Ok(match exe.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
+        Some(path) => PathBuf::from(path),
+        None => exe,
+    })
 }
 
 fn show_window(ui: &AppWindow) {
