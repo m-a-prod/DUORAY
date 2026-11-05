@@ -2202,9 +2202,9 @@ insights.
 ------------------------------------------------------------------------
 GNU General Public License v3.0 only (GPL-3.0-only)
 Used by:
-  - duoray-core 0.4.3
-  - duoray-gui 0.4.3
-  - duoray-helper 0.4.3
+  - duoray-core 0.4.4
+  - duoray-gui 0.4.4
+  - duoray-helper 0.4.4
   - i-slint-backend-selector 1.18.1 <https://github.com/slint-ui/slint>
   - i-slint-backend-winit 1.18.1 <https://github.com/slint-ui/slint>
   - i-slint-common 1.18.1 <https://github.com/slint-ui/slint>
@@ -6947,6 +6947,34 @@ SOFTWARE.
 ------------------------------------------------------------------------
 MIT License (MIT)
 Used by:
+  - window-vibrancy 0.8.1 <https://github.com/tauri-apps/tauri-plugin-vibrancy>
+
+MIT License
+
+Copyright (c) 2020-2022 Tauri Programme within The Commons Conservancy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------
+MIT License (MIT)
+Used by:
   - sys-locale 0.3.2 <https://github.com/1Password/sys-locale>
 
 MIT License
@@ -7228,6 +7256,7 @@ Used by:
   - windows-targets 0.52.6 <https://github.com/microsoft/windows-rs>
   - windows-threading 0.1.0 <https://github.com/microsoft/windows-rs>
   - windows-threading 0.2.1 <https://github.com/microsoft/windows-rs>
+  - windows-version 0.1.7 <https://github.com/microsoft/windows-rs>
   - windows 0.61.3 <https://github.com/microsoft/windows-rs>
   - windows 0.62.2 <https://github.com/microsoft/windows-rs>
   - windows_i686_msvc 0.52.6 <https://github.com/microsoft/windows-rs>
