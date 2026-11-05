@@ -275,6 +275,45 @@ component SpeedCell inherits VerticalLayout {
     }
 }
 
+// A key of the PIN pad: round, the digit in the middle. `quiet` is a text
+// key without a fill (Отмена), `icon` replaces the text (⌫).
+component PinKey inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> quiet;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 68px;
+    height: 68px;
+    border-radius: 34px;
+    opacity: root.enabled ? 1 : 0.35;
+    background: root.quiet || !root.enabled ? transparent
+        : touch.pressed ? Theme.fg.with-alpha(0.18)
+        : touch.has-hover ? Theme.fg.with-alpha(0.11) : Theme.fg.with-alpha(0.05);
+    animate background { duration: 110ms; easing: ease-out; }
+    if root.icon.width > 0: Image {
+        source: root.icon;
+        colorize: touch.has-hover ? Theme.fg : Theme.muted;
+        width: 24px;
+        height: 24px;
+    }
+    if root.icon.width == 0: Text {
+        text: root.text;
+        font-size: root.quiet ? Theme.fs-body : 26px;
+        font-weight: root.quiet ? 600 : 400;
+        color: root.quiet && !touch.has-hover ? Theme.muted : Theme.fg;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 component SectionLabel inherits Text {
     font-size: Theme.fs-caption;
     font-weight: 700;
@@ -321,6 +360,7 @@ global Icons {
     out property <image> delete: @image-url("icons/delete.svg");
     out property <image> speed: @image-url("icons/speed.svg");
     out property <image> star: @image-url("icons/star.svg");
+    out property <image> backspace: @image-url("icons/backspace.svg");
 }
 
 // ── Controls ───────────────────────────────────────────────────
@@ -992,6 +1032,10 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> telemetry-enabled;
     in-out property <bool> auto-update: true;
     in-out property <bool> switch-on-select: true;
+    // The PIN lock is on; the switch only starts setting or removing it.
+    in-out property <bool> pin-enabled;
+    callback pin-toggle();
+    callback pin-change();
     in-out property <bool> keep-connected: true;
     in-out property <bool> show-server-type: true;
     in-out property <bool> filter-enabled;
@@ -1121,6 +1165,24 @@ component SettingsPage inherits Rectangle {
                         checked <=> root.switch-on-select;
                         toggled => {
                             root.changed();
+                        }
+                    }
+                    Divider { }
+                    ToggleRow {
+                        title: "Блокировка PIN-кодом";
+                        description: "DUORAY спросит PIN-код при запуске и каждый раз, когда окно открывают из трея. Без него из трея не подключиться и не сменить сервер. Забыли PIN-код — закройте DUORAY и запустите его с ключом --reset-pin.";
+                        checked <=> root.pin-enabled;
+                        toggled => {
+                            root.pin-toggle();
+                        }
+                    }
+                    if root.pin-enabled: HorizontalLayout {
+                        alignment: end;
+                        Button {
+                            text: "Сменить PIN-код";
+                            clicked => {
+                                root.pin-change();
+                            }
                         }
                     }
                     Divider { }
@@ -2938,6 +3000,27 @@ export component AppWindow inherits Window {
     callback open-link <=> settings-page.open-link;
     callback check-update <=> settings-page.check-update;
     callback export-settings <=> settings-page.export-settings;
+    in-out property <bool> pin-enabled <=> settings-page.pin-enabled;
+    callback pin-toggle <=> settings-page.pin-toggle;
+    callback pin-change <=> settings-page.pin-change;
+    // PIN pad: 0 hidden, 1 the window is locked, 2 the current PIN (to remove
+    // or change it), 3 a new PIN, 4 the new PIN again. The digits stay in
+    // Rust; the pad shows their count.
+    in property <int> pin-mode;
+    in property <int> pin-count;
+    // Digits expected (checked on the last one); 0: any length, «Далее».
+    in property <int> pin-length;
+    in property <string> pin-error;
+    // Bumped on every wrong PIN: the dots shake.
+    in property <int> pin-error-tick;
+    callback pin-digit(string);
+    callback pin-backspace();
+    callback pin-submit();
+    callback pin-cancel();
+    property <int> pin-shake: 6;
+    changed pin-error-tick => {
+        root.pin-shake = 0;
+    }
     callback run-diagnostics <=> settings-page.run-diagnostics;
     // "Диагностика сети" dialog.
     in-out property <bool> diag-open;
@@ -5151,6 +5234,168 @@ export component AppWindow inherits Window {
                             clicked => {
                                 root.report-open = false;
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── PIN lock ─────────────────────────────────────────────────
+    // Covers the whole window, above every dialog. Keys work too.
+    // Opaque at once: no frame of the window may show through.
+    if root.pin-mode != 0: Rectangle {
+        background: Theme.bg;
+        // Swallows clicks meant for the window below.
+        TouchArea { }
+        pin-keys := FocusScope {
+            init => {
+                self.focus();
+            }
+            key-pressed(event) => {
+                if (event.text == Key.Backspace) {
+                    root.pin-backspace();
+                } else if (event.text == Key.Return) {
+                    root.pin-submit();
+                } else if (event.text == Key.Escape) {
+                    if (root.pin-mode != 1) {
+                        root.pin-cancel();
+                    }
+                } else if (event.text.character-count == 1 && event.text.is-float()) {
+                    root.pin-digit(event.text);
+                }
+                // Nothing reaches the window below while the pad is up.
+                accept
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    VerticalLayout {
+                        width: 280px;
+                        spacing: 0px;
+                        HorizontalLayout {
+                            alignment: center;
+                            Image {
+                                source: Theme.light ? @image-url("assets/logo-on-light.svg") : @image-url("assets/logo-on.svg");
+                                height: 44px;
+                                width: self.height * 206 / 169;
+                                image-fit: contain;
+                            }
+                        }
+                        Rectangle { height: 22px; }
+                        Text {
+                            text: root.pin-mode == 1 ? "DUORAY заблокирован"
+                                : root.pin-mode == 2 ? "Текущий PIN-код"
+                                : root.pin-mode == 3 ? "Придумайте PIN-код" : "Повторите PIN-код";
+                            font-size: Theme.fs-display;
+                            font-weight: 800;
+                            horizontal-alignment: center;
+                        }
+                        Rectangle { height: 6px; }
+                        Text {
+                            text: root.pin-mode == 1 ? "Введите PIN-код, чтобы продолжить"
+                                : root.pin-mode == 2 ? "Чтобы изменить блокировку"
+                                : root.pin-mode == 3 ? "От 4 до 8 цифр" : "Ещё раз, для проверки";
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                            horizontal-alignment: center;
+                        }
+                        Rectangle { height: 26px; }
+                        // The dots: one per digit, filled as typed.
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 14px;
+                            property <[length]> shake-steps: [12px, -10px, 7px, -5px, 2px, 0px];
+                            x: root.pin-shake < 6 ? self.shake-steps[root.pin-shake] : 0px;
+                            animate x { duration: 45ms; }
+                            for i in (root.pin-length > 0 ? root.pin-length : min(8, max(4, root.pin-count + 1))): Rectangle {
+                                width: 14px;
+                                height: 14px;
+                                border-radius: 7px;
+                                border-width: 2px;
+                                border-color: root.pin-error != "" ? Theme.danger
+                                    : i < root.pin-count ? Theme.accent : Theme.fg.with-alpha(0.22);
+                                background: root.pin-error != "" ? Theme.danger.with-alpha(0.85)
+                                    : i < root.pin-count ? Theme.accent : transparent;
+                                animate background, border-color { duration: 120ms; easing: ease-out; }
+                            }
+                        }
+                        shake-timer := Timer {
+                            interval: 45ms;
+                            running: root.pin-shake < 6;
+                            triggered => {
+                                root.pin-shake += 1;
+                            }
+                        }
+                        Rectangle {
+                            height: 34px;
+                            Text {
+                                text: root.pin-error;
+                                font-size: Theme.fs-small;
+                                color: Theme.danger;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                                width: parent.width;
+                            }
+                        }
+                        // 1 2 3 / 4 5 6 / 7 8 9 / Отмена 0 ⌫
+                        HorizontalLayout {
+                            alignment: center;
+                            GridLayout {
+                                spacing: 16px;
+                                Row {
+                                    PinKey { text: "1"; clicked => { root.pin-digit("1"); } }
+                                    PinKey { text: "2"; clicked => { root.pin-digit("2"); } }
+                                    PinKey { text: "3"; clicked => { root.pin-digit("3"); } }
+                                }
+                                Row {
+                                    PinKey { text: "4"; clicked => { root.pin-digit("4"); } }
+                                    PinKey { text: "5"; clicked => { root.pin-digit("5"); } }
+                                    PinKey { text: "6"; clicked => { root.pin-digit("6"); } }
+                                }
+                                Row {
+                                    PinKey { text: "7"; clicked => { root.pin-digit("7"); } }
+                                    PinKey { text: "8"; clicked => { root.pin-digit("8"); } }
+                                    PinKey { text: "9"; clicked => { root.pin-digit("9"); } }
+                                }
+                                Row {
+                                    PinKey {
+                                        text: root.pin-mode == 1 ? "" : "Отмена";
+                                        quiet: true;
+                                        enabled: root.pin-mode != 1;
+                                        clicked => {
+                                            root.pin-cancel();
+                                        }
+                                    }
+                                    PinKey { text: "0"; clicked => { root.pin-digit("0"); } }
+                                    PinKey {
+                                        icon: Icons.backspace;
+                                        enabled: root.pin-count > 0;
+                                        clicked => {
+                                            root.pin-backspace();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle { height: 22px; }
+                        // A new PIN has no set length: it goes on with «Далее».
+                        if root.pin-mode == 3: HorizontalLayout {
+                            alignment: center;
+                            Button {
+                                text: "Далее";
+                                enabled: root.pin-count >= 4;
+                                clicked => {
+                                    root.pin-submit();
+                                }
+                            }
+                        }
+                        if root.pin-mode != 3: Text {
+                            text: "Можно вводить с клавиатуры";
+                            font-size: Theme.fs-caption;
+                            color: Theme.muted.with-alpha(0.7);
+                            horizontal-alignment: center;
                         }
                     }
                 }

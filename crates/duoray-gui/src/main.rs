@@ -26,6 +26,7 @@ mod instance;
 mod ping;
 mod qr;
 mod netcheck;
+mod pinlock;
 mod speed;
 mod routing_ui;
 mod server_edit;
@@ -225,6 +226,8 @@ struct App {
     /// The subscription whose fastest server to connect to once the running
     /// ping ends («Подключиться к самому быстрому»).
     connect_best: Option<String>,
+    /// The PIN pad: locked window, or setting the PIN (see [`pinlock`]).
+    pin: pinlock::State,
     /// A render is already scheduled for incoming ping results.
     ping_render_pending: bool,
     /// Bumped per transient status message, so an old timer never clears a newer one.
@@ -284,6 +287,19 @@ fn main() -> anyhow::Result<()> {
         if let Some(_instance) = instance::acquire(&data_dir, false)? {
             sysproxy::recover(&data_dir.join("run"));
         }
+        return Ok(());
+    }
+    // A forgotten PIN: `duoray --reset-pin` removes the lock, with DUORAY closed
+    // (a running one would save its own settings over it).
+    if std::env::args().any(|arg| arg == "--reset-pin") {
+        let Some(_instance) = instance::acquire(&data_dir, false)? else {
+            eprintln!("DUORAY запущен: закройте его (меню в трее → Выход) и повторите.");
+            return Ok(());
+        };
+        let mut store = Store::load(&path)?;
+        store.settings.pin_lock = None;
+        store.save(&path)?;
+        println!("PIN-код DUORAY сброшен.");
         return Ok(());
     }
     // At login the restore entry above may hold the lock for a moment.
@@ -362,6 +378,7 @@ fn main() -> anyhow::Result<()> {
         ping_progress: None,
         ping_cancel: None,
         connect_best: None,
+        pin: Default::default(),
         ping_render_pending: false,
         status_gen: 0,
         xray_started: None,
@@ -381,15 +398,17 @@ fn main() -> anyhow::Result<()> {
     editor_ui::install(&ui, &app);
     window_event_filter(&ui);
     support_ui::install(&ui, &app);
+    pinlock::install(&ui, &app);
     background(&ui, &app, &data_dir);
     {
-        let st = app.lock().unwrap();
+        let mut st = app.lock().unwrap();
         apply_appearance(&ui, &st.store.settings);
         if !restore_selection(&ui, &st) {
             // An empty "Мои серверы" is not listed: start on something that is.
             let shown = st.store.subscriptions.iter().position(|s| !s.is_manual() || !s.servers.is_empty());
             ui.set_current_sub(shown.map_or(-1, |i| i as i32));
         }
+        pinlock::lock(&ui, &mut st);
         render(&ui, &st);
     }
 
@@ -840,6 +859,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_auto_update(st.store.settings.auto_update);
             ui.set_switch_on_select(st.store.settings.switch_on_select);
             ui.set_keep_connected(st.store.settings.keep_connected);
+            ui.set_pin_enabled(st.store.settings.pin_lock.is_some());
             ui.set_close_to_tray(st.store.settings.close_to_tray);
             ui.set_autostart(st.store.settings.autostart);
             ui.set_autoconnect(st.store.settings.autoconnect);
@@ -1449,10 +1469,15 @@ fn background(ui: &AppWindow, app: &Shared, data_dir: &std::path::Path) {
     });
 
     ui.window().on_close_requested({
-        let app = app.clone();
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
         move || {
-            if !(tray::available() && app.lock().unwrap().store.settings.close_to_tray) {
+            let mut st = app.lock().unwrap();
+            if !(tray::available() && st.store.settings.close_to_tray) {
                 let _ = slint::quit_event_loop();
+            }
+            // Hidden to the tray: opening it again asks for the PIN.
+            if let Some(ui) = ui_weak.upgrade() {
+                pinlock::lock(&ui, &mut st);
             }
             slint::CloseRequestResponse::HideWindow
         }
@@ -1480,12 +1505,19 @@ fn start_tray(ui: &AppWindow, app: &Shared) -> bool {
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     let started = tray::start(state, move |action| {
         let app = app.clone();
-        let _ = ui_weak.upgrade_in_event_loop(move |ui| match action {
-            tray::Action::Show => show_window(&ui),
-            tray::Action::Toggle => ui.invoke_toggle_connection(),
-            tray::Action::Server(key) => connect_to(&ui, &app, key),
-            tray::Action::Quit => {
-                let _ = slint::quit_event_loop();
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            // Locked: connecting or switching from the tray asks for the PIN
+            // first. Quitting does not (the process can be ended anyway).
+            if !matches!(action, tray::Action::Show | tray::Action::Quit) && pinlock::is_locked(&app.lock().unwrap()) {
+                return show_window(&ui);
+            }
+            match action {
+                tray::Action::Show => show_window(&ui),
+                tray::Action::Toggle => ui.invoke_toggle_connection(),
+                tray::Action::Server(key) => connect_to(&ui, &app, key),
+                tray::Action::Quit => {
+                    let _ = slint::quit_event_loop();
+                }
             }
         });
     });

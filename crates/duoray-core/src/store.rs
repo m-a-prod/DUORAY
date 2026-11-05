@@ -77,6 +77,8 @@ pub struct Settings {
     /// Starred servers, by the GUI's server key, in the order starred: marked
     /// in the list, and in the tray menu to switch to.
     pub favorites: Vec<String>,
+    /// The window asks for this PIN at start and when opened from the tray.
+    pub pin_lock: Option<crate::pin::PinLock>,
     /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
     pub show_server_type: bool,
     /// Closing the window hides it to the tray; the VPN keeps running.
@@ -121,6 +123,7 @@ impl Default for Settings {
             switch_on_select: true,
             keep_connected: true,
             favorites: Vec::new(),
+            pin_lock: None,
             show_server_type: true,
             close_to_tray: true,
             hide_buy: false,
@@ -418,12 +421,13 @@ impl Store {
 
     /// Settings and subscriptions as a file to move to another computer.
     /// Left out: what belongs to this device (install id, report consent,
-    /// autostart) and what is fetched anew (a subscription's servers; "Мои
+    /// autostart, the PIN lock) and what is fetched anew (a subscription's servers; "Мои
     /// серверы" keep theirs, they come from nowhere else).
     pub fn export(&self) -> serde_json::Value {
         let mut settings = self.settings.clone();
         settings.install_id.clear();
         settings.telemetry = None;
+        settings.pin_lock = None;
         let subscriptions: Vec<Subscription> = self
             .subscriptions
             .iter()
@@ -454,6 +458,7 @@ impl Store {
         self.settings.install_id = mine.install_id;
         self.settings.telemetry = mine.telemetry;
         self.settings.autostart = mine.autostart;
+        self.settings.pin_lock = mine.pin_lock;
         let (mut added, mut servers) = (Vec::new(), 0);
         for sub in export.subscriptions {
             if sub.is_manual() {

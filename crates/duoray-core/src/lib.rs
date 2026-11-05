@@ -9,6 +9,7 @@ pub mod helper_proto;
 pub mod identity;
 pub mod link;
 pub mod mirrors;
+pub mod pin;
 pub mod routing;
 pub mod runtime;
 pub mod server;
