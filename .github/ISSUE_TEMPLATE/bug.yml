@@ -17,7 +17,7 @@ body:
     attributes:
       label: Версия DUORAY
       description: Настройки → О DUORAY
-      placeholder: "0.4.4"
+      placeholder: "0.4.5"
     validations:
       required: true
   - type: dropdown

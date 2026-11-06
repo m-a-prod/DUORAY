@@ -1285,7 +1285,7 @@ checksum = "edf234dd1594d6dd434a8fb8cada51ddbbc593e40e4a01556a0b31c62da2775b"
 
 [[package]]
 name = "duoray-core"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "base64",
@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "duoray-gui"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "duoray-helper"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "duoray-core",
