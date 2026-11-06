@@ -809,6 +809,16 @@ pub fn physical_interface() -> Result<String> {
     }
 }
 
+/// What to say when xray is not where the package put it. On Windows the
+/// installer puts duoray-xray.exe next to DUORAY, so a missing one was most
+/// likely taken by an antivirus (reports showed the Homebrew hint there).
+#[cfg(windows)]
+const XRAY_MISSING: &str = "duoray-xray.exe не найден рядом с DUORAY: скорее всего, его удалил антивирус. Переустановите DUORAY и добавьте его папку в исключения антивируса";
+#[cfg(target_os = "macos")]
+const XRAY_MISSING: &str = "xray не найден: переустановите DUORAY или установите xray (brew install xray)";
+#[cfg(not(any(windows, target_os = "macos")))]
+const XRAY_MISSING: &str = "xray не найден: переустановите DUORAY или положите xray рядом с ним";
+
 /// Our xray on Windows: a name of its own, as other VPN apps (Happ) end every
 /// "xray.exe" they find, ours included (reports: exit code 1, nothing in its
 /// log). A bare xray.exe beside us is an older install or a dev build.
@@ -839,7 +849,7 @@ pub fn find_xray() -> Result<(PathBuf, Option<PathBuf>)> {
     let bin = candidates
         .into_iter()
         .find(|p| p.is_file())
-        .context("xray не найден: положите его рядом с DUORAY или установите (brew install xray)")?;
+        .context(XRAY_MISSING)?;
 
     // geoip.dat/geosite.dat: next to xray, next to us, or the Homebrew share dir.
     #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
