@@ -325,13 +325,15 @@ fn main() -> anyhow::Result<()> {
     //
     // «Матовое стекло» takes a transparent window and a renderer that draws
     // alpha: OpenGL (FemtoVG), as the software one cannot. Read before the
-    // window exists, so switching it takes a restart.
-    let glass = Store::load(&path).is_ok_and(|s| s.settings.glass);
+    // window exists, so switching it takes a restart. Linux only: on Windows
+    // neither renderer gives DWM an alpha channel, so acrylic never showed,
+    // and on macOS the vibrancy view under the OpenGL surface broke drawing.
+    let glass = cfg!(target_os = "linux") && Store::load(&path).is_ok_and(|s| s.settings.glass);
     GLASS.store(glass, std::sync::atomic::Ordering::Relaxed);
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let selector = slint::BackendSelector::new().with_winit_window_attributes_hook(move |a| {
-            // Blur behind: KDE's protocol on Wayland; Windows gets acrylic later.
+            // Blur behind: KDE's protocol on Wayland.
             if glass { a.with_transparent(true).with_blur(true) } else { a.with_transparent(false) }
         });
         let selector = if std::env::var_os("SLINT_BACKEND").is_none() {
@@ -340,10 +342,6 @@ fn main() -> anyhow::Result<()> {
             selector
         };
         selector.select()?;
-    }
-    #[cfg(target_os = "macos")]
-    if glass {
-        slint::BackendSelector::new().with_winit_window_attributes_hook(|a| a.with_transparent(true)).select()?;
     }
     // Wayland app_id / X11 WM_CLASS: ties the window to duoray.desktop and its icon.
     let _ = slint::set_xdg_app_id("duoray");
@@ -888,6 +886,7 @@ fn main() -> anyhow::Result<()> {
             ui.set_glass_enabled(st.store.settings.glass);
             ui.set_glass_opacity(st.store.settings.glass_opacity as f32);
             ui.set_glass_active(GLASS.load(std::sync::atomic::Ordering::Relaxed));
+            ui.set_glass_supported(cfg!(target_os = "linux"));
             ui.set_close_to_tray(st.store.settings.close_to_tray);
             ui.set_autostart(st.store.settings.autostart);
             ui.set_autoconnect(st.store.settings.autoconnect);
@@ -1576,31 +1575,21 @@ fn retry_tray(ui: &AppWindow, app: &Shared) {
 /// «Матовое стекло» in this run (the window was made transparent at start).
 static GLASS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Asks the system to blur what is behind the window: acrylic on Windows
-/// (plain blur before Windows 10 1809), vibrancy on macOS, KDE's blur on
-/// Wayland. Again after the window is made anew.
+/// Asks the compositor to blur what is behind the window (KDE's blur
+/// protocol on Wayland; Hyprland blurs translucent windows itself). Again
+/// after the window is made anew.
 fn apply_glass(ui: &AppWindow) {
-    if !GLASS.load(std::sync::atomic::Ordering::Relaxed) {
-        return;
-    }
-    let ui_weak = ui.as_weak();
-    slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
-        use slint::winit_030::WinitWindowAccessor;
-        let Some(ui) = ui_weak.upgrade() else { return };
-        ui.window().with_winit_window(|w| {
-            #[cfg(windows)]
-            let _ = window_vibrancy::apply_acrylic(w, None).or_else(|_| window_vibrancy::apply_blur(w, None));
-            #[cfg(target_os = "macos")]
-            let _ = window_vibrancy::apply_vibrancy(
-                w,
-                window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
-                Some(window_vibrancy::NSVisualEffectState::Active),
-                None,
-            );
-            #[cfg(target_os = "linux")]
-            w.set_blur(true);
+    #[cfg(target_os = "linux")]
+    if GLASS.load(std::sync::atomic::Ordering::Relaxed) {
+        let ui_weak = ui.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
+            use slint::winit_030::WinitWindowAccessor;
+            let Some(ui) = ui_weak.upgrade() else { return };
+            ui.window().with_winit_window(|w| w.set_blur(true));
         });
-    });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = ui;
 }
 
 /// Starts DUORAY anew (a setting read at start changed), then quits this

@@ -1094,6 +1094,8 @@ component SettingsPage inherits Rectangle {
     in-out property <bool> glass-enabled;
     in-out property <float> glass-opacity: 75;
     in property <bool> glass-active;
+    // «Матовое стекло» works on Linux only; elsewhere the setting is hidden.
+    in property <bool> glass-supported;
     callback restart-app();
     callback pin-toggle();
     callback pin-change();
@@ -1466,17 +1468,17 @@ component SettingsPage inherits Rectangle {
                             root.changed();
                         }
                     }
-                    Divider { }
-                    ToggleRow {
+                    if root.glass-supported: Divider { }
+                    if root.glass-supported: ToggleRow {
                         title: "Матовое стекло";
-                        description: "Окно становится полупрозрачным, а то, что за ним, размывается. Размывает система: Windows 10 и 11, macOS, KDE, Hyprland; в других окружениях окно будет просто полупрозрачным. Окно рисуется видеокартой: если появятся артефакты, выключите.";
+                        description: "Окно становится полупрозрачным, а то, что за ним, размывается. Размывают KDE и Hyprland; в других окружениях окно будет просто полупрозрачным. Окно рисуется видеокартой: если появятся артефакты, выключите.";
                         checked <=> root.glass-enabled;
                         toggled => {
                             Theme.glass = root.glass-enabled && root.glass-active ? root.glass-opacity / 100 : 1;
                             root.changed();
                         }
                     }
-                    if root.glass-enabled: HorizontalLayout {
+                    if root.glass-supported && root.glass-enabled: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
                             text: "Непрозрачность";
@@ -1503,7 +1505,7 @@ component SettingsPage inherits Rectangle {
                         }
                     }
                     // The transparent window is chosen at start.
-                    if root.glass-enabled != root.glass-active: HorizontalLayout {
+                    if root.glass-supported && root.glass-enabled != root.glass-active: HorizontalLayout {
                         spacing: 12px;
                         Text {
                             horizontal-stretch: 1;
@@ -3119,6 +3121,7 @@ export component AppWindow inherits Window {
     in-out property <bool> glass-enabled <=> settings-page.glass-enabled;
     in-out property <float> glass-opacity <=> settings-page.glass-opacity;
     in property <bool> glass-active <=> settings-page.glass-active;
+    in property <bool> glass-supported <=> settings-page.glass-supported;
     callback restart-app <=> settings-page.restart-app;
     callback pin-toggle <=> settings-page.pin-toggle;
     callback pin-change <=> settings-page.pin-change;
