@@ -981,10 +981,15 @@ fn processes() -> Vec<(String, String)> {
     }
     #[cfg(unix)]
     {
-        let Ok(out) = Command::new("/bin/ps").args(["-axo", "comm="]).output() else { return vec![] };
+        // Our own xray (the tunnel's, pings', speed tests') is called just
+        // "xray" here: processes we started are left out by their parent.
+        let ours = std::process::id().to_string();
+        let Ok(out) = Command::new("/bin/ps").args(["-axo", "ppid=,comm="]).output() else { return vec![] };
         String::from_utf8_lossy(&out.stdout)
             .lines()
-            .map(|l| l.trim().to_string())
+            .filter_map(|l| l.trim().split_once(char::is_whitespace))
+            .filter(|(ppid, _)| *ppid != ours)
+            .map(|(_, comm)| comm.trim().to_string())
             .filter(|l| !l.is_empty())
             .map(|path| {
                 let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
