@@ -53,6 +53,18 @@ fi
 
 OUT=dist/release-$VERSION
 rm -rf "$OUT" && mkdir -p "$OUT"
+# The Android app's section of the manifest (DUORAY-Mobile/scripts/release.sh)
+# is kept, after checking the hub's copy against its signature: it is signed
+# again below.
+openssl pkey -in "$KEY" -pubout > "$OUT/.pub.pem"
+if ssh "$HUB" "cat $REMOTE/manifest.json" > "$OUT/previous.json" 2>/dev/null; then
+    ssh "$HUB" "cat $REMOTE/manifest.sig" | xxd -r -p > "$OUT/.previous.sig"
+    openssl pkeyutl -verify -pubin -inkey "$OUT/.pub.pem" -rawin -in "$OUT/previous.json" -sigfile "$OUT/.previous.sig" >/dev/null || {
+        echo "the hub's manifest does not match its signature: not touching it" >&2; exit 1; }
+else
+    rm -f "$OUT/previous.json"
+fi
+rm -f "$OUT/.pub.pem" "$OUT/.previous.sig"
 python3 - "$VERSION" "$NOTES" "$OUT" "$BUILD_ID" <<'EOF'
 import hashlib, json, os, shutil, sys, time
 version, notes, out, build = sys.argv[1:5]
@@ -92,6 +104,14 @@ manifest = {
     "page": os.environ.get("DUORAY_RELEASE_PAGE", ""),
     "assets": assets,
 }
+previous = os.path.join(out, "previous.json")
+if os.path.exists(previous):
+    with open(previous, encoding="utf-8") as f:
+        android = json.load(f).get("android")
+    if android:
+        manifest["android"] = android
+        print(f"  {'(android)':<24} {android.get('version')} kept")
+    os.remove(previous)
 with open(os.path.join(out, "manifest.json"), "w") as f:
     json.dump(manifest, f, ensure_ascii=False, indent=2)
 for key, a in assets.items():
