@@ -2,6 +2,7 @@
 //! through the server itself. All of them leave via the physical interface so
 //! an active DUORAY tunnel does not skew the numbers.
 
+use crate::i18n::tr;
 use std::collections::VecDeque;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -70,9 +71,9 @@ pub fn ping(server: &Server, s: &PingSettings, iface: Option<&str>, run_dir: &Pa
 fn resolve(host: &str, port: u16) -> Result<SocketAddr> {
     (host, port)
         .to_socket_addrs()
-        .with_context(|| format!("не удалось найти {host}"))?
+        .with_context(|| trf!("не удалось найти {host}", host = host))?
         .find(SocketAddr::is_ipv4)
-        .with_context(|| format!("у {host} нет IPv4-адреса"))
+        .with_context(|| trf!("у {host} нет IPv4-адреса", host = host))
 }
 
 fn tcp(host: &str, port: u16, iface: Option<&str>, timeout: Duration) -> Result<Duration> {
@@ -82,7 +83,7 @@ fn tcp(host: &str, port: u16, iface: Option<&str>, timeout: Duration) -> Result<
     let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
     bind_to(&socket, iface);
     let start = Instant::now();
-    socket.connect_timeout(&addr.into(), timeout).map_err(|e| anyhow::anyhow!("нет соединения: {e}"))?;
+    socket.connect_timeout(&addr.into(), timeout).map_err(|e| anyhow::anyhow!(trf!("нет соединения: {e}", e = e)))?;
     Ok(start.elapsed())
 }
 
@@ -115,7 +116,7 @@ fn icmp(host: &str, _iface: Option<&str>, timeout: Duration) -> Result<Duration>
         ICMP_ECHO_REPLY, IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho,
     };
 
-    let SocketAddr::V4(addr) = resolve(host, 0)? else { bail!("нужен IPv4-адрес") };
+    let SocketAddr::V4(addr) = resolve(host, 0)? else { bail!(tr("нужен IPv4-адрес")) };
     let dest = u32::from_ne_bytes(addr.ip().octets());
     let payload = [0x44u8; 32];
     let mut reply = vec![0u8; std::mem::size_of::<ICMP_ECHO_REPLY>() + payload.len() + 8];
@@ -123,7 +124,7 @@ fn icmp(host: &str, _iface: Option<&str>, timeout: Duration) -> Result<Duration>
     unsafe {
         let handle = IcmpCreateFile();
         if handle == INVALID_HANDLE_VALUE {
-            bail!("ICMP недоступен");
+            bail!(tr("ICMP недоступен"));
         }
         let n = IcmpSendEcho(
             handle,
@@ -137,11 +138,11 @@ fn icmp(host: &str, _iface: Option<&str>, timeout: Duration) -> Result<Duration>
         );
         IcmpCloseHandle(handle);
         if n == 0 {
-            bail!("нет ответа");
+            bail!(tr("нет ответа"));
         }
         let r = &*(reply.as_ptr() as *const ICMP_ECHO_REPLY);
         if r.Status != 0 {
-            bail!("нет ответа");
+            bail!(tr("нет ответа"));
         }
         Ok(Duration::from_millis(u64::from(r.RoundTripTime.max(1))))
     }
@@ -169,14 +170,15 @@ fn icmp(host: &str, iface: Option<&str>, timeout: Duration) -> Result<Duration> 
         cmd
     };
     let mut cmd = cmd;
-    let out = cmd.arg(host).stdin(Stdio::null()).output().context("не удалось запустить ping")?;
+    let out = cmd.arg(host).stdin(Stdio::null()).output().context(tr("не удалось запустить ping"))?;
     let text = String::from_utf8_lossy(&out.stdout);
-    parse_ping_time(&text).context("нет ответа")
+    parse_ping_time(&text).context(tr("нет ответа"))
 }
 
 /// Finds "time=12.3 ms" / "time<1ms" / "время=12мс" in ping output.
 #[cfg_attr(windows, allow(dead_code))]
 fn parse_ping_time(text: &str) -> Option<Duration> {
+    // The ping command's own words (English and Russian Windows), not ours.
     for key in ["time=", "time<", "время=", "время<"] {
         if let Some(pos) = text.find(key) {
             let rest = &text[pos + key.len()..];
@@ -191,7 +193,7 @@ fn parse_ping_time(text: &str) -> Option<Duration> {
 /// Real delay: a throwaway xray with the server's own config, then HTTP
 /// requests through it according to the selected proxy ping mode.
 fn http(server: &Server, settings: &PingSettings, iface: Option<&str>, timeout: Duration, run_dir: &Path, worker: usize) -> Result<Duration> {
-    let Some(iface) = iface else { bail!("нет подключения к сети") };
+    let Some(iface) = iface else { bail!(tr("нет подключения к сети")) };
     through_server(server, iface, run_dir, &format!("ping-{worker}"), |socks, user, pass| {
         via_socks_mode(socks, user, pass, &settings.url, settings.mode == PingMode::HttpHead, timeout, settings.proxy_mode)
     })
@@ -219,7 +221,7 @@ pub fn through_server<T>(
     if let Some(a) = assets {
         cmd.env("XRAY_LOCATION_ASSET", a);
     }
-    let mut child = connection::hidden(&mut cmd).spawn().context("запуск xray")?;
+    let mut child = connection::hidden(&mut cmd).spawn().context(tr("запуск xray"))?;
     let result = (|| {
         connection::wait_listening(rt.socks, &mut child, Duration::from_secs(5), None)?;
         job(rt.socks, &rt.user, &rt.pass)
@@ -262,13 +264,13 @@ pub fn via_socks_mode(
         let elapsed = proxy_request(&agent, url, head, drain)?;
         best = Some(best.map_or(elapsed, |previous| previous.min(elapsed)));
     }
-    best.ok_or_else(|| anyhow::anyhow!("нет ответа"))
+    best.ok_or_else(|| anyhow::anyhow!(tr("нет ответа")))
 }
 
 fn proxy_request(agent: &ureq::Agent, url: &str, head: bool, drain: bool) -> Result<Duration> {
     let start = Instant::now();
     let mut resp = if head { agent.head(url).call() } else { agent.get(url).call() }
-        .map_err(|e| anyhow::anyhow!("нет ответа: {e}"))?;
+        .map_err(|e| anyhow::anyhow!(trf!("нет ответа: {e}", e = e)))?;
     let elapsed = start.elapsed();
     if resp.status().is_server_error() {
         bail!("HTTP {}", resp.status());

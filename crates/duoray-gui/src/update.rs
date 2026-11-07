@@ -11,6 +11,7 @@
 //! anything else (macOS disk images, Linux installs from install.sh) is
 //! downloaded, verified and opened, or the release page is shown.
 
+use crate::i18n::tr;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -186,14 +187,14 @@ fn get(url: &str) -> Result<Vec<u8>> {
         .get(url)
         .header("User-Agent", USER_AGENT)
         .call()
-        .with_context(|| format!("запрос {}", url.rsplit('/').next().unwrap_or(url)))?
+        .with_context(|| trf!("запрос {p0}", p0 = url.rsplit('/').next().unwrap_or(url)))?
         .into_body();
     Ok(body.with_config().limit(1024 * 1024).read_to_vec()?)
 }
 
 /// Asks the hubs for a newer version, mirrors in turn. `Ok(None)`: up to date.
 pub fn check() -> Result<Option<Found>> {
-    let mut last = anyhow::anyhow!("нет серверов обновлений");
+    let mut last = anyhow::anyhow!(tr("нет серверов обновлений"));
     for hub in crate::diag::hubs() {
         match check_at(&hub) {
             Ok(m) => {
@@ -212,7 +213,7 @@ fn check_at(hub: &str) -> Result<Manifest> {
     let manifest = get(&format!("{base}/manifest.json"))?;
     let sig = get(&format!("{base}/manifest.sig"))?;
     verify(&manifest, &String::from_utf8_lossy(&sig), &PUBLIC_KEY)?;
-    serde_json::from_slice(&manifest).context("манифест обновления")
+    serde_json::from_slice(&manifest).context(tr("манифест обновления"))
 }
 
 /// Offered: a newer version, or the same version built from another commit
@@ -230,11 +231,11 @@ fn select(m: Manifest, current: &str, build: &str, (key, install): (String, Inst
 }
 
 fn verify(data: &[u8], sig_hex: &str, key: &[u8; 32]) -> Result<()> {
-    let sig = hex(sig_hex.trim()).context("подпись манифеста")?;
-    let sig = Signature::from_slice(&sig).context("подпись манифеста")?;
+    let sig = hex(sig_hex.trim()).context(tr("подпись манифеста"))?;
+    let sig = Signature::from_slice(&sig).context(tr("подпись манифеста"))?;
     VerifyingKey::from_bytes(key)?
         .verify_strict(data, &sig)
-        .map_err(|_| anyhow::anyhow!("подпись манифеста не сходится"))
+        .map_err(|_| anyhow::anyhow!(tr("подпись манифеста не сходится")))
 }
 
 /// `a > b` for dotted versions; a pre-release suffix ("0.4.0-rc1") ranks lower.
@@ -263,7 +264,7 @@ pub fn newer(a: &str, b: &str) -> bool {
 pub fn download(asset: &Asset, hub: &str, dir: &Path, progress: impl Fn(u64, u64)) -> Result<PathBuf> {
     let mut order = vec![hub.to_string()];
     order.extend(crate::diag::hubs().into_iter().filter(|h| h != hub));
-    let mut last = anyhow::anyhow!("нет серверов обновлений");
+    let mut last = anyhow::anyhow!(tr("нет серверов обновлений"));
     for h in order.iter().filter(|h| !h.is_empty()) {
         match download_from(asset, h, dir, &progress) {
             Ok(path) => return Ok(path),
@@ -275,7 +276,7 @@ pub fn download(asset: &Asset, hub: &str, dir: &Path, progress: impl Fn(u64, u64
 
 fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u64)) -> Result<PathBuf> {
     if asset.file.is_empty() || !asset.file.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
-        bail!("неверное имя файла в манифесте");
+        bail!(tr("неверное имя файла в манифесте"));
     }
     std::fs::create_dir_all(dir)?;
     let target = dir.join(&asset.file);
@@ -287,7 +288,7 @@ fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u
         .get(&url)
         .header("User-Agent", USER_AGENT)
         .call()
-        .context("загрузка обновления")?
+        .context(tr("загрузка обновления"))?
         .into_body();
     let part = dir.join(format!("{}.part", asset.file));
     let mut out = std::fs::File::create(&part)?;
@@ -300,7 +301,7 @@ fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u
         }
         done += n as u64;
         if done > asset.size {
-            bail!("файл обновления больше заявленного");
+            bail!(tr("файл обновления больше заявленного"));
         }
         hasher.update(&buf[..n]);
         out.write_all(&buf[..n])?;
@@ -311,7 +312,7 @@ fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u
     let hash = to_hex(&hasher.finalize());
     if done != asset.size || !hash.eq_ignore_ascii_case(&asset.sha256) {
         let _ = std::fs::remove_file(&part);
-        bail!("файл обновления повреждён (контрольная сумма не сходится)");
+        bail!(tr("файл обновления повреждён (контрольная сумма не сходится)"));
     }
     std::fs::rename(&part, &target)?;
     Ok(target)
@@ -326,14 +327,14 @@ pub fn install(file: &Path, how: &Install) -> Result<()> {
             // Same directory, so the final rename is atomic; the running
             // AppImage keeps its (now unlinked) file until it exits.
             let staged = current.with_extension("update");
-            std::fs::copy(file, &staged).context("нет прав на запись рядом с AppImage")?;
+            std::fs::copy(file, &staged).context(tr("нет прав на запись рядом с AppImage"))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
             }
             std::fs::rename(&staged, current)?;
-            std::process::Command::new(current).arg("--wait-for-instance").spawn().context("запуск новой версии")?;
+            std::process::Command::new(current).arg("--wait-for-instance").spawn().context(tr("запуск новой версии"))?;
             Ok(())
         }
         Install::Package(package) => install_package(*package, file),
@@ -354,21 +355,21 @@ fn install_package(package: Package, file: &Path) -> Result<()> {
     let shown = format!("sudo {}", command.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" "));
     let fallback = |why: String| {
         let copied = arboard::Clipboard::new().and_then(|mut c| c.set_text(shown.clone())).is_ok();
-        let tail = if copied { "команда скопирована, вставьте её в терминал" } else { "выполните в терминале" };
+        let tail = if copied { tr("команда скопирована, вставьте её в терминал") } else { tr("выполните в терминале") };
         anyhow::anyhow!("{why}; {tail}: {shown}")
     };
     let (Some(pkexec), Some(program)) = (which("pkexec"), which(&command[0])) else {
-        return Err(fallback("нет pkexec".into()));
+        return Err(fallback(tr("нет pkexec").into()));
     };
     let out = std::process::Command::new(pkexec)
         .arg(program)
         .args(&command[1..])
         .output()
-        .context("запуск pkexec")?;
+        .context(tr("запуск pkexec"))?;
     match out.status.code() {
         Some(0) => {}
         // pkexec: 126 the password prompt was dismissed, 127 no polkit agent.
-        Some(126 | 127) => return Err(fallback("нет прав администратора".into())),
+        Some(126 | 127) => return Err(fallback(tr("нет прав администратора").into())),
         _ => {
             // What the package manager said goes to the log sent with the
             // report: the error alone does not tell why.
@@ -379,8 +380,8 @@ fn install_package(package: Package, file: &Path) -> Result<()> {
         }
     }
     let program = ["/usr/bin/duoray", "/usr/lib/duoray/duoray"].into_iter().map(Path::new).find(|p| p.exists());
-    let program = program.map(Path::to_path_buf).or_else(|| std::env::current_exe().ok()).context("путь к DUORAY")?;
-    std::process::Command::new(program).arg("--wait-for-instance").spawn().context("запуск новой версии")?;
+    let program = program.map(Path::to_path_buf).or_else(|| std::env::current_exe().ok()).context(tr("путь к DUORAY"))?;
+    std::process::Command::new(program).arg("--wait-for-instance").spawn().context(tr("запуск новой версии"))?;
     Ok(())
 }
 
@@ -394,14 +395,14 @@ fn run_setup(file: &Path) -> Result<()> {
     // ShellExecute, not CreateProcess: the installer needs elevation (UAC).
     let r = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), path.as_ptr(), args.as_ptr(), std::ptr::null(), SW_SHOWNORMAL) };
     if r as isize <= 32 {
-        bail!("установщик не запустился (код {})", r as isize);
+        bail!(trf!("установщик не запустился (код {p0})", p0 = r as isize));
     }
     Ok(())
 }
 
 #[cfg(not(windows))]
 fn run_setup(_file: &Path) -> Result<()> {
-    bail!("установщик Windows на этой системе не запускается")
+    bail!(tr("установщик Windows на этой системе не запускается"))
 }
 
 fn sha256_file(path: &Path) -> Result<String> {
@@ -417,9 +418,9 @@ fn to_hex(bytes: &[u8]) -> String {
 
 fn hex(s: &str) -> Result<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
-        bail!("нечётная длина");
+        bail!(tr("нечётная длина"));
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("не hex")).collect()
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).context(tr("не hex"))).collect()
 }
 
 const fn hex_digit(c: u8) -> u8 {

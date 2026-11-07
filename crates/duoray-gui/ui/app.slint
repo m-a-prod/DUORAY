@@ -239,7 +239,7 @@ component SpeedLine inherits HorizontalLayout {
         vertical-alignment: center;
     }
     Text {
-        text: "Мбит/с";
+        text: @tr("Мбит/с");
         font-size: Theme.fs-caption;
         color: Theme.muted;
         vertical-alignment: center;
@@ -256,13 +256,13 @@ component SpeedCell inherits VerticalLayout {
     alignment: center;
     spacing: 1px;
     if root.state == 1: Text {
-        text: "в очереди";
+        text: @tr("в очереди");
         font-size: Theme.fs-caption;
         color: Theme.muted;
         horizontal-alignment: right;
     }
     if root.state == 4: Text {
-        text: "нет скорости";
+        text: @tr("нет скорости");
         font-size: Theme.fs-caption;
         color: Theme.danger;
         horizontal-alignment: right;
@@ -1078,9 +1078,11 @@ component SettingsPage inherits Rectangle {
     in-out property <string> speedtest-url;
     in-out property <bool> send-device-info: true;
     in-out property <string> text-scale-choice: "100%";
-    in-out property <string> font-choice: "Системный";
-    in-out property <string> theme-choice: "Тёмная";
-    in property <[string]> font-choices: ["Системный"];
+    // Language: 0 as the system, 1 Русский, 2 English.
+    in-out property <int> language-index;
+    in-out property <string> font-choice: @tr("Системный");
+    in-out property <string> theme-choice: @tr("Тёмная");
+    in property <[string]> font-choices: [@tr("Системный")];
     in property <[ThemeSwatch]> theme-swatches;
     in-out property <bool> hysteria-restart;
     in-out property <string> hysteria-minutes: "5";
@@ -1130,7 +1132,7 @@ component SettingsPage inherits Rectangle {
 
     // Section on the right; the list on the left picks it.
     in-out property <int> section: 0;
-    property <[string]> sections: ["Основные", "Подключение", "Внешний вид", "Пинг", "Подписки", "Отчёты и обновления", "О DUORAY"];
+    property <[string]> sections: [@tr("Основные"), @tr("Подключение"), @tr("Внешний вид"), @tr("Пинг"), @tr("Подписки"), @tr("Отчёты и обновления"), @tr("О DUORAY")];
     changed section => {
         scroll.viewport-y = 0;
     }
@@ -1152,7 +1154,7 @@ component SettingsPage inherits Rectangle {
                 spacing: 2px;
                 alignment: start;
                 Text {
-                    text: "Настройки";
+                    text: @tr("Настройки");
                     font-size: Theme.fs-display;
                     font-weight: 800;
                 }
@@ -1194,8 +1196,8 @@ component SettingsPage inherits Rectangle {
                 // ── Основные ──
                 if root.section == 0: SettingsCard {
                     ToggleRow {
-                        title: "Запускать при входе в систему";
-                        description: "DUORAY запускается вместе с компьютером и сразу прячется в трей.";
+                        title: @tr("Запускать при входе в систему");
+                        description: @tr("DUORAY запускается вместе с компьютером и сразу прячется в трей.");
                         checked <=> root.autostart;
                         toggled => {
                             root.changed();
@@ -1203,10 +1205,10 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Сворачивать в трей при закрытии";
+                        title: @tr("Сворачивать в трей при закрытии");
                         description: root.tray-available
-                            ? "Крестик прячет окно, VPN продолжает работать. Открыть окно или выйти — через значок DUORAY в трее."
-                            : "Значок в трее недоступен в этом окружении (в GNOME нужно расширение AppIndicator), поэтому крестик закрывает DUORAY.";
+                            ? @tr("Крестик прячет окно, VPN продолжает работать. Открыть окно или выйти — через значок DUORAY в трее.")
+                            : @tr("Значок в трее недоступен в этом окружении (в GNOME нужно расширение AppIndicator), поэтому крестик закрывает DUORAY.");
                         checked <=> root.close-to-tray;
                         toggled => {
                             root.changed();
@@ -1214,8 +1216,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Подключаться при запуске";
-                        description: "Сразу после запуска DUORAY подключается к последнему выбранному серверу.";
+                        title: @tr("Подключаться при запуске");
+                        description: @tr("Сразу после запуска DUORAY подключается к последнему выбранному серверу.");
                         checked <=> root.autoconnect;
                         toggled => {
                             root.changed();
@@ -1223,8 +1225,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Переключаться при выборе сервера";
-                        description: "Если VPN подключён, выбор другого сервера в списке сразу переключает подключение на него. Если выключить, новый сервер применится при следующем подключении.";
+                        title: @tr("Переключаться при выборе сервера");
+                        description: @tr("Если VPN подключён, выбор другого сервера в списке сразу переключает подключение на него. Если выключить, новый сервер применится при следующем подключении.");
                         checked <=> root.switch-on-select;
                         toggled => {
                             root.changed();
@@ -1232,8 +1234,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Блокировка PIN-кодом";
-                        description: "DUORAY спросит PIN-код при запуске и каждый раз, когда окно открывают из трея. Без него из трея не подключиться и не сменить сервер. Забыли PIN-код — закройте DUORAY и запустите его с ключом --reset-pin.";
+                        title: @tr("Блокировка PIN-кодом");
+                        description: @tr("DUORAY спросит PIN-код при запуске и каждый раз, когда окно открывают из трея. Без него из трея не подключиться и не сменить сервер. Забыли PIN-код — закройте DUORAY и запустите его с ключом --reset-pin.");
                         checked <=> root.pin-enabled;
                         toggled => {
                             root.pin-toggle();
@@ -1242,7 +1244,7 @@ component SettingsPage inherits Rectangle {
                     if root.pin-enabled: HorizontalLayout {
                         alignment: end;
                         Button {
-                            text: "Сменить PIN-код";
+                            text: @tr("Сменить PIN-код");
                             clicked => {
                                 root.pin-change();
                             }
@@ -1255,12 +1257,12 @@ component SettingsPage inherits Rectangle {
                             horizontal-stretch: 1;
                             spacing: 4px;
                             Text {
-                                text: "Перенос на другой компьютер";
+                                text: @tr("Перенос на другой компьютер");
                                 font-size: Theme.fs-title;
                                 font-weight: 700;
                             }
                             Text {
-                                text: "«Экспорт» сохраняет настройки, подписки и ваши серверы в файл в папке «Загрузки». На другом компьютере перетащите этот файл в окно DUORAY или скопируйте его и нажмите «Импорт».";
+                                text: @tr("«Экспорт» сохраняет настройки, подписки и ваши серверы в файл в папке «Загрузки». На другом компьютере перетащите этот файл в окно DUORAY или скопируйте его и нажмите «Импорт».");
                                 font-size: Theme.fs-small;
                                 color: Theme.muted;
                                 wrap: word-wrap;
@@ -1270,13 +1272,13 @@ component SettingsPage inherits Rectangle {
                             alignment: center;
                             spacing: 6px;
                             Button {
-                                text: "Экспорт";
+                                text: @tr("Экспорт");
                                 clicked => {
                                     root.export-settings();
                                 }
                             }
                             Button {
-                                text: "Импорт";
+                                text: @tr("Импорт");
                                 clicked => {
                                     root.import-settings();
                                 }
@@ -1288,8 +1290,8 @@ component SettingsPage inherits Rectangle {
                 // ── Подключение ──
                 if root.section == 1: SettingsCard {
                     ToggleRow {
-                        title: "Держать подключение";
-                        description: "Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, а интернет есть, DUORAY перейдёт на другой сервер той же подписки, самый быстрый по последнему пингу.";
+                        title: @tr("Держать подключение");
+                        description: @tr("Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, а интернет есть, DUORAY перейдёт на другой сервер той же подписки, самый быстрый по последнему пингу.");
                         checked <=> root.keep-connected;
                         toggled => {
                             root.changed();
@@ -1297,8 +1299,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Аварийная блокировка (kill switch)";
-                        description: "Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться».";
+                        title: @tr("Аварийная блокировка (kill switch)");
+                        description: @tr("Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться».");
                         checked <=> root.kill-switch;
                         toggled => {
                             root.changed();
@@ -1306,8 +1308,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Режим прокси вместо TUN";
-                        description: "DUORAY не создаёт VPN-туннель, а включает системный прокси 127.0.0.1 без логина и пароля (HTTP и SOCKS5 на одном порту). Через VPN идут программы, которые следуют системным настройкам прокси: браузеры и большинство приложений. Маршрутизация по приложениям в этом режиме не работает.";
+                        title: @tr("Режим прокси вместо TUN");
+                        description: @tr("DUORAY не создаёт VPN-туннель, а включает системный прокси 127.0.0.1 без логина и пароля (HTTP и SOCKS5 на одном порту). Через VPN идут программы, которые следуют системным настройкам прокси: браузеры и большинство приложений. Маршрутизация по приложениям в этом режиме не работает.");
                         checked <=> root.proxy-mode;
                         toggled => {
                             root.changed();
@@ -1316,7 +1318,7 @@ component SettingsPage inherits Rectangle {
                     if root.proxy-mode: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Порт прокси";
+                            text: @tr("Порт прокси");
                         }
                         TextField {
                             text <=> root.proxy-port;
@@ -1328,8 +1330,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Перезапускать Hysteria2";
-                        description: "Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения.";
+                        title: @tr("Перезапускать Hysteria2");
+                        description: @tr("Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения.");
                         checked <=> root.hysteria-restart;
                         toggled => {
                             root.changed();
@@ -1338,7 +1340,7 @@ component SettingsPage inherits Rectangle {
                     if root.hysteria-restart: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Каждые, минут";
+                            text: @tr("Каждые, минут");
                         }
                         ComboBox {
                             height: 36px;
@@ -1357,7 +1359,7 @@ component SettingsPage inherits Rectangle {
                             horizontal-stretch: 1;
                             spacing: 4px;
                             Text {
-                                text: "Помощник TUN";
+                                text: @tr("Помощник TUN");
                                 font-size: Theme.fs-title;
                                 font-weight: 700;
                             }
@@ -1373,14 +1375,14 @@ component SettingsPage inherits Rectangle {
                             HorizontalLayout {
                                 spacing: 8px;
                                 Button {
-                                    text: root.helper-installed ? "Переустановить" : "Установить";
+                                    text: root.helper-installed ? @tr("Переустановить") : @tr("Установить");
                                     enabled: !root.helper-busy;
                                     clicked => {
                                         root.reinstall-helper();
                                     }
                                 }
                                 if root.helper-installed: Button {
-                                    text: "Удалить";
+                                    text: @tr("Удалить");
                                     enabled: !root.helper-busy;
                                     clicked => {
                                         root.uninstall-helper();
@@ -1394,7 +1396,7 @@ component SettingsPage inherits Rectangle {
                 // ── Внешний вид ──
                 if root.section == 2: SettingsCard {
                     Text {
-                        text: "Тема";
+                        text: @tr("Тема");
                         font-size: Theme.fs-title;
                         font-weight: 700;
                     }
@@ -1423,7 +1425,22 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Размер текста";
+                            text: @tr("Язык");
+                        }
+                        ComboBox {
+                            height: 36px;
+                            // Each language named in itself.
+                            model: [@tr("Как в системе"), "Русский", "English"];
+                            current-index <=> root.language-index;
+                            selected => {
+                                root.changed();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        FieldLabel {
+                            text: @tr("Размер текста");
                         }
                         ComboBox {
                             height: 36px;
@@ -1438,7 +1455,7 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Шрифт";
+                            text: @tr("Шрифт");
                         }
                         ComboBox {
                             height: 36px;
@@ -1452,8 +1469,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Показывать тип сервера";
-                        description: "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.";
+                        title: @tr("Показывать тип сервера");
+                        description: @tr("Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality.");
                         checked <=> root.show-server-type;
                         toggled => {
                             root.changed();
@@ -1461,8 +1478,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Фильтр серверов";
-                        description: "Кнопка фильтра над списком: оставить или скрыть серверы по регулярному выражению, например (lte|обход|россия).";
+                        title: @tr("Фильтр серверов");
+                        description: @tr("Кнопка фильтра над списком: оставить или скрыть серверы по регулярному выражению, например (lte|обход|россия).");
                         checked <=> root.filter-enabled;
                         toggled => {
                             root.changed();
@@ -1470,8 +1487,8 @@ component SettingsPage inherits Rectangle {
                     }
                     if root.glass-supported: Divider { }
                     if root.glass-supported: ToggleRow {
-                        title: "Матовое стекло";
-                        description: "Окно становится полупрозрачным, а то, что за ним, размывается. Размывают KDE и Hyprland; в других окружениях окно будет просто полупрозрачным. Окно рисуется видеокартой: если появятся артефакты, выключите.";
+                        title: @tr("Матовое стекло");
+                        description: @tr("Окно становится полупрозрачным, а то, что за ним, размывается. Размывают KDE и Hyprland; в других окружениях окно будет просто полупрозрачным. Окно рисуется видеокартой: если появятся артефакты, выключите.");
                         checked <=> root.glass-enabled;
                         toggled => {
                             Theme.glass = root.glass-enabled && root.glass-active ? root.glass-opacity / 100 : 1;
@@ -1481,7 +1498,7 @@ component SettingsPage inherits Rectangle {
                     if root.glass-supported && root.glass-enabled: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Непрозрачность";
+                            text: @tr("Непрозрачность");
                         }
                         ValueSlider {
                             horizontal-stretch: 1;
@@ -1509,14 +1526,14 @@ component SettingsPage inherits Rectangle {
                         spacing: 12px;
                         Text {
                             horizontal-stretch: 1;
-                            text: root.glass-enabled ? "Стекло включится после перезапуска DUORAY." : "Стекло выключится после перезапуска DUORAY.";
+                            text: root.glass-enabled ? @tr("Стекло включится после перезапуска DUORAY.") : @tr("Стекло выключится после перезапуска DUORAY.");
                             font-size: Theme.fs-small;
                             color: Theme.muted;
                             vertical-alignment: center;
                             wrap: word-wrap;
                         }
                         Button {
-                            text: "Перезапустить";
+                            text: @tr("Перезапустить");
                             clicked => {
                                 root.restart-app();
                             }
@@ -1529,11 +1546,11 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Способ";
+                            text: @tr("Способ");
                         }
                         ComboBox {
                             height: 36px;
-                            model: ["HTTP GET — через сам сервер", "HTTP HEAD — через сервер, легче", "TCP — соединение с сервером", "ICMP — обычный ping"];
+                            model: [@tr("HTTP GET — через сам сервер"), @tr("HTTP HEAD — через сервер, легче"), @tr("TCP — соединение с сервером"), @tr("ICMP — обычный ping")];
                             current-index <=> root.ping-mode-index;
                             selected => {
                                 root.changed();
@@ -1543,7 +1560,7 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Потоков";
+                            text: @tr("Потоков");
                         }
                         ComboBox {
                             height: 36px;
@@ -1558,7 +1575,7 @@ component SettingsPage inherits Rectangle {
                     if root.ping-mode-index <= 1: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Адрес проверки";
+                            text: @tr("Адрес проверки");
                         }
                         TextField {
                             text <=> root.ping-url;
@@ -1571,7 +1588,7 @@ component SettingsPage inherits Rectangle {
                     if root.ping-mode-index <= 1: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Режим";
+                            text: @tr("Режим");
                         }
                         ComboBox {
                             height: 36px;
@@ -1584,28 +1601,28 @@ component SettingsPage inherits Rectangle {
                     }
                     if root.ping-mode-index <= 1: Text {
                         text: root.ping-proxy-mode == 0
-                            ? "Default: один запрос, включая установку соединения."
+                            ? @tr("Default: один запрос, включая установку соединения.")
                             : root.ping-proxy-mode == 1
-                            ? "Double: два запроса в одной сессии xray без повторного использования соединения. Берётся лучший результат."
-                            : "KeepAlive: два запроса через один транспорт. Второй идёт по уже установленному соединению; берётся лучший результат.";
+                            ? @tr("Double: два запроса в одной сессии xray без повторного использования соединения. Берётся лучший результат.")
+                            : @tr("KeepAlive: два запроса через один транспорт. Второй идёт по уже установленному соединению; берётся лучший результат.");
                         font-size: Theme.fs-small;
                         color: Theme.muted;
                         wrap: word-wrap;
                     }
                     Text {
                         text: root.ping-mode-index == 0
-                            ? "HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ."
+                            ? @tr("HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ.")
                             : root.ping-mode-index == 1
-                            ? "HTTP HEAD: как GET, но без тела ответа — чуть быстрее и легче для сервера."
+                            ? @tr("HTTP HEAD: как GET, но без тела ответа — чуть быстрее и легче для сервера.")
                             : root.ping-mode-index == 2
-                            ? "TCP: время подключения к порту сервера. Быстро и без xray, но не проверяет, что прокси работает."
-                            : "ICMP: обычный ping. Многие серверы на него не отвечают — будет «—», хотя сервер рабочий.";
+                            ? @tr("TCP: время подключения к порту сервера. Быстро и без xray, но не проверяет, что прокси работает.")
+                            : @tr("ICMP: обычный ping. Многие серверы на него не отвечают — будет «—», хотя сервер рабочий.");
                         font-size: Theme.fs-small;
                         color: Theme.muted;
                         wrap: word-wrap;
                     }
                     Text {
-                        text: "1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их.";
+                        text: @tr("1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их.");
                         font-size: Theme.fs-small;
                         color: Theme.warn;
                         wrap: word-wrap;
@@ -1614,11 +1631,11 @@ component SettingsPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Тест скорости";
+                            text: @tr("Тест скорости");
                         }
                         ComboBox {
                             height: 36px;
-                            model: ["Speedtest (Ookla)", "Cloudflare", "Свой сервер"];
+                            model: ["Speedtest (Ookla)", "Cloudflare", @tr("Свой сервер")];
                             current-index <=> root.speedtest-source;
                             selected => {
                                 root.changed();
@@ -1628,11 +1645,11 @@ component SettingsPage inherits Rectangle {
                     if root.speedtest-source == 2: HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Файл";
+                            text: @tr("Файл");
                         }
                         TextField {
                             text <=> root.speedtest-url;
-                            placeholder: "https://ваш-сервер/100mb.bin";
+                            placeholder: @tr("https://ваш-сервер/100mb.bin");
                             edited => {
                                 root.changed();
                             }
@@ -1640,10 +1657,10 @@ component SettingsPage inherits Rectangle {
                     }
                     Text {
                         text: root.speedtest-source == 0
-                            ? "«Проверить скорость» в меню сервера: загрузка и отдача через сервер до ближайшего к нему сервера Speedtest, в 4 потока, до 10 секунд на каждую."
+                            ? @tr("«Проверить скорость» в меню сервера: загрузка и отдача через сервер до ближайшего к нему сервера Speedtest, в 4 потока, до 10 секунд на каждую.")
                             : root.speedtest-source == 1
-                            ? "Загрузка и отдача через сервер до Cloudflare, до 10 секунд на каждую."
-                            : "Загрузка файла через сервер, до 10 секунд. Положите на свой сервер файл на 50–100 МБ и укажите его адрес.";
+                            ? @tr("Загрузка и отдача через сервер до Cloudflare, до 10 секунд на каждую.")
+                            : @tr("Загрузка файла через сервер, до 10 секунд. Положите на свой сервер файл на 50–100 МБ и укажите его адрес.");
                         font-size: Theme.fs-small;
                         color: Theme.muted;
                         wrap: word-wrap;
@@ -1653,8 +1670,8 @@ component SettingsPage inherits Rectangle {
                 // ── Подписки ──
                 if root.section == 4: SettingsCard {
                     ToggleRow {
-                        title: "Отправлять HWID и данные устройства";
-                        description: "Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent.";
+                        title: @tr("Отправлять HWID и данные устройства");
+                        description: @tr("Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent.");
                         checked <=> root.send-device-info;
                         toggled => {
                             root.changed();
@@ -1663,7 +1680,7 @@ component SettingsPage inherits Rectangle {
                     Divider { }
                     ToggleRow {
                         title: "Happ Spoof";
-                        description: "Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию DUORAY представляется собой.";
+                        description: @tr("Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию DUORAY представляется собой.");
                         checked <=> root.happ-enabled;
                         toggled => {
                             root.changed();
@@ -1676,7 +1693,7 @@ component SettingsPage inherits Rectangle {
                         HorizontalLayout {
                             spacing: 12px;
                             FieldLabel {
-                                text: "Версия Happ";
+                                text: @tr("Версия Happ");
                             }
                             TextField {
                                 text <=> root.app-version;
@@ -1688,7 +1705,7 @@ component SettingsPage inherits Rectangle {
                         HorizontalLayout {
                             spacing: 12px;
                             FieldLabel {
-                                text: "ОС";
+                                text: @tr("ОС");
                             }
                             ComboBox {
                                 height: 36px;
@@ -1703,7 +1720,7 @@ component SettingsPage inherits Rectangle {
                         HorizontalLayout {
                             spacing: 12px;
                             FieldLabel {
-                                text: "Версия ОС";
+                                text: @tr("Версия ОС");
                             }
                             TextField {
                                 text <=> root.os-version;
@@ -1715,7 +1732,7 @@ component SettingsPage inherits Rectangle {
                         HorizontalLayout {
                             spacing: 12px;
                             FieldLabel {
-                                text: "Модель";
+                                text: @tr("Модель");
                             }
                             TextField {
                                 text <=> root.model;
@@ -1727,7 +1744,7 @@ component SettingsPage inherits Rectangle {
                         HorizontalLayout {
                             spacing: 12px;
                             FieldLabel {
-                                text: "Язык";
+                                text: @tr("Язык");
                             }
                             TextField {
                                 text <=> root.locale;
@@ -1765,19 +1782,19 @@ component SettingsPage inherits Rectangle {
                             alignment: start;
                             padding-left: 162px;
                             Button {
-                                text: "Новые ID";
+                                text: @tr("Новые ID");
                                 clicked => {
                                     root.randomize-ids();
                                 }
                             }
                             Button {
-                                text: "Случайное устройство";
+                                text: @tr("Случайное устройство");
                                 clicked => {
                                     root.randomize-device();
                                 }
                             }
                             Button {
-                                text: "Сбросить";
+                                text: @tr("Сбросить");
                                 clicked => {
                                     root.reset();
                                 }
@@ -1789,7 +1806,7 @@ component SettingsPage inherits Rectangle {
                     VerticalLayout {
                         spacing: 4px;
                         Text {
-                            text: "Будет отправлено";
+                            text: @tr("Будет отправлено");
                             font-size: Theme.fs-small;
                             font-weight: 700;
                             color: Theme.muted;
@@ -1802,7 +1819,7 @@ component SettingsPage inherits Rectangle {
                         Text {
                             text: root.send-device-info
                                 ? "x-hwid: " + (root.happ-enabled ? root.hwid : root.duoray-hwid)
-                                : "HWID и данные устройства не отправляются";
+                                : @tr("HWID и данные устройства не отправляются");
                             font-size: Theme.fs-small;
                             color: root.send-device-info ? Theme.fg : Theme.muted;
                             wrap: word-wrap;
@@ -1813,8 +1830,8 @@ component SettingsPage inherits Rectangle {
                 // ── Отчёты и обновления ──
                 if root.section == 5: SettingsCard {
                     ToggleRow {
-                        title: "Отправлять отчёты об ошибках";
-                        description: "Версия, ОС, текст ошибки и журнал последних действий — чтобы мы могли найти и исправить проблему. Ссылки подписок, адреса и названия серверов, ключи и UUID вырезаются и не отправляются.";
+                        title: @tr("Отправлять отчёты об ошибках");
+                        description: @tr("Версия, ОС, текст ошибки и журнал последних действий — чтобы мы могли найти и исправить проблему. Ссылки подписок, адреса и названия серверов, ключи и UUID вырезаются и не отправляются.");
                         checked <=> root.telemetry-enabled;
                         toggled => {
                             root.changed();
@@ -1822,8 +1839,8 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Проверять обновления";
-                        description: "Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию.";
+                        title: @tr("Проверять обновления");
+                        description: @tr("Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию.");
                         checked <=> root.auto-update;
                         toggled => {
                             root.changed();
@@ -1833,7 +1850,7 @@ component SettingsPage inherits Rectangle {
                         spacing: 12px;
                         Text {
                             horizontal-stretch: 1;
-                            text: root.update-info != "" ? root.update-info : "Установлена версия " + root.duoray-version + ".";
+                            text: root.update-info != "" ? root.update-info : @tr("Установлена версия {}.", root.duoray-version);
                             font-size: Theme.fs-small;
                             color: Theme.muted;
                             vertical-alignment: center;
@@ -1842,7 +1859,7 @@ component SettingsPage inherits Rectangle {
                         VerticalLayout {
                             alignment: center;
                             Button {
-                                text: "Проверить";
+                                text: @tr("Проверить");
                                 clicked => {
                                     root.check-update();
                                 }
@@ -1856,12 +1873,12 @@ component SettingsPage inherits Rectangle {
                             horizontal-stretch: 1;
                             spacing: 4px;
                             Text {
-                                text: "Сообщить о проблеме";
+                                text: @tr("Сообщить о проблеме");
                                 font-size: Theme.fs-title;
                                 font-weight: 700;
                             }
                             Text {
-                                text: "Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку.";
+                                text: @tr("Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку.");
                                 font-size: Theme.fs-small;
                                 color: Theme.muted;
                                 wrap: word-wrap;
@@ -1870,7 +1887,7 @@ component SettingsPage inherits Rectangle {
                         VerticalLayout {
                             alignment: center;
                             Button {
-                                text: "Написать";
+                                text: @tr("Написать");
                                 clicked => {
                                     root.report-problem();
                                 }
@@ -1884,12 +1901,12 @@ component SettingsPage inherits Rectangle {
                             horizontal-stretch: 1;
                             spacing: 4px;
                             Text {
-                                text: "Диагностика сети";
+                                text: @tr("Диагностика сети");
                                 font-size: Theme.fs-title;
                                 font-weight: 700;
                             }
                             Text {
-                                text: "Проверяет по шагам сеть, DNS, интернет, часы, сервер подписки, выбранный сервер и путь через VPN. Результат можно скопировать для поддержки.";
+                                text: @tr("Проверяет по шагам сеть, DNS, интернет, часы, сервер подписки, выбранный сервер и путь через VPN. Результат можно скопировать для поддержки.");
                                 font-size: Theme.fs-small;
                                 color: Theme.muted;
                                 wrap: word-wrap;
@@ -1898,7 +1915,7 @@ component SettingsPage inherits Rectangle {
                         VerticalLayout {
                             alignment: center;
                             Button {
-                                text: "Проверить";
+                                text: @tr("Проверить");
                                 clicked => {
                                     root.run-diagnostics();
                                 }
@@ -1920,7 +1937,7 @@ component SettingsPage inherits Rectangle {
                                 font-weight: 700;
                             }
                             Text {
-                                text: "Разработчик — DUALIZM. Новости и поддержка — в Telegram-канале @dualizm_vpn.";
+                                text: @tr("Разработчик — DUALIZM. Новости и поддержка — в Telegram-канале @dualizm_vpn.");
                                 font-size: Theme.fs-small;
                                 color: Theme.muted;
                                 wrap: word-wrap;
@@ -1938,7 +1955,7 @@ component SettingsPage inherits Rectangle {
                     }
                     Divider { }
                     Text {
-                        text: "© 2026 DUALIZM. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Учебный эксперимент, код написан с помощью ИИ-ассистента.";
+                        text: @tr("© 2026 DUALIZM. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Учебный эксперимент, код написан с помощью ИИ-ассистента.");
                         font-size: Theme.fs-small;
                         color: Theme.muted;
                         wrap: word-wrap;
@@ -1947,19 +1964,19 @@ component SettingsPage inherits Rectangle {
                         spacing: 8px;
                         alignment: start;
                         Button {
-                            text: "Исходный код";
+                            text: @tr("Исходный код");
                             clicked => {
                                 root.open-link("https://github.com/m-a-prod/DUORAY");
                             }
                         }
                         Button {
-                            text: "Лицензия";
+                            text: @tr("Лицензия");
                             clicked => {
                                 root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/LICENSE");
                             }
                         }
                         Button {
-                            text: "Сторонние компоненты";
+                            text: @tr("Сторонние компоненты");
                             clicked => {
                                 root.open-link("https://github.com/m-a-prod/DUORAY/blob/main/THIRD-PARTY-NOTICES.md");
                             }
@@ -2025,7 +2042,7 @@ component RuleCard inherits Rectangle {
             }
             Text {
                 horizontal-stretch: 1;
-                text: "Правило " + (root.index + 1);
+                text: @tr("Правило {}", root.index + 1);
                 font-size: Theme.fs-title;
                 font-weight: 700;
                 vertical-alignment: center;
@@ -2058,7 +2075,7 @@ component RuleCard inherits Rectangle {
             ComboBox {
                 height: 36px;
                 horizontal-stretch: 1;
-                model: ["Через VPN", "Напрямую", "Блокировать"];
+                model: [@tr("Через VPN"), @tr("Напрямую"), @tr("Блокировать")];
                 current-index: root.rule.action;
                 selected => {
                     root.edited({ enabled: root.rule.enabled, action: self.current-index, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: root.rule.network });
@@ -2067,7 +2084,7 @@ component RuleCard inherits Rectangle {
             ComboBox {
                 height: 36px;
                 horizontal-stretch: 1;
-                model: ["TCP и UDP", "Только TCP", "Только UDP"];
+                model: [@tr("TCP и UDP"), @tr("Только TCP"), @tr("Только UDP")];
                 current-index: root.rule.network;
                 selected => {
                     root.edited({ enabled: root.rule.enabled, action: root.rule.action, domains: root.rule.domains, ips: root.rule.ips, ports: root.rule.ports, network: self.current-index });
@@ -2077,7 +2094,7 @@ component RuleCard inherits Rectangle {
         HorizontalLayout {
             spacing: 12px;
             FieldLabel {
-                text: "Домены";
+                text: @tr("Домены");
                 width: 70px;
             }
             domains := TextField {
@@ -2105,7 +2122,7 @@ component RuleCard inherits Rectangle {
         HorizontalLayout {
             spacing: 12px;
             FieldLabel {
-                text: "Порты";
+                text: @tr("Порты");
                 width: 70px;
             }
             ports := TextField {
@@ -2133,7 +2150,7 @@ component RoutingPage inherits Rectangle {
     in property <[RuleRow]> rules;
     in-out property <int> default-action;
     in-out property <bool> keep-panel: true;
-    in-out property <string> domain-strategy: "Как в подписке";
+    in-out property <string> domain-strategy: @tr("Как в подписке");
     in property <string> geo-status;
     in property <bool> geo-busy;
     in-out property <string> geo-search-query;
@@ -2175,12 +2192,12 @@ component RoutingPage inherits Rectangle {
             alignment: start;
 
             Text {
-                text: "Маршрутизация";
+                text: @tr("Маршрутизация");
                 font-size: Theme.fs-display;
                 font-weight: 800;
             }
             Text {
-                text: "Что пускать мимо VPN. «Напрямую» — значит с вашим обычным интернетом и IP. Всё остальное идёт так, как настроено в подписке.";
+                text: @tr("Что пускать мимо VPN. «Напрямую» — значит с вашим обычным интернетом и IP. Всё остальное идёт так, как настроено в подписке.");
                 font-size: Theme.fs-small;
                 color: Theme.muted;
                 wrap: word-wrap;
@@ -2188,8 +2205,8 @@ component RoutingPage inherits Rectangle {
 
             SettingsCard {
                 ToggleRow {
-                    title: "Продвинутый режим";
-                    description: "Свои правила по доменам, IP и портам, несколько профилей. Для тех, кто знает, что такое geosite и CIDR.";
+                    title: @tr("Продвинутый режим");
+                    description: @tr("Свои правила по доменам, IP и портам, несколько профилей. Для тех, кто знает, что такое geosite и CIDR.");
                     checked <=> root.advanced;
                     toggled => {
                         root.changed();
@@ -2201,12 +2218,12 @@ component RoutingPage inherits Rectangle {
                 height: self.preferred-height;
                 spacing: 12px;
                 SectionLabel {
-                    text: "НАПРЯМУЮ";
+                    text: @tr("НАПРЯМУЮ");
                 }
                 SettingsCard {
                     ToggleRow {
-                        title: "Российские сайты";
-                        description: "Все российские IP-адреса и сайты .ru, .рф, .su: Госуслуги, банки, маркетплейсы, видео. Они видят вас как обычно и работают быстрее.";
+                        title: @tr("Российские сайты");
+                        description: @tr("Все российские IP-адреса и сайты .ru, .рф, .su: Госуслуги, банки, маркетплейсы, видео. Они видят вас как обычно и работают быстрее.");
                         checked <=> root.ru;
                         toggled => {
                             root.changed();
@@ -2214,8 +2231,8 @@ component RoutingPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Белый список";
-                        description: "Только сайты из белых списков мобильных операторов — те, что открываются даже при ограничениях мобильного интернета. Остальные российские сайты пойдут через VPN.";
+                        title: @tr("Белый список");
+                        description: @tr("Только сайты из белых списков мобильных операторов — те, что открываются даже при ограничениях мобильного интернета. Остальные российские сайты пойдут через VPN.");
                         checked <=> root.whitelist;
                         toggled => {
                             root.changed();
@@ -2223,8 +2240,8 @@ component RoutingPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Локальная сеть";
-                        description: "Роутер, принтеры, NAS и другие устройства дома или в офисе.";
+                        title: @tr("Локальная сеть");
+                        description: @tr("Роутер, принтеры, NAS и другие устройства дома или в офисе.");
                         checked <=> root.lan;
                         toggled => {
                             root.changed();
@@ -2233,7 +2250,7 @@ component RoutingPage inherits Rectangle {
                 }
 
                 SectionLabel {
-                    text: "ИГРЫ НАПРЯМУЮ";
+                    text: @tr("ИГРЫ НАПРЯМУЮ");
                 }
                 SettingsCard {
                     for g[i] in root.games: VerticalLayout {
@@ -2251,7 +2268,7 @@ component RoutingPage inherits Rectangle {
                     }
                 }
                 Text {
-                    text: "Игры напрямую — минимальный пинг до игровых серверов. Если игра или магазин заблокированы у провайдера, оставьте их через VPN.";
+                    text: @tr("Игры напрямую — минимальный пинг до игровых серверов. Если игра или магазин заблокированы у провайдера, оставьте их через VPN.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
@@ -2262,7 +2279,7 @@ component RoutingPage inherits Rectangle {
                 height: self.preferred-height;
                 spacing: 12px;
                 SectionLabel {
-                    text: "ПРОФИЛЬ";
+                    text: @tr("ПРОФИЛЬ");
                 }
                 SettingsCard {
                     HorizontalLayout {
@@ -2277,13 +2294,13 @@ component RoutingPage inherits Rectangle {
                             }
                         }
                         Button {
-                            text: "Новый";
+                            text: @tr("Новый");
                             clicked => {
                                 root.add-profile();
                             }
                         }
                         Button {
-                            text: "Удалить";
+                            text: @tr("Удалить");
                             enabled: root.profiles.length > 1;
                             clicked => {
                                 root.remove-profile();
@@ -2293,7 +2310,7 @@ component RoutingPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Название";
+                            text: @tr("Название");
                         }
                         TextField {
                             text <=> root.profile-name;
@@ -2305,11 +2322,11 @@ component RoutingPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 12px;
                         FieldLabel {
-                            text: "Остальной трафик";
+                            text: @tr("Остальной трафик");
                         }
                         ComboBox {
                             height: 36px;
-                            model: ["Через VPN", "Напрямую", "Блокировать"];
+                            model: [@tr("Через VPN"), @tr("Напрямую"), @tr("Блокировать")];
                             current-index <=> root.default-action;
                             selected => {
                                 root.changed();
@@ -2323,7 +2340,7 @@ component RoutingPage inherits Rectangle {
                         }
                         ComboBox {
                             height: 36px;
-                            model: ["Как в подписке", "AsIs", "IPIfNonMatch", "IPOnDemand"];
+                            model: [@tr("Как в подписке"), "AsIs", "IPIfNonMatch", "IPOnDemand"];
                             by-value: true;
                             current-value <=> root.domain-strategy;
                             selected => {
@@ -2333,8 +2350,8 @@ component RoutingPage inherits Rectangle {
                     }
                     Divider { }
                     ToggleRow {
-                        title: "Правила подписки";
-                        description: "После ваших правил применять правила из подписки. Если выключить, работают только ваши.";
+                        title: @tr("Правила подписки");
+                        description: @tr("После ваших правил применять правила из подписки. Если выключить, работают только ваши.");
                         checked <=> root.keep-panel;
                         toggled => {
                             root.changed();
@@ -2344,19 +2361,19 @@ component RoutingPage inherits Rectangle {
 
                 HorizontalLayout {
                     SectionLabel {
-                        text: "ПРАВИЛА";
+                        text: @tr("ПРАВИЛА");
                         horizontal-stretch: 1;
                         vertical-alignment: center;
                     }
                     Button {
-                        text: "Добавить правило";
+                        text: @tr("Добавить правило");
                         clicked => {
                             root.add-rule();
                         }
                     }
                 }
                 if root.rules.length == 0: Text {
-                    text: "Правил нет. Пример: «Напрямую» + домены «geosite:category-ru» или IP «geoip:ru».";
+                    text: @tr("Правил нет. Пример: «Напрямую» + домены «geosite:category-ru» или IP «geoip:ru».");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
@@ -2377,7 +2394,7 @@ component RoutingPage inherits Rectangle {
                     }
                 }
                 Text {
-                    text: "Правила проверяются сверху вниз, срабатывает первое подходящее. Домены: example.com (с поддоменами), full:, keyword:, regexp:, geosite:… IP: адреса, подсети, geoip:ru, geoip:ru-whitelist, geoip:private. Через запятую.";
+                    text: @tr("Правила проверяются сверху вниз, срабатывает первое подходящее. Домены: example.com (с поддоменами), full:, keyword:, regexp:, geosite:… IP: адреса, подсети, geoip:ru, geoip:ru-whitelist, geoip:private. Через запятую.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
@@ -2385,17 +2402,17 @@ component RoutingPage inherits Rectangle {
             }
 
             SectionLabel {
-                text: "ПРИЛОЖЕНИЯ";
+                text: @tr("ПРИЛОЖЕНИЯ");
             }
             SettingsCard {
                 HorizontalLayout {
                     spacing: 12px;
                     FieldLabel {
-                        text: "Режим";
+                        text: @tr("Режим");
                     }
                     ComboBox {
                         height: 36px;
-                        model: ["Выключено", "Эти программы — мимо VPN", "Только эти программы — через VPN"];
+                        model: [@tr("Выключено"), @tr("Эти программы — мимо VPN"), @tr("Только эти программы — через VPN")];
                         current-index <=> root.app-mode;
                         selected => {
                             root.changed();
@@ -2403,9 +2420,9 @@ component RoutingPage inherits Rectangle {
                     }
                 }
                 Text {
-                    text: root.app-mode == 0 ? "Все программы идут по правилам выше."
-                        : root.app-mode == 1 ? "Выбранные программы работают с вашим обычным IP: например, Steam и игры, торрент-клиенты, рабочие программы."
-                        : "Через VPN идут только выбранные программы, всё остальное — напрямую.";
+                    text: root.app-mode == 0 ? @tr("Все программы идут по правилам выше.")
+                        : root.app-mode == 1 ? @tr("Выбранные программы работают с вашим обычным IP: например, Steam и игры, торрент-клиенты, рабочие программы.")
+                        : @tr("Через VPN идут только выбранные программы, всё остальное — напрямую.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
@@ -2434,10 +2451,10 @@ component RoutingPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: 8px;
                         new-app := TextField {
-                            placeholder: "steam.exe, Telegram или путь";
+                            placeholder: @tr("steam.exe, Telegram или путь");
                         }
                         Button {
-                            text: "Добавить";
+                            text: @tr("Добавить");
                             enabled: new-app.text != "";
                             clicked => {
                                 root.app-added(new-app.text);
@@ -2445,7 +2462,7 @@ component RoutingPage inherits Rectangle {
                             }
                         }
                         Button {
-                            text: root.picking ? "Скрыть" : "Из запущенных";
+                            text: root.picking ? @tr("Скрыть") : @tr("Из запущенных");
                             clicked => {
                                 if (!root.picking) {
                                     root.pick-running();
@@ -2493,7 +2510,7 @@ component RoutingPage inherits Rectangle {
             }
 
             SectionLabel {
-                text: "БАЗЫ";
+                text: @tr("БАЗЫ");
             }
             SettingsCard {
                 HorizontalLayout {
@@ -2502,7 +2519,7 @@ component RoutingPage inherits Rectangle {
                         horizontal-stretch: 1;
                         spacing: 4px;
                         Text {
-                            text: "Российские IP, белые списки, серверы игр";
+                            text: @tr("Российские IP, белые списки, серверы игр");
                             font-size: Theme.fs-title;
                             font-weight: 700;
                             wrap: word-wrap;
@@ -2517,7 +2534,7 @@ component RoutingPage inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         Button {
-                            text: root.geo-busy ? "Обновление…" : "Обновить";
+                            text: root.geo-busy ? @tr("Обновление…") : @tr("Обновить");
                             enabled: !root.geo-busy;
                             clicked => {
                                 root.update-geo();
@@ -2529,7 +2546,7 @@ component RoutingPage inherits Rectangle {
             SettingsCard {
                 TextField {
                     text <=> root.geo-search-query;
-                    placeholder: "Поиск в geoip.dat и geosite.dat";
+                    placeholder: @tr("Поиск в geoip.dat и geosite.dat");
                     edited => {
                         root.geo-search(root.geo-search-query);
                     }
@@ -2707,7 +2724,7 @@ component ServerEditor inherits Rectangle {
                 if root.mode == 0: VerticalLayout {
                     alignment: center;
                     Button {
-                        text: "Форматировать";
+                        text: @tr("Форматировать");
                         clicked => {
                             root.format();
                         }
@@ -2716,7 +2733,7 @@ component ServerEditor inherits Rectangle {
                 if root.mode == 1: VerticalLayout {
                     alignment: center;
                     Button {
-                        text: "Как JSON";
+                        text: @tr("Как JSON");
                         clicked => {
                             root.as-json();
                         }
@@ -2872,7 +2889,7 @@ component ServerEditor inherits Rectangle {
                         wrap: word-wrap;
                     }
                     if !root.valid && root.error-offset >= 0: Button {
-                        text: "Показать";
+                        text: @tr("Показать");
                         clicked => {
                             input.set-selection-offsets(root.error-offset, root.error-offset);
                             input.focus();
@@ -2948,14 +2965,14 @@ component ServerEditor inherits Rectangle {
             HorizontalLayout {
                 spacing: 8px;
                 if root.edited: Button {
-                    text: "Вернуть версию подписки";
+                    text: @tr("Вернуть версию подписки");
                     clicked => {
                         root.reset();
                     }
                 }
                 Text {
                     horizontal-stretch: 1;
-                    text: "Ctrl+S — сохранить · Esc — отмена";
+                    text: @tr("Ctrl+S — сохранить · Esc — отмена");
                     font-size: Theme.fs-caption;
                     color: Theme.muted;
                     vertical-alignment: center;
@@ -2963,13 +2980,13 @@ component ServerEditor inherits Rectangle {
                     overflow: elide;
                 }
                 Button {
-                    text: "Отмена";
+                    text: @tr("Отмена");
                     clicked => {
                         root.cancel();
                     }
                 }
                 Button {
-                    text: root.live ? "Сохранить и переподключить" : "Сохранить";
+                    text: root.live ? @tr("Сохранить и переподключить") : @tr("Сохранить");
                     primary: true;
                     enabled: root.mode == 1 || root.valid;
                     clicked => {
@@ -3105,6 +3122,7 @@ export component AppWindow inherits Window {
     in-out property <string> proxy-port <=> settings-page.proxy-port;
     in property <bool> tray-available <=> settings-page.tray-available;
     in-out property <string> text-scale-choice <=> settings-page.text-scale-choice;
+    in-out property <int> language-index <=> settings-page.language-index;
     in-out property <string> font-choice <=> settings-page.font-choice;
     in-out property <string> theme-choice <=> settings-page.theme-choice;
     in-out property <bool> hysteria-restart <=> settings-page.hysteria-restart;
@@ -3199,7 +3217,7 @@ export component AppWindow inherits Window {
 
     // Connection: "idle" | "connecting" | "connected" | "disconnecting" | "failed" | "blocked"
     in property <string> conn-state: "idle";
-    in property <string> conn-title: "Не подключено";
+    in property <string> conn-title: @tr("Не подключено");
     in property <string> conn-detail;
     // Where the connection comes out: exit country (flag, "Эстония · 5.175.178.192")
     // and, for a balancer, the node it picked now.
@@ -3333,36 +3351,36 @@ export component AppWindow inherits Window {
     MenuBar {
         visible: Platform.os == OperatingSystemType.macos;
         Menu {
-            title: "Подключение";
+            title: @tr("Подключение");
             MenuItem {
-                title: "Подключиться (Enter)";
+                title: @tr("Подключиться (Enter)");
                 enabled: root.can-connect && root.conn-state != "connecting" && root.conn-state != "disconnecting";
                 activated => { root.connect-selected(); }
             }
             MenuItem {
-                title: root.conn-state == "connecting" ? "Отменить подключение (⌘S)" : "Отключиться (⌘S)";
+                title: root.conn-state == "connecting" ? @tr("Отменить подключение (⌘S)") : @tr("Отключиться (⌘S)");
                 enabled: root.conn-state == "connected" || root.conn-state == "blocked" || root.conn-state == "connecting";
                 activated => { root.disconnect-current(); }
             }
             MenuSeparator {}
             MenuItem {
-                title: "Пинг серверов";
+                title: @tr("Пинг серверов");
                 activated => { root.ping-current(); }
             }
             MenuItem {
-                title: "Обновить подписку";
+                title: @tr("Обновить подписку");
                 enabled: root.current-sub >= 0;
                 activated => { root.refresh-current(); }
             }
             MenuItem {
-                title: "Добавить из буфера обмена (⌘V)";
+                title: @tr("Добавить из буфера обмена (⌘V)");
                 activated => { root.add-from-clipboard(); }
             }
         }
         Menu {
-            title: "Вид";
+            title: @tr("Вид");
             MenuItem {
-                title: "Серверы";
+                title: @tr("Серверы");
                 activated => {
                     root.settings-open = false;
                     root.routing-open = false;
@@ -3370,7 +3388,7 @@ export component AppWindow inherits Window {
                 }
             }
             MenuItem {
-                title: "Маршрутизация";
+                title: @tr("Маршрутизация");
                 activated => {
                     root.settings-open = false;
                     root.editor-open = false;
@@ -3378,7 +3396,7 @@ export component AppWindow inherits Window {
                 }
             }
             MenuItem {
-                title: "Настройки";
+                title: @tr("Настройки");
                 activated => {
                     if (!root.settings-open) {
                         root.open-settings();
@@ -3390,18 +3408,18 @@ export component AppWindow inherits Window {
             }
         }
         Menu {
-            title: "Справка";
+            title: @tr("Справка");
             MenuItem {
-                title: "Сообщить о проблеме";
+                title: @tr("Сообщить о проблеме");
                 activated => { root.report-problem(); }
             }
             MenuItem {
-                title: "Поддержка";
+                title: @tr("Поддержка");
                 enabled: root.has-support;
                 activated => { root.open-support(); }
             }
             MenuItem {
-                title: "Сайт подписки";
+                title: @tr("Сайт подписки");
                 enabled: root.has-web-page;
                 activated => { root.open-web-page(); }
             }
@@ -3526,7 +3544,7 @@ export component AppWindow inherits Window {
                             padding: 12px;
                             spacing: 5px;
                             Text {
-                                text: "Мои серверы";
+                                text: @tr("Мои серверы");
                                 font-size: Theme.fs-title;
                                 font-weight: 700;
                                 color: root.manual-selected ? Theme.selected-fg : Theme.fg;
@@ -3543,7 +3561,7 @@ export component AppWindow inherits Window {
     
                     HorizontalLayout {
                         SectionLabel {
-                            text: "ПОДПИСКИ";
+                            text: @tr("ПОДПИСКИ");
                             horizontal-stretch: 1;
                         }
                         VerticalLayout {
@@ -3572,7 +3590,7 @@ export component AppWindow inherits Window {
                                         padding: 6px;
                                         spacing: 2px;
                                         MenuItem {
-                                            text: "Из буфера обмена";
+                                            text: @tr("Из буфера обмена");
                                             clicked => {
                                                 add-menu.close();
                                                 root.settings-open = false;
@@ -3582,7 +3600,7 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         MenuItem {
-                                            text: "Ввести вручную";
+                                            text: @tr("Ввести вручную");
                                             clicked => {
                                                 add-menu.close();
                                                 root.settings-open = false;
@@ -3599,7 +3617,7 @@ export component AppWindow inherits Window {
                     }
     
                     if root.subs.length == 0 && !root.has-manual: Text {
-                        text: "Пока пусто. Добавьте ссылку на подписку или сервер.";
+                        text: @tr("Пока пусто. Добавьте ссылку на подписку или сервер.");
                         color: Theme.muted;
                         wrap: word-wrap;
                         font-size: Theme.fs-small;
@@ -3695,7 +3713,7 @@ export component AppWindow inherits Window {
                                         stroke-width: 1.6px;
                                     }
                                     if confirming: Text {
-                                        text: "Удалить?";
+                                        text: @tr("Удалить?");
                                         color: white;
                                         font-size: Theme.fs-small;
                                         font-weight: 700;
@@ -3736,14 +3754,14 @@ export component AppWindow inherits Window {
                             padding-right: 48px;
                             spacing: 6px;
                             Text {
-                                text: "Нет VPN?";
+                                text: @tr("Нет VPN?");
                                 color: Theme.on-accent.with-alpha(0.75);
                                 font-size: Theme.fs-body;
                                 vertical-alignment: center;
                             }
                             Text {
                                 horizontal-stretch: 1;
-                                text: "Купить DUALIZM";
+                                text: @tr("Купить DUALIZM");
                                 color: Theme.on-accent;
                                 font-size: Theme.fs-body;
                                 font-weight: 800;
@@ -3770,7 +3788,7 @@ export component AppWindow inherits Window {
                             height: 28px;
                             border-radius: 14px;
                             accessible-role: button;
-                            accessible-label: "Не показывать больше";
+                            accessible-label: @tr("Не показывать больше");
                             accessible-action-default => { root.hide-buy(); }
                             background: Theme.on-accent.with-alpha(hide-touch.pressed ? 0.22 : hide-touch.has-hover ? 0.14 : 0);
                             animate background { duration: 120ms; easing: ease-out; }
@@ -3813,7 +3831,7 @@ export component AppWindow inherits Window {
                                 wrap: word-wrap;
                             }
                             if root.expiry-can-renew: Button {
-                                text: "Продлить";
+                                text: @tr("Продлить");
                                 primary: true;
                                 clicked => {
                                     root.renew-expiring();
@@ -3826,7 +3844,7 @@ export component AppWindow inherits Window {
                                     height: 28px;
                                     border-radius: 14px;
                                     accessible-role: button;
-                                    accessible-label: "Скрыть напоминание";
+                                    accessible-label: @tr("Скрыть напоминание");
                                     accessible-action-default => { root.dismiss-expiring(); }
                                     background: Theme.fg.with-alpha(exp-hide.pressed ? 0.16 : exp-hide.has-hover ? 0.08 : 0);
                                     animate background { duration: 120ms; easing: ease-out; }
@@ -3903,7 +3921,7 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                     Text {
-                                        text: "Подключено";
+                                        text: @tr("Подключено");
                                         font-size: Theme.fs-caption;
                                         font-weight: 600;
                                         color: Theme.ok;
@@ -4021,10 +4039,10 @@ export component AppWindow inherits Window {
                                 }
                             }
                             Button {
-                                text: root.conn-state == "connected" || root.conn-state == "blocked" ? "Отключиться"
-                                    : root.conn-state == "connecting" ? "Отменить"
-                                    : root.conn-state == "disconnecting" ? "Отключение…"
-                                    : root.can-connect ? "Подключиться" : "Выберите сервер";
+                                text: root.conn-state == "connected" || root.conn-state == "blocked" ? @tr("Отключиться")
+                                    : root.conn-state == "connecting" ? @tr("Отменить")
+                                    : root.conn-state == "disconnecting" ? @tr("Отключение…")
+                                    : root.can-connect ? @tr("Подключиться") : @tr("Выберите сервер");
                                 primary: root.conn-state != "connected" && root.conn-state != "blocked";
                                 enabled: root.conn-state == "connected" || root.conn-state == "blocked" || root.conn-state == "connecting" || ((root.conn-state == "idle" || root.conn-state == "failed") && root.can-connect);
                                 clicked => {
@@ -4038,7 +4056,7 @@ export component AppWindow inherits Window {
                         spacing: 8px;
                         Button {
                             horizontal-stretch: 1;
-                            text: root.routing-open ? "← К серверам" : "Маршрутизация";
+                            text: root.routing-open ? @tr("← К серверам") : @tr("Маршрутизация");
                             primary: root.routing-open;
                             clicked => {
                                 root.settings-open = false;
@@ -4048,7 +4066,7 @@ export component AppWindow inherits Window {
                         }
                         Button {
                             horizontal-stretch: 1;
-                            text: root.settings-open ? "← К серверам" : "Настройки";
+                            text: root.settings-open ? @tr("← К серверам") : @tr("Настройки");
                             primary: root.settings-open;
                             clicked => {
                                 if (!root.settings-open) {
@@ -4078,7 +4096,7 @@ export component AppWindow inherits Window {
                             background: cancel-touch.has-hover ? Theme.danger.with-alpha(0.22) : Theme.fg.with-alpha(0.08);
                             animate background { duration: 120ms; easing: ease-out; }
                             cancel-text := Text {
-                                text: "Отмена";
+                                text: @tr("Отмена");
                                 font-size: Theme.fs-caption;
                                 font-weight: 600;
                                 color: cancel-touch.has-hover ? Theme.danger : Theme.fg;
@@ -4160,8 +4178,8 @@ export component AppWindow inherits Window {
                 spacing: 14px;
     
                 if root.current-sub < 0: EmptyState {
-                    title: "Нет подписки";
-                    hint: "Нажмите «Добавить» и вставьте ссылку на подписку.";
+                    title: @tr("Нет подписки");
+                    hint: @tr("Нажмите «Добавить» и вставьте ссылку на подписку.");
                 }
     
                 // Subscription header, laid out like Happ: title row, traffic row, announcement.
@@ -4269,7 +4287,7 @@ export component AppWindow inherits Window {
                                 spacing: 8px;
                                 TextField {
                                     text <=> root.filter-text;
-                                    placeholder: "Фильтр, например (lte|обход|россия)";
+                                    placeholder: @tr("Фильтр, например (lte|обход|россия)");
                                     edited => {
                                         root.filter-changed();
                                     }
@@ -4277,7 +4295,7 @@ export component AppWindow inherits Window {
                                 ComboBox {
                                     width: 140px;
                                     height: 36px;
-                                    model: ["Оставить", "Исключить"];
+                                    model: [@tr("Оставить"), @tr("Исключить")];
                                     current-index: root.filter-exclude ? 1 : 0;
                                     selected => {
                                         root.filter-exclude = self.current-index == 1;
@@ -4372,21 +4390,21 @@ export component AppWindow inherits Window {
                                 padding: 6px;
                                 spacing: 2px;
                                 MenuItem {
-                                    text: "Скопировать ссылку";
+                                    text: @tr("Скопировать ссылку");
                                     clicked => {
                                         root.copy-sub-link();
                                         sub-menu.close();
                                     }
                                 }
                                 MenuItem {
-                                    text: "QR-код";
+                                    text: @tr("QR-код");
                                     clicked => {
                                         root.show-sub-qr();
                                         sub-menu.close();
                                     }
                                 }
                                 MenuItem {
-                                    text: "Подключиться к самому быстрому";
+                                    text: @tr("Подключиться к самому быстрому");
                                     enabled: !root.pinging;
                                     clicked => {
                                         root.connect-best();
@@ -4394,14 +4412,14 @@ export component AppWindow inherits Window {
                                     }
                                 }
                                 MenuItem {
-                                    text: root.speed-testing ? "Остановить тест скорости" : "Проверить скорость всех";
+                                    text: root.speed-testing ? @tr("Остановить тест скорости") : @tr("Проверить скорость всех");
                                     clicked => {
                                         root.speed-test-all();
                                         sub-menu.close();
                                     }
                                 }
                                 if !root.manual-selected: MenuItem {
-                                    text: "Подмена HWID";
+                                    text: @tr("Подмена HWID");
                                     // Callback first: close() drops this item with the popup.
                                     clicked => {
                                         root.open-ident();
@@ -4409,7 +4427,7 @@ export component AppWindow inherits Window {
                                     }
                                 }
                                 MenuItem {
-                                    text: root.confirm-menu-delete ? "Точно удалить?" : "Удалить подписку";
+                                    text: root.confirm-menu-delete ? @tr("Точно удалить?") : @tr("Удалить подписку");
                                     danger: true;
                                     clicked => {
                                         if (root.confirm-menu-delete) {
@@ -4451,7 +4469,7 @@ export component AppWindow inherits Window {
                         padding: 12px;
                         spacing: 10px;
                         Text {
-                            text: "Выберите сервер из списка ниже, затем нажмите «Подключиться».";
+                            text: @tr("Выберите сервер из списка ниже, затем нажмите «Подключиться».");
                             font-size: Theme.fs-body;
                             font-weight: 600;
                             wrap: word-wrap;
@@ -4461,8 +4479,8 @@ export component AppWindow inherits Window {
     
                 if root.manual-selected && root.servers.length == 0: EmptyState {
                     vertical-stretch: 1;
-                    title: "Пока нет серверов";
-                    hint: "Нажмите «+» рядом с «Подписки» и добавьте ссылку на сервер.";
+                    title: @tr("Пока нет серверов");
+                    hint: @tr("Нажмите «+» рядом с «Подписки» и добавьте ссылку на сервер.");
                 }
     
                 if root.current-sub >= 0 && (!root.manual-selected || root.servers.length > 0): servers-list := ListView {
@@ -4514,14 +4532,14 @@ export component AppWindow inherits Window {
                                         padding: 6px;
                                         spacing: 2px;
                                         MenuItem {
-                                            text: srv.favorite ? "Убрать из избранного" : "В избранное";
+                                            text: srv.favorite ? @tr("Убрать из избранного") : @tr("В избранное");
                                             clicked => {
                                                 row-menu.close();
                                                 root.toggle-favorite(i);
                                             }
                                         }
                                         MenuItem {
-                                            text: "Пропинговать";
+                                            text: @tr("Пропинговать");
                                             enabled: !root.pinging;
                                             clicked => {
                                                 row-menu.close();
@@ -4529,35 +4547,35 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         MenuItem {
-                                            text: srv.proxies > 1 ? "Скопировать ссылки" : "Скопировать ссылку";
+                                            text: srv.proxies > 1 ? @tr("Скопировать ссылки") : @tr("Скопировать ссылку");
                                             clicked => {
                                                 row-menu.close();
                                                 root.copy-server-link(i);
                                             }
                                         }
                                         MenuItem {
-                                            text: "QR-код";
+                                            text: @tr("QR-код");
                                             clicked => {
                                                 root.show-server-qr(i);
                                                 row-menu.close();
                                             }
                                         }
                                         MenuItem {
-                                            text: "Проверить скорость";
+                                            text: @tr("Проверить скорость");
                                             clicked => {
                                                 root.speed-test-server(i);
                                                 row-menu.close();
                                             }
                                         }
                                         MenuItem {
-                                            text: srv.is-json ? "Изменить JSON" : "Изменить параметры";
+                                            text: srv.is-json ? @tr("Изменить JSON") : @tr("Изменить параметры");
                                             clicked => {
                                                 row-menu.close();
                                                 root.edit-server(i);
                                             }
                                         }
                                         if srv.edited: MenuItem {
-                                            text: "Вернуть версию подписки";
+                                            text: @tr("Вернуть версию подписки");
                                             danger: true;
                                             clicked => {
                                                 root.reset-server(i);
@@ -4622,14 +4640,14 @@ export component AppWindow inherits Window {
                                 if srv.edited: VerticalLayout {
                                     alignment: center;
                                     Chip {
-                                        text: "изменён";
+                                        text: @tr("изменён");
                                         accent: true;
                                     }
                                 }
                                 if srv.proxies > 1: VerticalLayout {
                                     alignment: center;
                                     Chip {
-                                        text: "авто × " + srv.proxies;
+                                        text: @tr("авто × {}", srv.proxies);
                                     }
                                 }
                                 if root.show-server-type: VerticalLayout {
@@ -4703,7 +4721,7 @@ export component AppWindow inherits Window {
                 padding: 22px;
                 spacing: 12px;
                 Text {
-                    text: "Нужен помощник";
+                    text: @tr("Нужен помощник");
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
@@ -4731,14 +4749,14 @@ export component AppWindow inherits Window {
                         }
                     }
                     Button {
-                        text: "Отмена";
+                        text: @tr("Отмена");
                         enabled: !root.helper-busy;
                         clicked => {
                             root.helper-dialog = false;
                         }
                     }
                     Button {
-                        text: "Установить";
+                        text: @tr("Установить");
                         primary: true;
                         enabled: !root.helper-busy;
                         clicked => {
@@ -4774,18 +4792,18 @@ export component AppWindow inherits Window {
                 padding: 22px;
                 spacing: 12px;
                 Text {
-                    text: "Добавить";
+                    text: @tr("Добавить");
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
                 Text {
-                    text: "Ссылка на подписку из панели или бота, либо сами ссылки vless://, vmess://, trojan://, ss:// — можно несколько, каждую с новой строки. Одиночные ссылки попадут в группу «Мои серверы».";
+                    text: @tr("Ссылка на подписку из панели или бота, либо сами ссылки vless://, vmess://, trojan://, ss:// — можно несколько, каждую с новой строки. Одиночные ссылки попадут в группу «Мои серверы».");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
                 url-edit := TextField {
-                    placeholder: "https://…/sub/…  или  vless://…";
+                    placeholder: @tr("https://…/sub/…  или  vless://…");
                     init => {
                         if root.add-prefill != "" {
                             self.text = root.add-prefill;
@@ -4797,7 +4815,7 @@ export component AppWindow inherits Window {
                     }
                 }
                 name-edit := TextField {
-                    placeholder: "Название (необязательно)";
+                    placeholder: @tr("Название (необязательно)");
                     accepted => {
                         root.add-subscription(url-edit.text, name-edit.text);
                     }
@@ -4812,13 +4830,13 @@ export component AppWindow inherits Window {
                     alignment: end;
                     spacing: 8px;
                     Button {
-                        text: "Отмена";
+                        text: @tr("Отмена");
                         clicked => {
                             root.adding = false;
                         }
                     }
                     Button {
-                        text: "Добавить";
+                        text: @tr("Добавить");
                         primary: true;
                         clicked => {
                             root.add-subscription(url-edit.text, name-edit.text);
@@ -4857,7 +4875,7 @@ export component AppWindow inherits Window {
                 padding: 22px;
                 spacing: 12px;
                 Text {
-                    text: "Диагностика сети";
+                    text: @tr("Диагностика сети");
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
@@ -4889,7 +4907,7 @@ export component AppWindow inherits Window {
                             font-weight: 700;
                         }
                         Text {
-                            text: row.state == 0 ? "проверяем…" : row.detail;
+                            text: row.state == 0 ? @tr("проверяем…") : row.detail;
                             font-size: Theme.fs-caption;
                             color: row.state == 3 ? Theme.danger : Theme.muted;
                             wrap: word-wrap;
@@ -4900,21 +4918,21 @@ export component AppWindow inherits Window {
                     alignment: end;
                     spacing: 8px;
                     Button {
-                        text: "Повторить";
+                        text: @tr("Повторить");
                         enabled: !root.diag-running;
                         clicked => {
                             root.run-diagnostics();
                         }
                     }
                     Button {
-                        text: "Скопировать";
+                        text: @tr("Скопировать");
                         enabled: !root.diag-running;
                         clicked => {
                             root.copy-diagnostics();
                         }
                     }
                     Button {
-                        text: "Закрыть";
+                        text: @tr("Закрыть");
                         clicked => {
                             root.diag-open = false;
                         }
@@ -4970,7 +4988,7 @@ export component AppWindow inherits Window {
                     }
                 }
                 Text {
-                    text: "Откройте ваше VPN-приложение на телефоне и отсканируйте QR-код. Подойдёт и камера.";
+                    text: @tr("Откройте ваше VPN-приложение на телефоне и отсканируйте QR-код. Подойдёт и камера.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
@@ -4979,13 +4997,13 @@ export component AppWindow inherits Window {
                     alignment: end;
                     spacing: 8px;
                     Button {
-                        text: "Скопировать";
+                        text: @tr("Скопировать");
                         clicked => {
                             root.qr-copy();
                         }
                     }
                     Button {
-                        text: "Закрыть";
+                        text: @tr("Закрыть");
                         primary: true;
                         clicked => {
                             root.qr-open = false;
@@ -5019,21 +5037,21 @@ export component AppWindow inherits Window {
                 padding: 22px;
                 spacing: 10px;
                 Text {
-                    text: "Подмена HWID";
+                    text: @tr("Подмена HWID");
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
                 Text {
-                    text: "Кем DUORAY представляется панели, когда запрашивает эту подписку. Остальные подписки это не меняет.";
+                    text: @tr("Кем DUORAY представляется панели, когда запрашивает эту подписку. Остальные подписки это не меняет.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    FieldLabel { text: "Представляться"; }
+                    FieldLabel { text: @tr("Представляться"); }
                     ComboBox {
-                        model: ["Как в настройках", "DUORAY", "Happ"];
+                        model: [@tr("Как в настройках"), "DUORAY", "Happ"];
                         current-index <=> root.ident-mode;
                     }
                 }
@@ -5048,7 +5066,7 @@ export component AppWindow inherits Window {
                             placeholder: root.ident-default-hwid;
                         }
                         Button {
-                            text: "Сгенерировать";
+                            text: @tr("Сгенерировать");
                             clicked => {
                                 root.ident-new-hwid();
                             }
@@ -5068,9 +5086,9 @@ export component AppWindow inherits Window {
                     spacing: 10px;
                     HorizontalLayout {
                         spacing: 12px;
-                        FieldLabel { text: "Версия Happ"; }
+                        FieldLabel { text: @tr("Версия Happ"); }
                         TextField { text <=> root.ih-version; horizontal-stretch: 1; preferred-width: 100px; }
-                        FieldLabel { text: "ОС"; width: 80px; }
+                        FieldLabel { text: @tr("ОС"); width: 80px; }
                         ComboBox {
                             min-width: 0;
                             preferred-width: 100px;
@@ -5082,14 +5100,14 @@ export component AppWindow inherits Window {
                     }
                     HorizontalLayout {
                         spacing: 12px;
-                        FieldLabel { text: "Версия ОС"; }
+                        FieldLabel { text: @tr("Версия ОС"); }
                         TextField { text <=> root.ih-os-version; horizontal-stretch: 1; preferred-width: 100px; }
-                        FieldLabel { text: "Модель"; width: 80px; }
+                        FieldLabel { text: @tr("Модель"); width: 80px; }
                         TextField { text <=> root.ih-model; horizontal-stretch: 1; preferred-width: 100px; }
                     }
                     HorizontalLayout {
                         spacing: 12px;
-                        FieldLabel { text: "Язык"; }
+                        FieldLabel { text: @tr("Язык"); }
                         TextField { text <=> root.ih-locale; horizontal-stretch: 1; preferred-width: 100px; }
                         FieldLabel { text: "User ID"; width: 80px; }
                         TextField { text <=> root.ih-user-id; horizontal-stretch: 1; preferred-width: 100px; }
@@ -5104,13 +5122,13 @@ export component AppWindow inherits Window {
                         alignment: start;
                         padding-left: 162px;
                         Button {
-                            text: "Новые ID";
+                            text: @tr("Новые ID");
                             clicked => {
                                 root.ident-new-ids();
                             }
                         }
                         Button {
-                            text: "Случайное устройство";
+                            text: @tr("Случайное устройство");
                             clicked => {
                                 root.ident-random-device();
                             }
@@ -5122,7 +5140,7 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     spacing: 4px;
                     Text {
-                        text: "Будет отправлено";
+                        text: @tr("Будет отправлено");
                         font-size: Theme.fs-small;
                         font-weight: 700;
                         color: Theme.muted;
@@ -5152,13 +5170,13 @@ export component AppWindow inherits Window {
                     alignment: end;
                     spacing: 8px;
                     Button {
-                        text: "Отмена";
+                        text: @tr("Отмена");
                         clicked => {
                             root.ident-open = false;
                         }
                     }
                     Button {
-                        text: "Сохранить";
+                        text: @tr("Сохранить");
                         primary: true;
                         clicked => {
                             root.save-ident();
@@ -5185,28 +5203,28 @@ export component AppWindow inherits Window {
                 padding: 24px;
                 spacing: 12px;
                 Text {
-                    text: "Отчёты об ошибках";
+                    text: @tr("Отчёты об ошибках");
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
                 Text {
-                    text: "Если что-то сломается, DUORAY может отправить нам отчёт, чтобы мы быстрее нашли и исправили ошибку. Отправлять или нет — решаете вы.";
+                    text: @tr("Если что-то сломается, DUORAY может отправить нам отчёт, чтобы мы быстрее нашли и исправили ошибку. Отправлять или нет — решаете вы.");
                     wrap: word-wrap;
                 }
                 Text {
-                    text: "В отчёте: версия DUORAY и ОС, текст ошибки, журнал последних действий, тип протокола и ваши настройки маршрутизации.";
+                    text: @tr("В отчёте: версия DUORAY и ОС, текст ошибки, журнал последних действий, тип протокола и ваши настройки маршрутизации.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
                 Text {
-                    text: "Никогда не отправляются: ссылки подписок, адреса и названия серверов, ключи и UUID. Ваш IP-адрес с отчётом не сохраняется. Отчёты хранятся 90 дней.";
+                    text: @tr("Никогда не отправляются: ссылки подписок, адреса и названия серверов, ключи и UUID. Ваш IP-адрес с отчётом не сохраняется. Отчёты хранятся 90 дней.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
                 Text {
-                    text: "Передумать можно в любой момент: Настройки → Отчёты и обновления.";
+                    text: @tr("Передумать можно в любой момент: Настройки → Отчёты и обновления.");
                     font-size: Theme.fs-small;
                     color: Theme.muted;
                     wrap: word-wrap;
@@ -5215,13 +5233,13 @@ export component AppWindow inherits Window {
                     alignment: end;
                     spacing: 8px;
                     Button {
-                        text: "Не отправлять";
+                        text: @tr("Не отправлять");
                         clicked => {
                             root.consent(false);
                         }
                     }
                     Button {
-                        text: "Разрешить отправку";
+                        text: @tr("Разрешить отправку");
                         clicked => {
                             root.consent(true);
                         }
@@ -5247,14 +5265,14 @@ export component AppWindow inherits Window {
                 padding: 22px;
                 spacing: 12px;
                 Text {
-                    text: "Сообщить о проблеме";
+                    text: @tr("Сообщить о проблеме");
                     font-size: Theme.fs-heading;
                     font-weight: 800;
                 }
                 if root.report-code == "": VerticalLayout {
                     spacing: 12px;
                     Text {
-                        text: "Что случилось и что вы делали перед этим? Вместе с описанием уйдёт журнал последних действий — без ссылок, адресов серверов и ключей.";
+                        text: @tr("Что случилось и что вы делали перед этим? Вместе с описанием уйдёт журнал последних действий — без ссылок, адресов серверов и ключей.");
                         font-size: Theme.fs-small;
                         color: Theme.muted;
                         wrap: word-wrap;
@@ -5262,7 +5280,7 @@ export component AppWindow inherits Window {
                     // Several lines, wrapped: people write more than a line here.
                     TextEdit {
                         text <=> root.report-note;
-                        placeholder-text: "Например: не подключается к Нидерландам после обновления";
+                        placeholder-text: @tr("Например: не подключается к Нидерландам после обновления");
                         wrap: word-wrap;
                         min-height: 96px;
                         font-size: Theme.fs-body;
@@ -5295,7 +5313,7 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         spacing: 8px;
                         Button {
-                            text: root.report-preview == "" ? "Что отправится?" : "Обновить";
+                            text: root.report-preview == "" ? @tr("Что отправится?") : @tr("Обновить");
                             clicked => {
                                 root.report-preview-requested();
                             }
@@ -5312,14 +5330,14 @@ export component AppWindow inherits Window {
                             }
                         }
                         Button {
-                            text: "Отмена";
+                            text: @tr("Отмена");
                             enabled: !root.report-busy;
                             clicked => {
                                 root.report-open = false;
                             }
                         }
                         Button {
-                            text: "Отправить";
+                            text: @tr("Отправить");
                             primary: true;
                             enabled: !root.report-busy;
                             clicked => {
@@ -5331,7 +5349,7 @@ export component AppWindow inherits Window {
                 if root.report-code != "": VerticalLayout {
                     spacing: 12px;
                     Text {
-                        text: "Отчёт отправлен. Код отчёта — передайте его в поддержку:";
+                        text: @tr("Отчёт отправлен. Код отчёта — передайте его в поддержку:");
                         wrap: word-wrap;
                     }
                     Text {
@@ -5345,13 +5363,13 @@ export component AppWindow inherits Window {
                         alignment: end;
                         spacing: 8px;
                         Button {
-                            text: "Скопировать код";
+                            text: @tr("Скопировать код");
                             clicked => {
                                 root.report-copy-code();
                             }
                         }
                         Button {
-                            text: "Готово";
+                            text: @tr("Готово");
                             primary: true;
                             clicked => {
                                 root.report-open = false;
@@ -5407,18 +5425,18 @@ export component AppWindow inherits Window {
                         }
                         Rectangle { height: 22px; }
                         Text {
-                            text: root.pin-mode == 1 ? "DUORAY заблокирован"
-                                : root.pin-mode == 2 ? "Текущий PIN-код"
-                                : root.pin-mode == 3 ? "Придумайте PIN-код" : "Повторите PIN-код";
+                            text: root.pin-mode == 1 ? @tr("DUORAY заблокирован")
+                                : root.pin-mode == 2 ? @tr("Текущий PIN-код")
+                                : root.pin-mode == 3 ? @tr("Придумайте PIN-код") : @tr("Повторите PIN-код");
                             font-size: Theme.fs-display;
                             font-weight: 800;
                             horizontal-alignment: center;
                         }
                         Rectangle { height: 6px; }
                         Text {
-                            text: root.pin-mode == 1 ? "Введите PIN-код, чтобы продолжить"
-                                : root.pin-mode == 2 ? "Чтобы изменить блокировку"
-                                : root.pin-mode == 3 ? "От 4 до 8 цифр" : "Ещё раз, для проверки";
+                            text: root.pin-mode == 1 ? @tr("Введите PIN-код, чтобы продолжить")
+                                : root.pin-mode == 2 ? @tr("Чтобы изменить блокировку")
+                                : root.pin-mode == 3 ? @tr("От 4 до 8 цифр") : @tr("Ещё раз, для проверки");
                             font-size: Theme.fs-small;
                             color: Theme.muted;
                             horizontal-alignment: center;
@@ -5483,7 +5501,7 @@ export component AppWindow inherits Window {
                                 }
                                 Row {
                                     PinKey {
-                                        text: root.pin-mode == 1 ? "" : "Отмена";
+                                        text: root.pin-mode == 1 ? "" : @tr("Отмена");
                                         quiet: true;
                                         enabled: root.pin-mode != 1;
                                         clicked => {
@@ -5506,7 +5524,7 @@ export component AppWindow inherits Window {
                         if root.pin-mode == 3: HorizontalLayout {
                             alignment: center;
                             Button {
-                                text: "Далее";
+                                text: @tr("Далее");
                                 enabled: root.pin-count >= 4;
                                 clicked => {
                                     root.pin-submit();
@@ -5514,7 +5532,7 @@ export component AppWindow inherits Window {
                             }
                         }
                         if root.pin-mode != 3: Text {
-                            text: "Можно вводить с клавиатуры";
+                            text: @tr("Можно вводить с клавиатуры");
                             font-size: Theme.fs-caption;
                             color: Theme.muted.with-alpha(0.7);
                             horizontal-alignment: center;

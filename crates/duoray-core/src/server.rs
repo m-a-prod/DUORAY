@@ -145,10 +145,10 @@ impl Server {
             column: e.column(),
         })?;
         if !config.is_object() {
-            return Err(JsonError::general("Конфиг должен быть объектом { … }"));
+            return Err(JsonError::general(crate::i18n::tr("Конфиг должен быть объектом { … }")));
         }
         Self::from_xray_config(config).ok_or_else(|| {
-            JsonError::general("В outbounds нет прокси: нужен исходящий vless, vmess, trojan, shadowsocks, hysteria…")
+            JsonError::general(crate::i18n::tr("В outbounds нет прокси: нужен исходящий vless, vmess, trojan, shadowsocks, hysteria…"))
         })
     }
 }
@@ -186,14 +186,14 @@ fn json_message(e: &serde_json::Error) -> String {
     let full = e.to_string();
     let text = full.split(" at line ").next().unwrap_or(&full);
     match e.classify() {
-        serde_json::error::Category::Eof => "Текст обрывается: не хватает закрывающей скобки или кавычки".into(),
-        _ if text.starts_with("trailing comma") => "Лишняя запятая перед закрывающей скобкой".into(),
-        _ if text.starts_with("expected `,` or `}`") => "Ожидается запятая или }".into(),
-        _ if text.starts_with("expected `,` or `]`") => "Ожидается запятая или ]".into(),
-        _ if text.starts_with("expected `:`") => "Ожидается двоеточие после ключа".into(),
-        _ if text.starts_with("key must be a string") => "Ключ должен быть в двойных кавычках".into(),
-        _ if text.starts_with("expected value") => "Ожидается значение".into(),
-        _ if text.starts_with("trailing characters") => "Лишний текст после конца конфига".into(),
+        serde_json::error::Category::Eof => crate::i18n::tr("Текст обрывается: не хватает закрывающей скобки или кавычки").into(),
+        _ if text.starts_with("trailing comma") => crate::i18n::tr("Лишняя запятая перед закрывающей скобкой").into(),
+        _ if text.starts_with("expected `,` or `}`") => crate::i18n::tr("Ожидается запятая или }").into(),
+        _ if text.starts_with("expected `,` or `]`") => crate::i18n::tr("Ожидается запятая или ]").into(),
+        _ if text.starts_with("expected `:`") => crate::i18n::tr("Ожидается двоеточие после ключа").into(),
+        _ if text.starts_with("key must be a string") => crate::i18n::tr("Ключ должен быть в двойных кавычках").into(),
+        _ if text.starts_with("expected value") => crate::i18n::tr("Ожидается значение").into(),
+        _ if text.starts_with("trailing characters") => crate::i18n::tr("Лишний текст после конца конфига").into(),
         _ => text.to_string(),
     }
 }

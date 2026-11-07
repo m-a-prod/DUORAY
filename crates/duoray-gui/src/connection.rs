@@ -1,6 +1,7 @@
 //! One VPN connection: xray (as the user) + TUN (through the helper), or in
 //! proxy mode xray + the system proxy pointed at it.
 
+use crate::i18n::{n, tr};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -140,7 +141,7 @@ fn settle<T>(cancel: &AtomicBool, mut step: impl FnMut() -> Result<T>) -> Result
 }
 
 fn cancelled_error() -> ConnectError {
-    ConnectError::Other(anyhow::anyhow!("подключение отменено"))
+    ConnectError::Other(anyhow::anyhow!(tr("подключение отменено")))
 }
 
 /// Per-app routing works through the TUN only: proxy mode goes without it.
@@ -223,16 +224,14 @@ pub fn connect(
             free
         });
         if !free {
-            return Err(ConnectError::Other(anyhow::anyhow!(
-                "порт {port} занят другой программой. Выберите другой порт прокси в настройках"
-            )));
+            return Err(ConnectError::Other(anyhow::anyhow!(trf!("порт {port} занят другой программой. Выберите другой порт прокси в настройках", port = port))));
         }
         rt.open_proxy(port);
     }
     let config_done = started.elapsed();
     let mut warnings = rt.warnings.clone();
     if apps_skipped {
-        warnings.push("Маршрутизация по приложениям работает только в режиме TUN, в режиме прокси она выключена.".into());
+        warnings.push(tr("Маршрутизация по приложениям работает только в режиме TUN, в режиме прокси она выключена.").into());
     }
     #[cfg(target_os = "macos")]
     {
@@ -245,9 +244,9 @@ pub fn connect(
             })
         {
             warnings.push(
-                "Работает сетевое расширение AdGuard. При фильтрации оно может открывать соединения от своего имени: \
+                tr("Работает сетевое расширение AdGuard. При фильтрации оно может открывать соединения от своего имени: \
                  правила Chrome и Zen тогда не сработают. Исключите выбранные приложения из фильтрации AdGuard \
-                 или временно выключите его защиту для проверки, затем полностью перезапустите браузер.".into(),
+                 или временно выключите его защиту для проверки, затем полностью перезапустите браузер.").into(),
             );
         }
     }
@@ -310,9 +309,9 @@ pub fn connect(
             });
             set.map(|warning| {
                 warnings.extend(warning);
-                format!("прокси 127.0.0.1:{port}")
+                trf!("прокси 127.0.0.1:{port}", port = port)
             })
-            .context("системный прокси")
+            .context(tr("системный прокси"))
         }
         (None, Some(helper)) => helper
             .start(TunRequest {
@@ -385,10 +384,10 @@ pub fn connect(
                     if gone(&closing) {
                         return;
                     }
-                    let mut why = format!("xray остановился ({status}). {}", log_tail(&log_path));
+                    let mut why = trf!("xray остановился ({status}). {p0}", status = status, p0 = log_tail(&log_path));
                     let others = other_vpn_processes();
                     if !others.is_empty() {
-                        why = format!("{why} | другие VPN: {}", others.join(", "));
+                        why = trf!("{why} | другие VPN: {p0}", why = why, p0 = others.join(", "));
                     }
                     if kill_switch {
                         if restart_xray(&xray, &respawn, &closing) {
@@ -416,7 +415,7 @@ pub fn connect(
                 }
                 match status {
                     Ok(None) => {}
-                    Ok(Some(reason)) => return on_failure(format!("Туннель остановился: {reason}"), false),
+                    Ok(Some(reason)) => return on_failure(trf!("Туннель остановился: {reason}", reason = reason), false),
                     Err(_) => return on_failure(String::new(), false),
                 }
             }
@@ -813,11 +812,11 @@ pub fn physical_interface() -> Result<String> {
 /// installer puts duoray-xray.exe next to DUORAY, so a missing one was most
 /// likely taken by an antivirus (reports showed the Homebrew hint there).
 #[cfg(windows)]
-const XRAY_MISSING: &str = "duoray-xray.exe не найден рядом с DUORAY: скорее всего, его удалил антивирус. Переустановите DUORAY и добавьте его папку в исключения антивируса";
+const XRAY_MISSING: &str = n("duoray-xray.exe не найден рядом с DUORAY: скорее всего, его удалил антивирус. Переустановите DUORAY и добавьте его папку в исключения антивируса");
 #[cfg(target_os = "macos")]
-const XRAY_MISSING: &str = "xray не найден: переустановите DUORAY или установите xray (brew install xray)";
+const XRAY_MISSING: &str = n("xray не найден: переустановите DUORAY или установите xray (brew install xray)");
 #[cfg(not(any(windows, target_os = "macos")))]
-const XRAY_MISSING: &str = "xray не найден: переустановите DUORAY или положите xray рядом с ним";
+const XRAY_MISSING: &str = n("xray не найден: переустановите DUORAY или положите xray рядом с ним");
 
 /// Our xray on Windows: a name of its own, as other VPN apps (Happ) end every
 /// "xray.exe" they find, ours included (reports: exit code 1, nothing in its
@@ -849,7 +848,7 @@ pub fn find_xray() -> Result<(PathBuf, Option<PathBuf>)> {
     let bin = candidates
         .into_iter()
         .find(|p| p.is_file())
-        .context(XRAY_MISSING)?;
+        .context(tr(XRAY_MISSING))?;
 
     // geoip.dat/geosite.dat: next to xray, next to us, or the Homebrew share dir.
     #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]

@@ -1326,6 +1326,7 @@ dependencies = [
  "slint-build",
  "socket2",
  "swash",
+ "sys-locale",
  "tray-icon",
  "ureq",
  "url",

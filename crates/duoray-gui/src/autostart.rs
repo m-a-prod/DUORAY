@@ -89,7 +89,7 @@ mod imp {
             }
         };
         if err != 0 {
-            bail!("автозапуск: ошибка реестра {err}");
+            bail!(trf!("автозапуск: ошибка реестра {err}", err = err));
         }
         Ok(())
     }
@@ -135,7 +135,7 @@ mod imp {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(&path, text).context("автозапуск: LaunchAgent")
+        std::fs::write(&path, text).context(crate::i18n::tr("автозапуск: LaunchAgent"))
     }
 }
 
@@ -181,7 +181,7 @@ mod imp {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(&path, text).context("автозапуск: ~/.config/autostart")
+        std::fs::write(&path, text).context(crate::i18n::tr("автозапуск: ~/.config/autostart"))
     }
 
     #[cfg(test)]

@@ -184,9 +184,9 @@ fn with_custom(mut headers: Vec<(String, String)>, hwid: &str, user_agent: &str)
 pub fn header_value_problem(value: &str) -> Option<&'static str> {
     let value = value.trim();
     if value.len() > 512 {
-        Some("слишком длинное значение (больше 512 символов)")
+        Some(crate::i18n::tr("слишком длинное значение (больше 512 символов)"))
     } else if !value.bytes().all(|b| (0x20..0x7f).contains(&b)) {
-        Some("только латиница, цифры и знаки, без переносов строк")
+        Some(crate::i18n::tr("только латиница, цифры и знаки, без переносов строк"))
     } else {
         None
     }

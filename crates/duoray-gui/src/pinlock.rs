@@ -3,6 +3,7 @@
 //! or removing the PIN in the settings. The digits typed stay here; the pad
 //! only shows how many.
 
+use crate::i18n::tr;
 use std::time::{Duration, Instant};
 
 use duoray_core::pin::{self, PinLock};
@@ -114,7 +115,7 @@ fn submit(ui: &AppWindow, app: &Shared, st: &mut App) {
         flow @ (Flow::Unlock | Flow::Verify(_)) => {
             if let Some(secs) = waiting(st) {
                 st.pin.flow = flow;
-                return wrong(ui, st, format!("Слишком много попыток. Подождите {secs} с"));
+                return wrong(ui, st, trf!("Слишком много попыток. Подождите {secs} с", secs = secs));
             }
             let Some(lock) = st.store.settings.pin_lock.clone() else { return show(ui, st) };
             if !lock.matches(&entered) {
@@ -125,9 +126,9 @@ fn submit(ui: &AppWindow, app: &Shared, st: &mut App) {
                     Some(over) => {
                         let secs = 30u64 << over.min(3);
                         st.pin.wait_until = Some(Instant::now() + Duration::from_secs(secs));
-                        format!("Неверный PIN-код. Подождите {secs} с")
+                        trf!("Неверный PIN-код. Подождите {secs} с", secs = secs)
                     }
-                    None => "Неверный PIN-код".into(),
+                    None => tr("Неверный PIN-код").into(),
                 };
                 return wrong(ui, st, msg);
             }
@@ -137,7 +138,7 @@ fn submit(ui: &AppWindow, app: &Shared, st: &mut App) {
                     st.store.settings.pin_lock = None;
                     save(st);
                     ui.set_pin_enabled(false);
-                    flash_status(ui, app, st, "Блокировка PIN-кодом выключена".into());
+                    flash_status(ui, app, st, tr("Блокировка PIN-кодом выключена").into());
                 }
                 Flow::Verify(After::Change) => st.pin.flow = Flow::New,
                 _ => {}
@@ -148,18 +149,18 @@ fn submit(ui: &AppWindow, app: &Shared, st: &mut App) {
                 st.pin.flow = Flow::Confirm(entered);
             } else {
                 st.pin.flow = Flow::New;
-                return wrong(ui, st, format!("Нужно от {} до {} цифр", pin::MIN_LEN, pin::MAX_LEN));
+                return wrong(ui, st, trf!("Нужно от {p0} до {p1} цифр", p0 = pin::MIN_LEN, p1 = pin::MAX_LEN));
             }
         }
         Flow::Confirm(first) => {
             if entered != first {
                 st.pin.flow = Flow::New;
-                return wrong(ui, st, "PIN-коды не совпали. Придумайте заново".into());
+                return wrong(ui, st, tr("PIN-коды не совпали. Придумайте заново").into());
             }
             st.store.settings.pin_lock = Some(PinLock::new(&first));
             save(st);
             ui.set_pin_enabled(true);
-            flash_status(ui, app, st, "PIN-код установлен".into());
+            flash_status(ui, app, st, tr("PIN-код установлен").into());
         }
     }
     show(ui, st);

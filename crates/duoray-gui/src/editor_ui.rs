@@ -4,6 +4,7 @@
 //! subscription update (see `Store::edit_server`). Saving the server the
 //! tunnel runs on reconnects with the new config.
 
+use crate::i18n::tr;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::MutexGuard;
@@ -101,13 +102,13 @@ pub fn install(ui: &AppWindow, app: &Shared) {
             let Some((sub, index)) = server_at(&ui, &st, row) else { return };
             let links = duoray_core::share::links(&sub.servers[index]);
             let msg = if links.is_empty() {
-                "У этого сервера нет ссылки: его протокол передаётся только конфигом".to_string()
+                tr("У этого сервера нет ссылки: его протокол передаётся только конфигом").to_string()
             } else {
                 let n = links.len();
                 match arboard::Clipboard::new().and_then(|mut c| c.set_text(links.join("\n"))) {
-                    Ok(()) if n > 1 => format!("Скопировано ссылок: {n}"),
-                    Ok(()) => "Ссылка скопирована".into(),
-                    Err(e) => format!("Не удалось скопировать: {e}"),
+                    Ok(()) if n > 1 => trf!("Скопировано ссылок: {n}", n = n),
+                    Ok(()) => tr("Ссылка скопирована").into(),
+                    Err(e) => trf!("Не удалось скопировать: {e}", e = e),
                 }
             };
             crate::flash_status(&ui, &app, &mut st, msg);
@@ -129,12 +130,12 @@ pub fn install(ui: &AppWindow, app: &Shared) {
                     crate::show_qr(&ui, &app, &mut st, &title, &link);
                 }
                 [] => {
-                    crate::flash_status(&ui, &app, &mut st, "У этого сервера нет ссылки: его протокол передаётся только конфигом".into());
+                    crate::flash_status(&ui, &app, &mut st, tr("У этого сервера нет ссылки: его протокол передаётся только конфигом").into());
                     crate::render(&ui, &st);
                 }
                 // Dozens of links do not fit one code; the subscription's does.
                 _ => {
-                    crate::flash_status(&ui, &app, &mut st, "Это балансировщик: для телефона откройте QR-код подписки (меню ⋯)".into());
+                    crate::flash_status(&ui, &app, &mut st, tr("Это балансировщик: для телефона откройте QR-код подписки (меню ⋯)").into());
                     crate::render(&ui, &st);
                 }
             }
@@ -219,8 +220,8 @@ pub fn install(ui: &AppWindow, app: &Shared) {
             ui.set_editor_json(text.as_str().into());
             check_json(&ui, &text);
             ui.set_editor_note(
-                "Сервер сохранится как JSON-конфиг: в нём можно менять всё, что умеет xray. \
-                 Вернуть форму можно через «Вернуть версию подписки»."
+                tr("Сервер сохранится как JSON-конфиг: в нём можно менять всё, что умеет xray. \
+                 Вернуть форму можно через «Вернуть версию подписки».")
                     .into(),
             );
             ui.set_editor_mode(0);
@@ -264,10 +265,10 @@ fn open(ui: &AppWindow, app: &Shared, row: i32) {
     );
     let mut note = vec![];
     if !sub.is_manual() {
-        note.push("Правка сохранится и после обновления подписки.");
+        note.push(tr("Правка сохранится и после обновления подписки."));
     }
     if matches!(server.source, Source::Json(_)) {
-        note.push("Раздел inbounds DUORAY при подключении заменяет своим.");
+        note.push(tr("Раздел inbounds DUORAY при подключении заменяет своим."));
     }
     ui.set_editor_note(note.join(" ").into());
     ui.set_editor_edited(server.override_key.is_some());
@@ -311,26 +312,26 @@ fn save_edit(ui: &AppWindow, app: &Shared) {
             Err((key, msg)) => {
                 ed.error_key = Some(key);
                 show_fields(ui, p, Some((key, msg)));
-                ui.set_editor_status("Проверьте отмеченное поле".into());
+                ui.set_editor_status(tr("Проверьте отмеченное поле").into());
                 return;
             }
         },
     };
     let (sub_id, old_key) = (ed.sub_id.clone(), ed.key.clone());
     let Some(index) = index_of(&st, &sub_id, &old_key) else {
-        ui.set_editor_status("Сервера больше нет: подписка обновилась, пока редактор был открыт.".into());
+        ui.set_editor_status(tr("Сервера больше нет: подписка обновилась, пока редактор был открыт.").into());
         ui.set_editor_valid(false);
         return;
     };
     st.store.edit_server(&sub_id, index, server);
-    finish(ui, app, st, &sub_id, index, old_key, "Сервер сохранён");
+    finish(ui, app, st, &sub_id, index, old_key, tr("Сервер сохранён"));
 }
 
 /// Restores the subscription's version of the server with `key`.
 fn revert(ui: &AppWindow, app: &Shared, mut st: MutexGuard<App>, sub_id: String, key: String) {
     let Some(index) = index_of(&st, &sub_id, &key) else { return };
     if st.store.reset_server(&sub_id, index) {
-        finish(ui, app, st, &sub_id, index, key, "Возвращена версия подписки");
+        finish(ui, app, st, &sub_id, index, key, tr("Возвращена версия подписки"));
     }
 }
 
@@ -367,9 +368,9 @@ fn check_json(ui: &AppWindow, text: &str) {
     show_code(ui, text);
     match Server::from_json_text(text) {
         Ok(s) => {
-            let mut status = format!("Конфиг в порядке · {} · {}:{}", s.protocol, s.address, s.port);
+            let mut status = trf!("Конфиг в порядке · {p0} · {p1}:{p2}", p0 = s.protocol, p1 = s.address, p2 = s.port);
             if s.proxies > 1 {
-                status += &format!(" · балансировщик, прокси: {}", s.proxies);
+                status += &trf!(" · балансировщик, прокси: {p0}", p0 = s.proxies);
             }
             ui.set_editor_status(status.into());
             ui.set_editor_valid(true);
@@ -378,7 +379,7 @@ fn check_json(ui: &AppWindow, text: &str) {
         }
         Err(e) => {
             let status = if e.line > 0 {
-                format!("Строка {}, столбец {}: {}", e.line, e.column, e.message)
+                trf!("Строка {p0}, столбец {p1}: {p2}", p0 = e.line, p1 = e.column, p2 = e.message)
             } else {
                 e.message.clone()
             };

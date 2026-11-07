@@ -1,6 +1,7 @@
 // Release builds on Windows have no console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+use i18n::{n, tr};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,8 @@ use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 
 slint::include_modules!();
 
+#[macro_use]
+mod i18n;
 mod autostart;
 mod connection;
 mod deeplink;
@@ -160,7 +163,7 @@ impl Traffic {
 
     /// "↓ 2.4 МБ/с · ↑ 120.0 КБ/с · 1.2 ГБ"
     fn label(&self) -> String {
-        let rate = |b: f64| format!("{}/с", bytes(b as u64));
+        let rate = |b: f64| trf!("{p0}/с", p0 = bytes(b as u64));
         format!("↓ {} · ↑ {} · {}", rate(self.rate.1), rate(self.rate.0), bytes(self.session.0 + self.session.1))
     }
 }
@@ -352,7 +355,7 @@ fn main() -> anyhow::Result<()> {
     sysproxy::recover(&data_dir.join("run"));
     let (store, status) = match Store::load(&path) {
         Ok(s) => (s, String::new()),
-        Err(e) => (Store::default(), format!("Не удалось прочитать данные: {e:#}")),
+        Err(e) => (Store::default(), trf!("Не удалось прочитать данные: {e}", e = format!("{e:#}"))),
     };
     let pings = load_pings(&path);
     let s = &store.settings;
@@ -400,10 +403,12 @@ fn main() -> anyhow::Result<()> {
     let device = Arc::new(Device::detect());
 
     let ui = AppWindow::new()?;
+    // After the first component: Slint's bundled translations exist from then.
+    i18n::set(i18n::english_for(&app.lock().unwrap().store.settings.language));
 
     ui.set_theme_swatches(ModelRc::new(VecModel::from(THEMES.iter().map(theme_swatch).collect::<Vec<_>>())));
     ui.set_font_choices(ModelRc::new(VecModel::from(
-        std::iter::once(SYSTEM_FONT).chain(FONTS.iter().copied()).map(slint::SharedString::from).collect::<Vec<_>>(),
+        std::iter::once(tr(SYSTEM_FONT)).chain(FONTS.iter().copied()).map(slint::SharedString::from).collect::<Vec<_>>(),
     )));
     routing_ui::install(&ui, &app);
     editor_ui::install(&ui, &app);
@@ -596,7 +601,7 @@ fn main() -> anyhow::Result<()> {
             let header = |h: &[(String, String)], key: &str| h.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
             let global = identity::request_headers(&settings.happ, &device, settings.send_device_info);
             let duoray = identity::request_headers(&HappSpoof { enabled: false, ..settings.happ.clone() }, &device, settings.send_device_info);
-            let not_sent = || "не отправляется".to_string();
+            let not_sent = || tr("не отправляется").to_string();
             ui.set_ident_settings_ua(header(&global, "User-Agent").unwrap_or_default().into());
             ui.set_ident_settings_hwid(header(&global, "x-hwid").unwrap_or_else(not_sent).into());
             ui.set_ident_default_ua(header(&duoray, "User-Agent").unwrap_or_default().into());
@@ -660,10 +665,10 @@ fn main() -> anyhow::Result<()> {
                 SubIdentityMode::Settings => vec![],
                 SubIdentityMode::Duoray => vec![("HWID", &hwid), ("User-Agent", &user_agent)],
                 SubIdentityMode::Happ => vec![
-                    ("Версия Happ", &happ.app_version),
-                    ("Версия ОС", &happ.os_version),
-                    ("Модель", &happ.model),
-                    ("Язык", &happ.locale),
+                    (tr("Версия Happ"), &happ.app_version),
+                    (tr("Версия ОС"), &happ.os_version),
+                    (tr("Модель"), &happ.model),
+                    (tr("Язык"), &happ.locale),
                     ("User ID", &happ.user_id),
                     ("HWID", &happ.hwid),
                 ],
@@ -764,7 +769,7 @@ fn main() -> anyhow::Result<()> {
                 }
             };
             let rows: Vec<DiagRow> =
-                netcheck::TITLES.iter().map(|t| DiagRow { state: netcheck::Level::Running as i32, title: (*t).into(), detail: "".into() }).collect();
+                netcheck::TITLES.iter().map(|t| DiagRow { state: netcheck::Level::Running as i32, title: tr(t).into(), detail: "".into() }).collect();
             ui.set_diag_rows(ModelRc::new(VecModel::from(rows)));
             ui.set_diag_running(true);
             ui.set_diag_open(true);
@@ -799,7 +804,7 @@ fn main() -> anyhow::Result<()> {
             let rows: Vec<_> = ui.get_diag_rows().iter().map(|r| (level(r.state), r.title.to_string(), r.detail.to_string())).collect();
             let copied = arboard::Clipboard::new().and_then(|mut c| c.set_text(netcheck::as_text(&rows))).is_ok();
             let mut st = app.lock().unwrap();
-            flash_status(&ui, &app, &mut st, if copied { "Результат скопирован".into() } else { "Не удалось скопировать".into() });
+            flash_status(&ui, &app, &mut st, if copied { tr("Результат скопирован").into() } else { tr("Не удалось скопировать").into() });
             render(&ui, &st);
         }
     });
@@ -810,7 +815,7 @@ fn main() -> anyhow::Result<()> {
             if let Err(e) = restart_app() {
                 let ui = ui_weak.unwrap();
                 let mut st = app.lock().unwrap();
-                flash_status_for(&ui, &app, &mut st, format!("Не удалось перезапустить DUORAY ({e}). Закройте и откройте его вручную"), 8);
+                flash_status_for(&ui, &app, &mut st, trf!("Не удалось перезапустить DUORAY ({e}). Закройте и откройте его вручную", e = e), 8);
                 render(&ui, &st);
             }
         }
@@ -828,9 +833,9 @@ fn main() -> anyhow::Result<()> {
             let msg = match std::fs::write(&path, text) {
                 Ok(()) => {
                     open_path(&dir);
-                    format!("Настройки сохранены в {}", path.display())
+                    trf!("Настройки сохранены в {p0}", p0 = path.display())
                 }
-                Err(e) => format!("Не удалось сохранить настройки: {e}"),
+                Err(e) => trf!("Не удалось сохранить настройки: {e}", e = e),
             };
             flash_status_for(&ui, &app, &mut st, msg, 8);
             render(&ui, &st);
@@ -895,10 +900,15 @@ fn main() -> anyhow::Result<()> {
             ui.set_proxy_port(st.store.settings.proxy_port.to_string().into());
             ui.set_duoray_version(format!("{} ({})", env!("CARGO_PKG_VERSION"), update::BUILD).into());
             ui.set_text_scale_choice(format!("{}%", st.store.settings.text_scale).into());
+            ui.set_language_index(match st.store.settings.language.as_str() {
+                "ru" => 1,
+                "en" => 2,
+                _ => 0,
+            });
             let theme = theme_of(&st.store.settings.theme).1;
             ui.set_theme_choice(theme.into());
             ui.set_font_choice(
-                if st.store.settings.font.is_empty() { SYSTEM_FONT.to_string() } else { st.store.settings.font.clone() }.into(),
+                if st.store.settings.font.is_empty() { tr(SYSTEM_FONT).to_string() } else { st.store.settings.font.clone() }.into(),
             );
         }
     });
@@ -941,7 +951,7 @@ fn main() -> anyhow::Result<()> {
         let handler = move || {
             let ui = ui_weak.unwrap();
             ui.set_settings_helper_busy(true);
-            ui.set_settings_helper_status("Нужен пароль администратора…".into());
+            ui.set_settings_helper_status(tr("Нужен пароль администратора…").into());
             let ui_weak = ui.as_weak();
             std::thread::spawn(move || {
                 let result = if uninstall { helper::uninstall() } else { helper::install_and_wait() };
@@ -1009,8 +1019,8 @@ fn main() -> anyhow::Result<()> {
             let ui = ui_weak.unwrap();
             let mut st = app.lock().unwrap();
             let msg = match arboard::Clipboard::new().and_then(|mut c| c.set_text(ui.get_qr_text().to_string())) {
-                Ok(()) => "Скопировано в буфер обмена".into(),
-                Err(e) => format!("Не удалось скопировать: {e}"),
+                Ok(()) => tr("Скопировано в буфер обмена").into(),
+                Err(e) => trf!("Не удалось скопировать: {e}", e = e),
             };
             flash_status(&ui, &app, &mut st, msg);
             render(&ui, &st);
@@ -1108,7 +1118,7 @@ fn main() -> anyhow::Result<()> {
             let mut st = app.lock().unwrap();
             let Some(sub) = current(&ui, &st) else { return };
             if st.ping_progress.is_some() {
-                flash_status(&ui, &app, &mut st, "Дождитесь конца пинга".into());
+                flash_status(&ui, &app, &mut st, tr("Дождитесь конца пинга").into());
                 return render(&ui, &st);
             }
             st.connect_best = Some(sub.id.clone());
@@ -1127,9 +1137,9 @@ fn main() -> anyhow::Result<()> {
                 // Not a usable link: open the manual dialog and say why.
                 Err(e) => {
                     let why = if url.is_empty() {
-                        "В буфере обмена нет текста. Вставьте ссылку вручную.".to_string()
+                        tr("В буфере обмена нет текста. Вставьте ссылку вручную.").to_string()
                     } else {
-                        format!("В буфере не ссылка на подписку: {}", humanize(&format!("{e:#}")))
+                        trf!("В буфере не ссылка на подписку: {p0}", p0 = humanize(&format!("{e:#}")))
                     };
                     ui.set_add_error(why.into());
                     ui.set_adding(true);
@@ -1160,8 +1170,8 @@ fn main() -> anyhow::Result<()> {
                 return;
             };
             let msg = match arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
-                Ok(()) => "Скопировано в буфер обмена".into(),
-                Err(e) => format!("Не удалось скопировать: {e}"),
+                Ok(()) => tr("Скопировано в буфер обмена").into(),
+                Err(e) => trf!("Не удалось скопировать: {e}", e = e),
             };
             flash_status(&ui, &app, &mut st, msg);
             render(&ui, &st);
@@ -1275,12 +1285,12 @@ fn main() -> anyhow::Result<()> {
         slint::Timer::single_shot(std::time::Duration::from_secs(5), move || {
             let ui = ui_weak.unwrap();
             ui.set_conn_state("connected".into());
-            ui.set_conn_title("Подключено".into());
-            ui.set_conn_server("Wi-Fi • Авто-выбор".into());
-            ui.set_conn_node("Нидерланды (Амстердам)".into());
-            ui.set_conn_exit_text("Нидерланды".into());
+            ui.set_conn_title(tr("Подключено").into());
+            ui.set_conn_server(tr("Wi-Fi • Авто-выбор").into());
+            ui.set_conn_node(tr("Нидерланды (Амстердам)").into());
+            ui.set_conn_exit_text(tr("Нидерланды").into());
             ui.set_conn_exit_flag(flag_tile("NL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
-            ui.set_conn_ping_text("38 мс".into());
+            ui.set_conn_ping_text(tr("38 мс").into());
             ui.set_conn_ping_level(1);
             // Speed results in every state, and one test under way.
             {
@@ -1301,9 +1311,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 st.speed_progress = Some((2, 6));
                 st.speed_live = Some(SpeedLive {
-                    server: "Германия (Франкфурт)".into(),
+                    server: tr("Германия (Франкфурт)").into(),
                     target: "Speedtest: Deutsche Telekom, Frankfurt".into(),
-                    phase: "загрузка 173 Мбит/с".into(),
+                    phase: tr("загрузка 173 Мбит/с").into(),
                 });
                 render(&ui, &st);
             }
@@ -1355,10 +1365,10 @@ fn main() -> anyhow::Result<()> {
                     ui.set_routing_geo_search_query("ru".into());
                     ui.set_routing_geo_results(ModelRc::new(VecModel::from(vec![
                         GeoRow { source: "geosite".into(), tag: "category-ru".into(), value: "domain:vk.com".into() },
-                        GeoRow { source: "geosite".into(), tag: "category-ru".into(), value: "full:пример.рф".into() },
+                        GeoRow { source: "geosite".into(), tag: "category-ru".into(), value: tr("full:пример.рф").into() },
                         GeoRow { source: "geoip".into(), tag: "ru".into(), value: "1.2.3.0/24".into() },
                     ])));
-                    ui.set_routing_geo_search_status("Найдено: 3".into());
+                    ui.set_routing_geo_search_status(tr("Найдено: 3").into());
                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                     slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
                         let ui = ui_weak.unwrap();
@@ -1408,20 +1418,20 @@ fn main() -> anyhow::Result<()> {
                                                 // The status card as connected through a balancer (set by hand: no tunnel here).
                                                 ui.set_ident_open(false);
                                                 ui.set_conn_state("connected".into());
-                                                ui.set_conn_title("Подключено".into());
-                                                ui.set_conn_detail("LTE x1 • Авто-выбор · DUORAY".into());
+                                                ui.set_conn_title(tr("Подключено").into());
+                                                ui.set_conn_detail(tr("LTE x1 • Авто-выбор · DUORAY").into());
                                                 ui.set_conn_node("LTE #2 (1x)".into());
                                                 ui.set_conn_exit_flag(flag_tile("PL", (42.0 * ui.window().scale_factor()).round() as u32).unwrap_or_default());
-                                                ui.set_conn_server("LTE x1 • Авто-выбор".into());
-                                                ui.set_conn_ping_text("94 мс".into());
+                                                ui.set_conn_server(tr("LTE x1 • Авто-выбор").into());
+                                                ui.set_conn_ping_text(tr("94 мс").into());
                                                 ui.set_conn_ping_level(1);
-                                                ui.set_conn_exit_text("Польша".into());
+                                                ui.set_conn_exit_text(tr("Польша").into());
                                                 let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
                                                 slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
                                                     let ui = ui_weak.unwrap();
                                                     snapshot(ui.window(), &prefix.with_extension("connected.png"));
                                                     ui.set_conn_state("failed".into());
-                                                    ui.set_conn_title("Ошибка подключения".into());
+                                                    ui.set_conn_title(tr("Ошибка подключения").into());
                                                     ui.set_conn_detail("preparing xray config: cannot resolve rubridge-3.pullk.in: failed to lookup address information: nodename nor servname provided, or not known".into());
                                                     ui.set_conn_ping_level(0);
                                                     let (ui_weak, prefix) = (ui.as_weak(), prefix.clone());
@@ -1687,10 +1697,10 @@ fn is_wayland(ui: &AppWindow) -> bool {
 fn tray_state(ui: &AppWindow, st: &App) -> tray::State {
     let toggle = match st.conn_state {
         ConnState::Connected { .. } | ConnState::Connecting { .. } | ConnState::Switching { .. } | ConnState::Blocked => {
-            "Отключиться"
+            tr("Отключиться")
         }
         ConnState::Disconnecting => "",
-        ConnState::Idle | ConnState::Failed(_) if selected_server(ui, st).is_some() => "Подключиться",
+        ConnState::Idle | ConnState::Failed(_) if selected_server(ui, st).is_some() => tr("Подключиться"),
         ConnState::Idle | ConnState::Failed(_) => "",
     };
     let current = match &st.conn_state {
@@ -1788,7 +1798,7 @@ impl ServerFilter {
             None
         } else {
             Some(regex::RegexBuilder::new(pattern).case_insensitive(true).build().map_err(|e| match e {
-                regex::Error::Syntax(_) => "Ошибка в выражении".to_string(),
+                regex::Error::Syntax(_) => tr("Ошибка в выражении").to_string(),
                 other => other.to_string(),
             })?)
         };
@@ -1862,9 +1872,18 @@ fn ping_entry(ms: Option<u128>) -> (String, i32, u128) {
         Some(ms) => {
             let ms = ms.max(1);
             let level = if ms < 150 { 1 } else if ms < 400 { 2 } else { 3 };
-            (format!("{ms} мс"), level, ms)
+            (trf!("{ms} мс", ms = ms), level, ms)
         }
         None => ("—".to_string(), 4, u128::MAX),
+    }
+}
+
+/// A ping's label in the interface language: the stored text was made in
+/// the language of its time (pings.json keeps it across restarts).
+fn ping_label(ping: &(String, i32, u128)) -> String {
+    match ping {
+        (_, 1..=3, ms) => trf!("{ms} мс", ms = ms),
+        (text, ..) => text.clone(),
     }
 }
 
@@ -2045,7 +2064,7 @@ fn apply_routing(ui: &AppWindow, app: &Shared) {
                     ui.set_routing_warnings(
                         if warnings.is_empty() { String::new() } else { format!("Предупреждения:\n{}", warnings.join("\n")) }.into(),
                     );
-                    flash_status(&ui, &app, &mut st, "Маршрутизация применена".into());
+                    flash_status(&ui, &app, &mut st, tr("Маршрутизация применена").into());
                     render(&ui, &st);
                 }
                 other => {
@@ -2241,7 +2260,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                         if conn.warnings.is_empty() {
                             String::new()
                         } else {
-                            format!("Предупреждения:\n{}", conn.warnings.join("\n"))
+                            trf!("Предупреждения:\n{p0}", p0 = conn.warnings.join("\n"))
                         }
                         .into(),
                     );
@@ -2267,12 +2286,12 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     ui.set_helper_error("".into());
                     ui.set_helper_dialog_text(
                         if proxy_port.is_some() {
-                            "Системный прокси в macOS меняется только с правами администратора, поэтому DUORAY нужен \
+                            tr("Системный прокси в macOS меняется только с правами администратора, поэтому DUORAY нужен \
                              небольшой системный помощник. Он устанавливается один раз: система попросит пароль \
-                             администратора. Дальше подключение работает без пароля."
+                             администратора. Дальше подключение работает без пароля.")
                         } else {
-                            "Для VPN-туннеля (TUN) DUORAY нужен небольшой системный помощник. Он устанавливается один раз: \
-                             система попросит пароль администратора. Дальше подключение работает без пароля."
+                            tr("Для VPN-туннеля (TUN) DUORAY нужен небольшой системный помощник. Он устанавливается один раз: \
+                             система попросит пароль администратора. Дальше подключение работает без пароля.")
                         }
                         .into(),
                     );
@@ -2316,7 +2335,7 @@ fn connection_failed(ui: &AppWindow, app: &Shared, generation: u64, msg: String,
         return;
     }
     let conn = st.conn.take();
-    st.conn_state = ConnState::Failed(if msg.is_empty() { "Помощник отключился".into() } else { msg });
+    st.conn_state = ConnState::Failed(if msg.is_empty() { tr("Помощник отключился").into() } else { msg });
     // "Держать подключение": the same server again, once the network is there.
     let keep = st.store.settings.keep_connected;
     if keep {
@@ -2406,7 +2425,7 @@ fn save(st: &mut App) {
         return;
     }
     if let Err(e) = st.store.save(&st.path) {
-        st.status = format!("Не удалось сохранить: {e:#}");
+        st.status = trf!("Не удалось сохранить: {e}", e = format!("{e:#}"));
     }
 }
 
@@ -2475,7 +2494,7 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
 fn render(ui: &AppWindow, st: &App) {
     diag::set_context(diag_context(ui, st));
     let manual = st.store.subscriptions.iter().find(|s| s.is_manual());
-    ui.set_manual_meta(manual.map_or_else(|| "Нет серверов".to_string(), sub_meta).into());
+    ui.set_manual_meta(manual.map_or_else(|| tr("Нет серверов").to_string(), sub_meta).into());
     ui.set_manual_selected(current(ui, st).is_some_and(Subscription::is_manual));
     ui.set_has_manual(manual.is_some_and(|m| !m.servers.is_empty()));
     let subs: Vec<SubRow> = st
@@ -2498,12 +2517,12 @@ fn render(ui: &AppWindow, st: &App) {
     let busy_count = st.refreshing.len();
     ui.set_status(
         if let Some((done, total)) = st.ping_progress {
-            format!("Пинг: {done} из {total}")
+            trf!("Пинг: {done} из {total}", done = done, total = total)
         } else if let Some((done, total)) = st.speed_progress {
             let live = st.speed_live.as_ref().map(|l| format!(" · {}", l.label())).unwrap_or_default();
-            format!("Тест скорости {} из {total}{live}", (done + 1).min(total))
+            trf!("Тест скорости {p0} из {total}{live}", p0 = (done + 1).min(total), total = total, live = live)
         } else if busy_count > 0 {
-            format!("Обновление подписок… ({busy_count})")
+            trf!("Обновление подписок… ({busy_count})", busy_count = busy_count)
         } else {
             st.status.clone()
         }
@@ -2513,23 +2532,23 @@ fn render(ui: &AppWindow, st: &App) {
     let (state, title, detail) = match &st.conn_state {
         ConnState::Idle if selected_server(ui, st).is_none() => (
             "idle",
-            "Сервер не выбран".to_string(),
+            tr("Сервер не выбран").to_string(),
             if st.store.subscriptions.is_empty() {
-                "Добавьте подписку, затем выберите сервер".to_string()
+                tr("Добавьте подписку, затем выберите сервер").to_string()
             } else {
-                "Выберите сервер в списке справа".to_string()
+                tr("Выберите сервер в списке справа").to_string()
             },
         ),
-        ConnState::Idle => ("idle", "Не подключено".to_string(), String::new()),
-        ConnState::Connecting { name, .. } => ("connecting", "Подключение…".into(), name.clone()),
-        ConnState::Switching { name } => ("connecting", "Переключение…".into(), name.clone()),
-        ConnState::Connected { name, tun, .. } => ("connected", "Подключено".into(), format!("{name} · {tun}")),
-        ConnState::Disconnecting => ("disconnecting", "Отключение…".into(), String::new()),
-        ConnState::Failed(e) => ("failed", "Ошибка подключения".into(), first_line(e)),
+        ConnState::Idle => ("idle", tr("Не подключено").to_string(), String::new()),
+        ConnState::Connecting { name, .. } => ("connecting", tr("Подключение…").into(), name.clone()),
+        ConnState::Switching { name } => ("connecting", tr("Переключение…").into(), name.clone()),
+        ConnState::Connected { name, tun, .. } => ("connected", tr("Подключено").into(), format!("{name} · {tun}")),
+        ConnState::Disconnecting => ("disconnecting", tr("Отключение…").into(), String::new()),
+        ConnState::Failed(e) => ("failed", tr("Ошибка подключения").into(), first_line(e)),
         ConnState::Blocked => (
             "blocked",
-            "Интернет заблокирован".into(),
-            "Сервер недоступен. Трафик остановлен, чтобы не идти мимо VPN".into(),
+            tr("Интернет заблокирован").into(),
+            tr("Сервер недоступен. Трафик остановлен, чтобы не идти мимо VPN").into(),
         ),
     };
     ui.set_conn_state(state.into());
@@ -2605,7 +2624,7 @@ fn render(ui: &AppWindow, st: &App) {
                 transport: transport(&s.network, &s.security).into(),
                 endpoint: format!("{}:{}", s.address, s.port).into(),
                 proxies: s.proxies as i32,
-                ping_text: ping.0.into(),
+                ping_text: ping_label(&ping).into(),
                 ping_level: ping.1,
                 speed_state: speed.0,
                 speed_down: speed.1.into(),
@@ -2658,18 +2677,18 @@ fn usage(s: &Subscription) -> f32 {
 fn sub_meta(s: &Subscription) -> String {
     let mut parts = vec![];
     if s.updated_at.is_some() || !s.servers.is_empty() {
-        parts.push(plural(s.servers.len(), "сервер", "сервера", "серверов"));
+        parts.push(plural(s.servers.len(), tr("сервер"), tr("сервера"), tr("серверов")));
     } else {
-        parts.push("не загружена".to_string());
+        parts.push(tr("не загружена").to_string());
     }
     let used = s.info.download.unwrap_or(0) + s.info.upload.unwrap_or(0);
     match s.info.total {
-        Some(t) => parts.push(format!("{} из {}", bytes(used), bytes(t))),
-        None if used > 0 => parts.push(format!("{} · безлимит", bytes(used))),
+        Some(t) => parts.push(trf!("{p0} из {p1}", p0 = bytes(used), p1 = bytes(t))),
+        None if used > 0 => parts.push(trf!("{p0} · безлимит", p0 = bytes(used))),
         None => {}
     }
     if let Some(e) = s.info.expire {
-        parts.push(format!("до {}", date(e)));
+        parts.push(trf!("до {p0}", p0 = date(e)));
     }
     parts.join(" · ")
 }
@@ -2677,17 +2696,17 @@ fn sub_meta(s: &Subscription) -> String {
 /// "01.10.2026 01:29 · Автообновление — 1 ч · 56 серверов"
 fn header_meta(s: &Subscription) -> String {
     if s.is_manual() {
-        return format!("{} · добавлены вручную", plural(s.servers.len(), "сервер", "сервера", "серверов"));
+        return trf!("{p0} · добавлены вручную", p0 = plural(s.servers.len(), "сервер", "сервера", "серверов"));
     }
     let mut parts = vec![];
     match s.updated_at {
         Some(t) => parts.push(local_time(t)),
-        None => parts.push("ещё не обновлялась".into()),
+        None => parts.push(tr("ещё не обновлялась").into()),
     }
-    parts.push(format!("Автообновление — {} ч", update_interval_hours(s)));
-    parts.push(plural(s.servers.len(), "сервер", "сервера", "серверов"));
+    parts.push(trf!("Автообновление — {p0} ч", p0 = update_interval_hours(s)));
+    parts.push(plural(s.servers.len(), tr("сервер"), tr("сервера"), tr("серверов")));
     if s.skipped > 0 {
-        parts.push(format!("пропущено {}", s.skipped));
+        parts.push(trf!("пропущено {p0}", p0 = s.skipped));
     }
     parts.join(" · ")
 }
@@ -2722,7 +2741,7 @@ fn import_file(ui: &AppWindow, app: &Shared, device: &Arc<Device>, path: &std::p
         Ok(text) => import_settings(ui, app, device, &text),
         Err(e) => {
             let mut st = app.lock().unwrap();
-            flash_status_for(ui, app, &mut st, format!("Не удалось открыть файл: {e}"), 8);
+            flash_status_for(ui, app, &mut st, trf!("Не удалось открыть файл: {e}", e = e), 8);
             render(ui, &st);
         }
     }
@@ -2742,7 +2761,7 @@ fn import_settings(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &st
             let msg = format!(
                 "Настройки перенесены. Добавлено: {}, {}",
                 plural(added.len(), "подписка", "подписки", "подписок"),
-                plural(servers, "сервер", "сервера", "серверов")
+                plural(servers, tr("сервер"), tr("сервера"), tr("серверов"))
             );
             flash_status_for(ui, app, &mut st, msg, 8);
             render(ui, &st);
@@ -2754,7 +2773,7 @@ fn import_settings(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &st
             }
         }
         Err(e) => {
-            flash_status_for(ui, app, &mut st, format!("Импорт не удался: {e:#}"), 8);
+            flash_status_for(ui, app, &mut st, trf!("Импорт не удался: {e}", e = format!("{e:#}")), 8);
             render(ui, &st);
         }
     }
@@ -2795,24 +2814,19 @@ fn open_url(url: &str) {
     let _ = connection::hidden(std::process::Command::new("cmd").args(["/C", "start", "", url])).spawn();
 }
 
-fn plural(n: usize, one: &str, few: &str, many: &str) -> String {
-    let word = match (n % 10, n % 100) {
-        (1, r) if r != 11 => one,
-        (2..=4, r) if !(12..=14).contains(&r) => few,
-        _ => many,
-    };
-    format!("{n} {word}")
+fn plural(n: usize, one: &'static str, few: &'static str, many: &'static str) -> String {
+    i18n::plural(n, one, few, many)
 }
 
 fn bytes(b: u64) -> String {
-    const UNITS: [&str; 5] = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+    const UNITS: [&str; 5] = [n("Б"), n("КБ"), n("МБ"), n("ГБ"), n("ТБ")];
     let mut v = b as f64;
     let mut u = 0;
     while v >= 1024.0 && u < UNITS.len() - 1 {
         v /= 1024.0;
         u += 1;
     }
-    if u == 0 { format!("{b} Б") } else { format!("{v:.1} {}", UNITS[u]) }
+    if u == 0 { trf!("{b} Б", b = b) } else { format!("{v:.1} {}", tr(UNITS[u])) }
 }
 
 /// Unix seconds -> DD.MM.YYYY (UTC), via Howard Hinnant's civil_from_days.
@@ -2859,18 +2873,18 @@ fn expiring(subs: &[Subscription], now: u64) -> Option<&Subscription> {
 fn expiry_text(name: &str, expire: u64, now: u64) -> String {
     use chrono::TimeZone;
     if expire <= now {
-        return format!("Подписка «{name}» закончилась");
+        return trf!("Подписка «{name}» закончилась", name = name);
     }
     let local = |t: u64| chrono::Local.timestamp_opt(t as i64, 0).single();
     let (Some(end), Some(today)) = (local(expire), local(now)) else {
-        return format!("Подписка «{name}» заканчивается {}", date(expire));
+        return trf!("Подписка «{name}» заканчивается {p0}", name = name, p0 = date(expire));
     };
     let when = match (end.date_naive() - today.date_naive()).num_days() {
-        0 => format!("сегодня в {}", end.format("%H:%M")),
-        1 => format!("завтра в {}", end.format("%H:%M")),
-        n => format!("через {} ({})", plural(n as usize, "день", "дня", "дней"), end.format("%d.%m")),
+        0 => trf!("сегодня в {p0}", p0 = end.format("%H:%M")),
+        1 => trf!("завтра в {p0}", p0 = end.format("%H:%M")),
+        n => trf!("через {p0} ({p1})", p0 = plural(n as usize, "день", "дня", "дней"), p1 = end.format("%d.%m")),
     };
-    format!("Подписка «{name}» заканчивается {when}")
+    trf!("Подписка «{name}» заканчивается {when}", name = name, when = when)
 }
 
 /// Where to renew: the DUALIZM bot, otherwise the panel's page or support.
@@ -2900,27 +2914,25 @@ fn first_line(s: &str) -> String {
 /// Maps the common English errors from core to something readable.
 fn humanize(e: &str) -> String {
     let map = [
-        ("already added", "Эта подписка уже добавлена."),
-        ("not a valid URL", "Это не похоже на ссылку."),
-        ("must be http(s)", "Ссылка должна начинаться с http:// или https://."),
-        ("HTML page", "Вместо подписки пришла веб-страница. Проверьте ссылку."),
-        ("timed out", "Сервер подписки не ответил вовремя."),
-        ("status: 404", "Подписка не найдена (404)."),
-        ("status: 403", "Доступ к подписке запрещён (403). Возможно, поможет Happ Spoof в настройках."),
+        ("already added", tr("Эта подписка уже добавлена.")),
+        ("not a valid URL", tr("Это не похоже на ссылку.")),
+        ("must be http(s)", tr("Ссылка должна начинаться с http:// или https://.")),
+        ("HTML page", tr("Вместо подписки пришла веб-страница. Проверьте ссылку.")),
+        ("timed out", tr("Сервер подписки не ответил вовремя.")),
+        ("status: 404", tr("Подписка не найдена (404).")),
+        ("status: 403", tr("Доступ к подписке запрещён (403). Возможно, поможет Happ Spoof в настройках.")),
         // The helper runs as SYSTEM: only security software refuses it a program.
         (
             "spawning netsh",
-            "Windows не дал запустить netsh: похоже, мешает антивирус. Добавьте папку DUORAY в его исключения и подключитесь снова.",
+            tr("Windows не дал запустить netsh: похоже, мешает антивирус. Добавьте папку DUORAY в его исключения и подключитесь снова."),
         ),
     ];
     if let Some((_, app)) = e.split_once("the panel redirects to the ") {
         let app = app.split(' ').next().unwrap_or_default();
-        return format!(
-            "Панель отдала ссылку для приложения {app}, а не подписку. Скопируйте ссылку на подписку (https://…) в личном кабинете."
-        );
+        return trf!("Панель отдала ссылку для приложения {app}, а не подписку. Скопируйте ссылку на подписку (https://…) в личном кабинете.", app = app);
     }
     if let Some((_, note)) = e.split_once("a note instead of servers: ") {
-        return format!("Серверов нет, панель пишет: «{note}»");
+        return trf!("Серверов нет, панель пишет: «{note}»", note = note);
     }
     for (needle, text) in map {
         if e.contains(needle) {
@@ -3020,10 +3032,17 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
         support_ui::set_consent(&mut st.store.settings, reports);
     }
     let theme = ui.get_theme_choice();
-    st.store.settings.theme = THEMES.iter().find(|t| t.1 == theme.as_str()).map_or("dark", |t| t.0).to_string();
+    st.store.settings.theme = THEMES.iter().find(|t| tr(t.1) == theme.as_str() || t.1 == theme.as_str()).map_or("dark", |t| t.0).to_string();
     st.store.settings.text_scale = ui.get_text_scale_choice().trim_end_matches('%').parse().unwrap_or(100);
+    let language = ["", "ru", "en"].get(ui.get_language_index() as usize).copied().unwrap_or("");
+    if st.store.settings.language != language {
+        st.store.settings.language = language.into();
+        // At once: the .slint strings switch by themselves, the ones made in
+        // Rust on the render below.
+        i18n::set(i18n::english_for(language));
+    }
     let font = ui.get_font_choice().to_string();
-    st.store.settings.font = if font == SYSTEM_FONT { String::new() } else { font };
+    st.store.settings.font = if font == SYSTEM_FONT || font == tr(SYSTEM_FONT) { String::new() } else { font };
     apply_appearance(ui, &st.store.settings);
     save(&mut st);
     // The filter switch changes which servers the list shows.
@@ -3034,7 +3053,7 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     }
 }
 
-const SYSTEM_FONT: &str = "Системный";
+const SYSTEM_FONT: &str = n("Системный");
 
 /// Common fonts that ship with each OS (nothing is bundled).
 #[cfg(target_os = "macos")]
@@ -3073,15 +3092,15 @@ const fn dark(c: [u32; 9]) -> Palette {
 /// palette (None: Slint's Material colors with the DUORAY accent).
 /// The palette themes take their colors from the projects' own palettes.
 const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
-    ("system", "Как в системе", 0, None),
-    ("dark", "Тёмная", 1, None),
-    ("light", "Светлая", 2, None),
+    ("system", n("Как в системе"), 0, None),
+    ("dark", n("Тёмная"), 1, None),
+    ("light", n("Светлая"), 2, None),
     // Neutral greys a step lighter than Material's violet-tinted dark.
-    ("graphite", "Графитовая", 1, Some(dark([0x2f3136, 0x25272b, 0xe4e5e8, 0x8f9197, 0xd0bcff, 0x381e72, 0x45474d, 0xe4e5e8, 0x3a3c41]))),
+    ("graphite", n("Графитовая"), 1, Some(dark([0x2f3136, 0x25272b, 0xe4e5e8, 0x8f9197, 0xd0bcff, 0x381e72, 0x45474d, 0xe4e5e8, 0x3a3c41]))),
     // True black: OLED pixels switch off.
     (
         "oled",
-        "OLED (чёрная)",
+        n("OLED (чёрная)"),
         1,
         Some(Palette {
             outline: Some(0x2c2c30),
@@ -3103,12 +3122,12 @@ const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
     // coral deepened so icons and white button text keep their contrast.
     (
         "coral",
-        "Коралловая",
+        n("Коралловая"),
         2,
         Some(Palette { light: true, bg: 0xfffaf9, card: 0xfbeeeb, fg: 0x3d3838, line: 0xc9a6ac, accent: 0xc75545, on_accent: 0xffffff, tonal: 0xf7d6d0, on_tonal: 0x3d3838, track: 0xecd8d6, outline: None }),
     ),
     // Its dark pair: warm plum-brown surfaces, a light coral accent.
-    ("coral-dark", "Тёмно-коралловая", 1, Some(dark([0x2a2022, 0x221a1c, 0xf2e4e2, 0x8c6f72, 0xf08a76, 0x3a1510, 0x4a3336, 0xf2e4e2, 0x3b2c2f]))),
+    ("coral-dark", n("Тёмно-коралловая"), 1, Some(dark([0x2a2022, 0x221a1c, 0xf2e4e2, 0x8c6f72, 0xf08a76, 0x3a1510, 0x4a3336, 0xf2e4e2, 0x3b2c2f]))),
     ("tokyo-night", "Tokyo Night", 1, Some(dark([0x1a1b26, 0x16161e, 0xc0caf5, 0x565f89, 0x7aa2f7, 0x1a1b26, 0x343a55, 0xc0caf5, 0x292e42]))),
     ("dracula", "Dracula", 1, Some(dark([0x282a36, 0x21222c, 0xf8f8f2, 0x6272a4, 0xbd93f9, 0x282a36, 0x44475a, 0xf8f8f2, 0x343746]))),
     ("nord", "Nord", 1, Some(dark([0x2e3440, 0x272c36, 0xeceff4, 0x616e88, 0x88c0d0, 0x2e3440, 0x434c5e, 0xeceff4, 0x3b4252]))),
@@ -3118,7 +3137,7 @@ const THEMES: &[(&str, &str, i32, Option<Palette>)] = &[
     // Green-black with soft phosphor text; the bright green only on accents.
     (
         "matrix",
-        "Матрица",
+        n("Матрица"),
         1,
         Some(Palette {
             outline: Some(0x15402a),
@@ -3132,7 +3151,7 @@ const MATERIAL_DARK: [u32; 4] = [0x2a282d, 0x1c1b1f, 0xe6e1e5, 0xd0bcff];
 const MATERIAL_LIGHT: [u32; 4] = [0xf8f3f9, 0xece6f0, 0x1d1b20, 0x6750a4];
 
 /// The tile Settings shows for a theme.
-fn theme_swatch(t: &(&str, &str, i32, Option<Palette>)) -> ThemeSwatch {
+fn theme_swatch(t: &(&'static str, &'static str, i32, Option<Palette>)) -> ThemeSwatch {
     let c = |rgb: u32| slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
     let (first, second) = match (&t.3, t.2) {
         (Some(p), _) => ([p.bg, p.card, p.fg, p.accent], None),
@@ -3142,7 +3161,7 @@ fn theme_swatch(t: &(&str, &str, i32, Option<Palette>)) -> ThemeSwatch {
     };
     let other = second.unwrap_or(first);
     ThemeSwatch {
-        name: t.1.into(),
+        name: tr(t.1).into(),
         bg: c(first[0]),
         card: c(first[1]),
         fg: c(first[2]),
@@ -3214,8 +3233,8 @@ fn restart_hysteria_if_due(ui: &AppWindow, app: &Shared) {
                 return;
             }
             let msg = match result {
-                Ok(()) => "Hysteria2 перезапущена".to_string(),
-                Err(e) => format!("Перезапуск Hysteria2 не удался: {}", first_line(&format!("{e:#}"))),
+                Ok(()) => tr("Hysteria2 перезапущена").to_string(),
+                Err(e) => trf!("Перезапуск Hysteria2 не удался: {p0}", p0 = first_line(&format!("{e:#}"))),
             };
             flash_status(&ui, &app, &mut st, msg);
             render(&ui, &st);
@@ -3422,7 +3441,7 @@ fn measure_exit(ui: &AppWindow, app: &Shared, st: &mut App) {
 fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, jobs: Vec<(String, duoray_core::server::Server)>) {
     use std::sync::atomic::{AtomicBool, Ordering};
     if st.speed_cancel.is_some() {
-        flash_status(ui, app, &mut st, "Тест скорости уже идёт".into());
+        flash_status(ui, app, &mut st, tr("Тест скорости уже идёт").into());
         return render(ui, &st);
     }
     let cancel = Arc::new(AtomicBool::new(false));
@@ -3459,7 +3478,7 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
             update(Box::new(move |st| {
                 st.speed_results.insert(k, SpeedCell::Testing { down: None, up: None });
                 st.speed_progress = Some((done, total));
-                st.speed_live = Some(SpeedLive { server: name, target: String::new(), phase: "подключение…".into() });
+                st.speed_live = Some(SpeedLive { server: name, target: String::new(), phase: tr("подключение…").into() });
             }));
             let progress = |p: speed::Progress| {
                 let k = key.clone();
@@ -3470,21 +3489,21 @@ fn speed_jobs(ui: &AppWindow, app: &Shared, mut st: std::sync::MutexGuard<App>, 
                     match p {
                         speed::Progress::Target(t) => {
                             live.target = t;
-                            live.phase = "загрузка…".into();
+                            live.phase = tr("загрузка…").into();
                             (*down, *up) = (None, None);
                         }
                         speed::Progress::Down(r) => {
-                            live.phase = format!("загрузка {} Мбит/с", speed::number(r));
+                            live.phase = trf!("загрузка {p0} Мбит/с", p0 = speed::number(r));
                             *down = Some(r);
                         }
                         speed::Progress::Up(r) => {
-                            live.phase = if r > 0.0 { format!("отдача {} Мбит/с", speed::number(r)) } else { "отдача…".into() };
+                            live.phase = if r > 0.0 { trf!("отдача {p0} Мбит/с", p0 = speed::number(r)) } else { tr("отдача…").into() };
                             *up = Some(r);
                         }
                     }
                 }));
             };
-            let result = iface.as_deref().ok_or_else(|| anyhow::anyhow!("нет подключения к сети")).and_then(|iface| {
+            let result = iface.as_deref().ok_or_else(|| anyhow::anyhow!(tr("нет подключения к сети"))).and_then(|iface| {
                 ping::through_server(server, iface, &run_dir, "speed", |socks, user, pass| {
                     speed::measure(socks, user, pass, &source, &cancel, &progress)
                 })
@@ -3523,7 +3542,7 @@ fn show_qr(ui: &AppWindow, app: &Shared, st: &mut App, title: &str, text: &str) 
             ui.set_qr_open(true);
         }
         None => {
-            flash_status(ui, app, st, "Ссылка слишком длинная для QR-кода. Скопируйте её".into());
+            flash_status(ui, app, st, tr("Ссылка слишком длинная для QR-кода. Скопируйте её").into());
             render(ui, st);
         }
     }
@@ -3581,8 +3600,8 @@ fn add_input(ui: &AppWindow, app: &Shared, device: &Arc<Device>, text: &str, nam
         ui.set_current_sub(index as i32);
         ui.set_current_server(-1);
         let msg = match added {
-            0 => "Эти серверы уже добавлены".into(),
-            n => format!("Добавлено: {}", plural(n, "сервер", "сервера", "серверов")),
+            0 => tr("Эти серверы уже добавлены").into(),
+            n => trf!("Добавлено: {p0}", p0 = plural(n, "сервер", "сервера", "серверов")),
         };
         flash_status(ui, app, &mut st, msg);
         render(ui, &st);
@@ -3613,7 +3632,7 @@ fn connect_fastest(ui: &AppWindow, app: &Shared, id: &str) {
         })
         .min_by_key(|(ms, ..)| *ms);
     let Some((ms, key, name)) = best else {
-        flash_status_for(ui, app, &mut st, "Ни один сервер подписки не ответил".into(), 6);
+        flash_status_for(ui, app, &mut st, tr("Ни один сервер подписки не ответил").into(), 6);
         return render(ui, &st);
     };
     diag::log(format!("fastest: {ms} ms"));

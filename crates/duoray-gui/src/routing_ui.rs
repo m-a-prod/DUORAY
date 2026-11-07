@@ -3,6 +3,7 @@
 //! Every edit is saved at once (debounced); if connected, the connection is
 //! restarted a moment later, because the rules live in xray's config.
 
+use crate::i18n::tr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{AppWindow, ConnState, GameRow, GeoRow, RuleRow, Shared, connection, save};
 
-const STRATEGY_PANEL: &str = "Как в подписке";
+const STRATEGY_PANEL: &str = crate::i18n::n("Как в подписке");
 const NETWORKS: [&str; 3] = ["", "tcp", "udp"];
 const GEO_SEARCH_LIMIT: usize = 100;
 
@@ -79,8 +80,8 @@ pub fn load(ui: &AppWindow, s: &RoutingSettings) {
         .iter()
         .map(|g| GameRow {
             id: g.id.into(),
-            title: g.title.into(),
-            subtitle: g.subtitle.into(),
+            title: tr(g.title).into(),
+            subtitle: tr(g.subtitle).into(),
             on: s.simple.games.iter().any(|id| id == g.id),
         })
         .collect();
@@ -107,7 +108,7 @@ fn load_profile(ui: &AppWindow, s: &RoutingSettings) {
     ui.set_routing_default_action(Action::ALL.iter().position(|a| *a == p.default_action).unwrap_or(0) as i32);
     ui.set_routing_keep_panel(p.keep_panel_rules);
     ui.set_routing_domain_strategy(
-        if p.domain_strategy.is_empty() { STRATEGY_PANEL } else { p.domain_strategy.as_str() }.into(),
+        if p.domain_strategy.is_empty() { crate::i18n::tr(STRATEGY_PANEL) } else { p.domain_strategy.as_str() }.into(),
     );
     let rules: Vec<RuleRow> = p.rules.iter().map(rule_row).collect();
     ui.set_routing_rules(ModelRc::new(VecModel::from(rules)));
@@ -155,7 +156,7 @@ fn read_fields(ui: &AppWindow, s: &mut RoutingSettings) {
     p.default_action = Action::ALL.get(ui.get_routing_default_action() as usize).copied().unwrap_or_default();
     p.keep_panel_rules = ui.get_routing_keep_panel();
     let strategy = ui.get_routing_domain_strategy().to_string();
-    p.domain_strategy = if strategy == STRATEGY_PANEL { String::new() } else { strategy };
+    p.domain_strategy = if strategy == crate::i18n::tr(STRATEGY_PANEL) || strategy == STRATEGY_PANEL { String::new() } else { strategy };
 }
 
 fn active_profile(s: &mut RoutingSettings) -> &mut RouteProfile {
@@ -308,7 +309,7 @@ pub fn install(ui: &AppWindow, app: &Shared) {
                 let mut st = app.lock().unwrap();
                 let r = &mut st.store.settings.routing;
                 let n = r.profiles.len() + 1;
-                r.profiles.push(RouteProfile { name: format!("Профиль {n}"), ..Default::default() });
+                r.profiles.push(RouteProfile { name: trf!("Профиль {n}", n = n), ..Default::default() });
                 r.active_profile = r.profiles.len() - 1;
                 load_profile(&ui, r);
             }
@@ -364,7 +365,7 @@ pub fn install(ui: &AppWindow, app: &Shared) {
                 ui.set_routing_geo_search_status("".into());
                 return;
             }
-            ui.set_routing_geo_search_status("Поиск…".into());
+            ui.set_routing_geo_search_status(tr("Поиск…").into());
             let (ui_weak, app) = (ui.as_weak(), app.clone());
             let (generation, query) = (generation.clone(), query.clone());
             timer.start(slint::TimerMode::SingleShot, Duration::from_millis(200), move || {
@@ -406,16 +407,16 @@ pub fn install(ui: &AppWindow, app: &Shared) {
                     let total: usize = found.iter().map(Vec::len).sum();
                     let rows = share_limit(found, GEO_SEARCH_LIMIT);
                     let mut status = if assets.is_none() {
-                        "Геофайлы не найдены".to_string()
+                        tr("Геофайлы не найдены").to_string()
                     } else if total > rows.len() {
-                        format!("Показаны первые {} совпадений", rows.len())
+                        trf!("Показаны первые {p0} совпадений", p0 = rows.len())
                     } else if rows.is_empty() {
-                        "Ничего не найдено".to_string()
+                        tr("Ничего не найдено").to_string()
                     } else {
-                        format!("Найдено: {}", rows.len())
+                        trf!("Найдено: {p0}", p0 = rows.len())
                     };
                     if assets.is_some() && !unread.is_empty() {
-                        status = format!("{status}. Не удалось прочитать {}", unread.join(" и "));
+                        status = trf!("{status}. Не удалось прочитать {p0}", status = status, p0 = unread.join(" и "));
                     }
                     let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                         if generation.load(Ordering::Relaxed) == current {
@@ -524,7 +525,7 @@ fn update_geo(ui: &AppWindow, app: &Shared, force: bool) {
     let geo = geo_dir(app);
     ui.set_routing_geo_busy(true);
     if force {
-        ui.set_routing_geo_status("Загрузка…".into());
+        ui.set_routing_geo_status(tr("Загрузка…").into());
     } else {
         ui.set_routing_geo_status(geo_status(&geo, None).into());
     }
@@ -544,12 +545,12 @@ fn geo_status(geo: &GeoDir, error: Option<String>) -> String {
         .updated()
         .map(|t| {
             let t: chrono::DateTime<chrono::Local> = t.into();
-            format!("Обновлено {}", t.format("%d.%m.%Y %H:%M"))
+            trf!("Обновлено {p0}", p0 = t.format("%d.%m.%Y %H:%M"))
         })
-        .unwrap_or_else(|| "Ещё не загружены: используются встроенные списки".into());
+        .unwrap_or_else(|| tr("Ещё не загружены: используются встроенные списки").into());
     match error {
-        Some(e) => format!("{when}. Ошибка обновления: {}", crate::first_line(&e)),
-        None => format!("{when}. Обновляются сами раз в сутки."),
+        Some(e) => trf!("{when}. Ошибка обновления: {p0}", when = when, p0 = crate::first_line(&e)),
+        None => trf!("{when}. Обновляются сами раз в сутки.", when = when),
     }
 }
 

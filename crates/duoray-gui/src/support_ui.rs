@@ -1,5 +1,6 @@
 //! Consent to error reports, "Сообщить о проблеме" and in-app updates.
 
+use crate::i18n::tr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -147,7 +148,7 @@ fn check(ui: &AppWindow, app: &Shared, manual: bool) {
         st.update = UpdateState::Checking;
         show(ui, &st.update);
     }
-    ui.set_update_info("Проверка обновлений…".into());
+    ui.set_update_info(tr("Проверка обновлений…").into());
     let dir = crate::routing_ui::data_dir(app).join("updates");
     let (ui_weak, app) = (ui.as_weak(), app.clone());
     std::thread::spawn(move || {
@@ -161,7 +162,7 @@ fn check(ui: &AppWindow, app: &Shared, manual: bool) {
                     Ok(None) => {
                         st.update = UpdateState::Idle;
                         ui.set_update_info(
-                            format!("Установлена последняя версия ({}, {}).", env!("CARGO_PKG_VERSION"), update::BUILD).into(),
+                            trf!("Установлена последняя версия ({p0}, {p1}).", p0 = env!("CARGO_PKG_VERSION"), p1 = update::BUILD).into(),
                         );
                     }
                     Ok(Some(f)) if f.install == Install::Notify || f.asset.is_none() => {
@@ -192,7 +193,7 @@ fn check(ui: &AppWindow, app: &Shared, manual: bool) {
             if pct >= last.load(std::sync::atomic::Ordering::Relaxed) + 5 {
                 last.store(pct, std::sync::atomic::Ordering::Relaxed);
                 let ui_weak = ui_weak.clone();
-                let _ = ui_weak.upgrade_in_event_loop(move |ui| ui.set_update_banner(format!("Загрузка обновления… {pct}%").into()));
+                let _ = ui_weak.upgrade_in_event_loop(move |ui| ui.set_update_banner(trf!("Загрузка обновления… {pct}%", pct = pct).into()));
             }
         });
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
@@ -218,12 +219,12 @@ fn check(ui: &AppWindow, app: &Shared, manual: bool) {
 fn show(ui: &AppWindow, state: &UpdateState) {
     let (banner, button) = match state {
         UpdateState::Idle | UpdateState::Checking => (String::new(), ""),
-        UpdateState::Downloading(v) => (format!("Загрузка обновления {v}…"), ""),
+        UpdateState::Downloading(v) => (trf!("Загрузка обновления {v}…", v = v), ""),
         UpdateState::Ready(f, _) => (
-            format!("Доступно обновление {}", f.version),
-            if f.install == Install::Open { "Открыть" } else { "Установить" },
+            trf!("Доступно обновление {p0}", p0 = f.version),
+            if f.install == Install::Open { tr("Открыть") } else { tr("Установить") },
         ),
-        UpdateState::Notify(f) => (format!("Доступно обновление {}", f.version), if f.page.is_empty() { "" } else { "Скачать" }),
+        UpdateState::Notify(f) => (trf!("Доступно обновление {p0}", p0 = f.version), if f.page.is_empty() { "" } else { tr("Скачать") }),
     };
     ui.set_update_banner(banner.into());
     ui.set_update_button(button.into());
@@ -244,7 +245,7 @@ fn apply(ui: &AppWindow, app: &Shared) {
             if conn.is_some() {
                 st.conn_state = crate::ConnState::Idle;
             }
-            ui.set_update_banner("Установка обновления…".into());
+            ui.set_update_banner(tr("Установка обновления…").into());
             ui.set_update_button("".into());
             drop(st);
             let (ui_weak, app) = (ui.as_weak(), app.clone());

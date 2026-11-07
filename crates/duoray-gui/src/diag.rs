@@ -10,6 +10,7 @@
 //! user sends from "Сообщить о проблеме" is an explicit action and is sent
 //! regardless (the dialog shows exactly what goes out).
 
+use crate::i18n::tr;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -132,7 +133,7 @@ pub fn auto_online(kind: &str, message: &str) {
         if online() {
             report_auto(&kind, &message);
         } else {
-            log(format!("{kind}: нет интернета, не отправлено"));
+            log(trf!("{kind}: нет интернета, не отправлено", kind = kind));
         }
     });
 }
@@ -233,7 +234,7 @@ enum PostError {
 impl From<PostError> for anyhow::Error {
     fn from(e: PostError) -> Self {
         match e {
-            PostError::Rejected => anyhow::anyhow!("сервер отклонил отчёт"),
+            PostError::Rejected => anyhow::anyhow!(tr("сервер отклонил отчёт")),
             PostError::Later(e) => e,
         }
     }
@@ -241,7 +242,7 @@ impl From<PostError> for anyhow::Error {
 
 /// Sends to the first hub that takes it; a refusal (bad report) is final.
 fn post(report: &Value) -> Result<String, PostError> {
-    let mut last = PostError::Later(anyhow::anyhow!("нет серверов"));
+    let mut last = PostError::Later(anyhow::anyhow!(tr("нет серверов")));
     for hub in hubs() {
         match post_to(&hub, report) {
             Ok(id) => {
@@ -271,9 +272,9 @@ fn post_to(hub: &str, report: &Value) -> Result<String, PostError> {
             let body: Value = resp.body_mut().read_json().map_err(|e| PostError::Later(e.into()))?;
             Ok(body["id"].as_str().unwrap_or_default().to_string())
         }
-        429 => Err(PostError::Later(anyhow::anyhow!("слишком много отчётов, попробуйте позже"))),
+        429 => Err(PostError::Later(anyhow::anyhow!(tr("слишком много отчётов, попробуйте позже")))),
         400 | 404 | 413 => Err(PostError::Rejected),
-        s => Err(PostError::Later(anyhow::anyhow!("сервер ответил {s}"))),
+        s => Err(PostError::Later(anyhow::anyhow!(trf!("сервер ответил {s}", s = s)))),
     }
 }
 

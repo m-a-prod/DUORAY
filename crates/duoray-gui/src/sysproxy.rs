@@ -235,10 +235,8 @@ mod imp {
             before.kde_tools = Some((read.into(), write.into()));
         }
         if before.gnome.is_empty() && before.kde_tools.is_none() {
-            return Ok(Some(format!(
-                "В этом окружении нет системных настроек прокси (они есть в GNOME и KDE). \
-                 Укажите прокси 127.0.0.1:{port} (HTTP или SOCKS5) в нужных приложениях вручную."
-            )));
+            return Ok(Some(trf!("В этом окружении нет системных настроек прокси (они есть в GNOME и KDE). \
+                 Укажите прокси 127.0.0.1:{port} (HTTP или SOCKS5) в нужных приложениях вручную.", port = port)));
         }
         save(&before)?;
 

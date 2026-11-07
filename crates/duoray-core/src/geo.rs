@@ -67,7 +67,7 @@ impl GeoDir {
             let r = download(GEOIP_URL, Duration::from_secs(120)).and_then(|data| {
                 let tags = dat_tags(&data);
                 if !["ru", "private"].iter().all(|t| tags.contains(*t)) {
-                    bail!("geoip.dat без нужных разделов");
+                    bail!(crate::i18n::tr("geoip.dat без нужных разделов"));
                 }
                 replace(&self.dir.join("geoip.dat"), &data)
             });
@@ -96,7 +96,7 @@ impl GeoDir {
                     }
                     replace(&path, text.as_bytes())?;
                 }
-                Ok(_) => errors.push(format!("{name}: пустой список")),
+                Ok(_) => errors.push(crate::core_trf!("{name}: пустой список", name = name)),
                 Err(e) => errors.push(format!("{name}: {e:#}")),
             }
         }
@@ -140,7 +140,7 @@ fn asn_prefixes(asn: u32) -> Result<Vec<String>> {
     let v = json(&format!("https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn}"))?;
     let set: BTreeSet<String> = v["data"]["prefixes"]
         .as_array()
-        .context("RIPEstat: нет prefixes")?
+        .context(crate::i18n::tr("RIPEstat: нет prefixes"))?
         .iter()
         .filter_map(|p| p["prefix"].as_str().map(str::to_string))
         .collect();

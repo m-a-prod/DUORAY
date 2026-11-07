@@ -176,7 +176,7 @@ mod imp {
                 .into()
             };
             let mut menu = vec![
-                item("Открыть DUORAY", true, Action::Show),
+                item(crate::i18n::tr("Открыть DUORAY"), true, Action::Show),
                 item(&self.state.toggle, !self.state.toggle.is_empty(), Action::Toggle),
             ];
             if !self.state.servers.is_empty() {
@@ -196,7 +196,7 @@ mod imp {
                 );
             }
             menu.push(ksni::MenuItem::Separator);
-            menu.push(item("Выход", true, Action::Quit));
+            menu.push(item(crate::i18n::tr("Выход"), true, Action::Quit));
             menu
         }
     }
@@ -250,7 +250,7 @@ mod imp {
             items.push((id, action));
             menu.append(item).ok()
         };
-        let show = MenuItem::new("Открыть DUORAY", true, None);
+        let show = MenuItem::new(crate::i18n::tr("Открыть DUORAY"), true, None);
         add(&show, show.id().clone(), Action::Show)?;
         let toggle = MenuItem::new(&state.toggle, !state.toggle.is_empty(), None);
         add(&toggle, toggle.id().clone(), Action::Toggle)?;
@@ -263,7 +263,7 @@ mod imp {
             add(&item, item.id().clone(), Action::Server(server.key.clone()))?;
         }
         menu.append(&PredefinedMenuItem::separator()).ok()?;
-        let quit = MenuItem::new("Выход", true, None);
+        let quit = MenuItem::new(crate::i18n::tr("Выход"), true, None);
         add(&quit, quit.id().clone(), Action::Quit)?;
         Some((menu, items))
     }

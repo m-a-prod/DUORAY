@@ -2,6 +2,7 @@
 //! second, against the nearest Speedtest (Ookla) server, Cloudflare, or an
 //! own file.
 
+use crate::i18n::tr;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -98,11 +99,11 @@ struct OoklaServer {
 
 /// The nearest Speedtest server that answers; the next ones on failure.
 fn ookla(agent: &ureq::Agent, cancel: &AtomicBool, progress: &dyn Fn(Progress)) -> Result<Speed> {
-    let servers: Vec<OoklaServer> = agent.get(OOKLA_SERVERS).call().context("список серверов Speedtest")?.body_mut().read_json()?;
-    let mut last = anyhow::anyhow!("Speedtest не дал серверов");
+    let servers: Vec<OoklaServer> = agent.get(OOKLA_SERVERS).call().context(tr("список серверов Speedtest"))?.body_mut().read_json()?;
+    let mut last = anyhow::anyhow!(tr("Speedtest не дал серверов"));
     for server in servers.iter().take(3) {
         if cancel.load(Ordering::SeqCst) {
-            bail!("остановлено");
+            bail!(tr("остановлено"));
         }
         progress(Progress::Target(format!("Speedtest: {}, {}", server.sponsor, server.name)));
         let base = format!("https://{}", server.host);
@@ -130,7 +131,7 @@ fn ookla(agent: &ureq::Agent, cancel: &AtomicBool, progress: &dyn Fn(Progress)) 
             }
         };
         if cancel.load(Ordering::SeqCst) {
-            bail!("остановлено");
+            bail!(tr("остановлено"));
         }
         progress(Progress::Up(0.0));
         let up = parallel(cancel, &|rate| progress(Progress::Up(rate)), |running, total| {
@@ -172,11 +173,11 @@ where
         streams.into_iter().filter_map(|s| s.join().ok()?.err()).collect()
     });
     if cancel.load(Ordering::SeqCst) {
-        bail!("остановлено");
+        bail!(tr("остановлено"));
     }
     let total = total.into_inner();
     if total < 100_000 {
-        return Err(errors.into_iter().next().unwrap_or_else(|| anyhow::anyhow!("получено слишком мало данных")));
+        return Err(errors.into_iter().next().unwrap_or_else(|| anyhow::anyhow!(tr("получено слишком мало данных"))));
     }
     Ok(mbps(total, start.elapsed()))
 }
@@ -213,16 +214,16 @@ fn download(agent: &ureq::Agent, url: &str, cancel: &AtomicBool, progress: &dyn 
             progress(Progress::Down(mbps(total, start.elapsed())));
         }
         if cancel.load(Ordering::SeqCst) {
-            bail!("остановлено");
+            bail!(tr("остановлено"));
         }
-        let n = body.read(&mut buf).context("загрузка оборвалась")?;
+        let n = body.read(&mut buf).context(tr("загрузка оборвалась"))?;
         if n == 0 {
             break;
         }
         total += n;
     }
     if total < 100_000 {
-        bail!("получено слишком мало данных ({total} байт): проверьте адрес файла");
+        bail!(trf!("получено слишком мало данных ({total} байт): проверьте адрес файла", total = total));
     }
     Ok(mbps(total, start.elapsed()))
 }
@@ -236,7 +237,7 @@ fn upload(agent: &ureq::Agent) -> Result<f64> {
         .timeout_global(Some(MAX_TIME + Duration::from_secs(5)))
         .build()
         .send(&data[..])
-        .context("отдача")?;
+        .context(tr("отдача"))?;
     Ok(mbps(UPLOAD_BYTES, start.elapsed()))
 }
 

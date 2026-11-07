@@ -278,7 +278,7 @@ fn drop_unresolved_nodes(config: &mut Value, failed: &HashMap<String, anyhow::Er
     let mut hosts: Vec<String> = hosts.into_iter().map(String::from).collect();
     hosts.sort();
     hosts.dedup();
-    warnings.push(format!("Пропущено узлов балансера: {} — не найден адрес {}", drop_tags.len(), hosts.join(", ")));
+    warnings.push(crate::core_trf!("Пропущено узлов балансера: {p0} — не найден адрес {p1}", p0 = drop_tags.len(), p1 = hosts.join(", ")));
     if let Some(o) = config["outbounds"].as_array_mut() {
         o.retain(|o| !drop_tags.contains(&tag(o)));
     }
@@ -368,7 +368,7 @@ pub fn free_port() -> Result<u16> {
             return Ok(port);
         }
     }
-    bail!("нет свободного локального порта")
+    bail!(crate::i18n::tr("нет свободного локального порта"))
 }
 
 #[cfg(test)]

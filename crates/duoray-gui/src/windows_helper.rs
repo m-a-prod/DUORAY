@@ -2,6 +2,7 @@
 //! setup program normally does this; here it is a repair path. Elevation goes
 //! through the standard UAC prompt.
 
+use crate::i18n::tr;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -22,12 +23,12 @@ fn run_elevated(script: &str) -> Result<()> {
     );
     let status = hidden(std::process::Command::new("powershell").args(["-NoProfile", "-Command", &launcher]))
         .status()
-        .context("не удалось запустить PowerShell")?;
+        .context(tr("не удалось запустить PowerShell"))?;
     let _ = std::fs::remove_file(&path);
     match status.code() {
         Some(0) => Ok(()),
-        Some(1223) => bail!("установка отменена"),
-        code => bail!("установка не удалась (код {code:?})"),
+        Some(1223) => bail!(tr("установка отменена")),
+        code => bail!(trf!("установка не удалась (код {code})", code = format!("{code:?}"))),
     }
 }
 
@@ -38,7 +39,7 @@ fn quote(p: &Path) -> String {
 pub fn install() -> Result<()> {
     let src = std::env::current_exe()?.parent().context("no exe dir")?.to_path_buf();
     if !src.join("duoray-helper.exe").is_file() {
-        bail!("рядом с DUORAY нет duoray-helper.exe — переустановите программу");
+        bail!(tr("рядом с DUORAY нет duoray-helper.exe — переустановите программу"));
     }
     let script = format!(
         r#"$ErrorActionPreference = 'Stop'

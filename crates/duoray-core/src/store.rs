@@ -84,6 +84,8 @@ pub struct Settings {
     pub glass: bool,
     /// How opaque the glass is, percent.
     pub glass_opacity: u32,
+    /// Interface language: "" as the system, "ru", "en".
+    pub language: String,
     /// Protocol and transport chips (VLESS, xhttp · reality) in the server list.
     pub show_server_type: bool,
     /// Closing the window hides it to the tray; the VPN keeps running.
@@ -131,6 +133,7 @@ impl Default for Settings {
             pin_lock: None,
             glass: false,
             glass_opacity: 75,
+            language: String::new(),
             show_server_type: true,
             close_to_tray: true,
             hide_buy: false,
@@ -257,7 +260,7 @@ fn override_key(sub: &Subscription, index: usize) -> String {
 }
 
 /// Name of the group that holds servers added as plain share links.
-pub const MANUAL_GROUP_NAME: &str = "Мои серверы";
+pub const MANUAL_GROUP_NAME: &str = crate::i18n::n("Мои серверы");
 
 /// The format of [`Store::export`].
 const EXPORT_VERSION: u32 = 1;
@@ -276,6 +279,10 @@ impl Subscription {
     }
 
     pub fn display_name(&self) -> String {
+        // Kept under its Russian name: shown in the interface language.
+        if self.is_manual() {
+            return crate::i18n::tr(MANUAL_GROUP_NAME).to_string();
+        }
         if !self.name.trim().is_empty() {
             return self.name.trim().to_string();
         }
@@ -459,8 +466,8 @@ impl Store {
             settings: Settings,
             subscriptions: Vec<Subscription>,
         }
-        let export: Export = serde_json::from_str(text.trim()).context("это не файл настроек DUORAY")?;
-        anyhow::ensure!(export.duoray_export <= EXPORT_VERSION, "файл из более новой версии DUORAY, обновите её");
+        let export: Export = serde_json::from_str(text.trim()).context(crate::i18n::tr("это не файл настроек DUORAY"))?;
+        anyhow::ensure!(export.duoray_export <= EXPORT_VERSION, crate::i18n::tr("файл из более новой версии DUORAY, обновите её"));
         let mine = std::mem::replace(&mut self.settings, export.settings);
         self.settings.install_id = mine.install_id;
         self.settings.telemetry = mine.telemetry;

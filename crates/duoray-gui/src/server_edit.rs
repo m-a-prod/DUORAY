@@ -3,6 +3,7 @@
 //! link itself (connection, transport, security), showing only the fields
 //! that apply to the chosen transport and security.
 
+use crate::i18n::tr;
 use duoray_core::link::{Profile, Protocol};
 use serde_json::{Map, Value, json};
 
@@ -54,27 +55,27 @@ impl Fields {
 pub fn fields(p: &Profile) -> Vec<Field> {
     let s = &p.stream;
     let mut f = Fields::default();
-    f.section("ПОДКЛЮЧЕНИЕ");
+    f.section(tr("ПОДКЛЮЧЕНИЕ"));
 
-    f.add("name", "Название", &p.name, &[], "");
-    f.add("address", "Адрес", &p.address, &[], "example.com или 1.2.3.4");
-    f.add("port", "Порт", &p.port.to_string(), &[], "443");
+    f.add("name", tr("Название"), &p.name, &[], "");
+    f.add("address", tr("Адрес"), &p.address, &[], tr("example.com или 1.2.3.4"));
+    f.add("port", tr("Порт"), &p.port.to_string(), &[], "443");
     match &p.protocol {
         Protocol::Vless { id, flow, encryption } => {
             f.add("id", "UUID", id, &[], "");
             f.add("flow", "Flow", flow, &[NONE, "xtls-rprx-vision", "xtls-rprx-vision-udp443"], "");
-            f.add("encryption", "Шифрование", encryption, &[], "none");
+            f.add("encryption", tr("Шифрование"), encryption, &[], "none");
         }
         Protocol::Vmess { id, alter_id, cipher } => {
             f.add("id", "UUID", id, &[], "");
             f.add("alter_id", "alterId", &alter_id.to_string(), &[], "0");
-            f.add("cipher", "Шифрование", cipher, &["auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero"], "");
+            f.add("cipher", tr("Шифрование"), cipher, &["auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero"], "");
         }
-        Protocol::Trojan { password } => f.add("password", "Пароль", password, &[], ""),
+        Protocol::Trojan { password } => f.add("password", tr("Пароль"), password, &[], ""),
         Protocol::Shadowsocks { method, password } => {
             f.add(
                 "method",
-                "Метод",
+                tr("Метод"),
                 method,
                 &[
                     "2022-blake3-aes-128-gcm",
@@ -88,39 +89,39 @@ pub fn fields(p: &Profile) -> Vec<Field> {
                 ],
                 "",
             );
-            f.add("password", "Пароль", password, &[], "");
+            f.add("password", tr("Пароль"), password, &[], "");
         }
         Protocol::Hysteria2 { auth, obfs_password } => {
-            f.add("auth", "Пароль", auth, &[], "");
-            f.add("obfs_password", "Salamander", obfs_password, &[], "пароль обфускации, если есть");
+            f.add("auth", tr("Пароль"), auth, &[], "");
+            f.add("obfs_password", "Salamander", obfs_password, &[], tr("пароль обфускации, если есть"));
         }
         Protocol::Socks { user, pass } | Protocol::Http { user, pass } => {
-            f.add("user", "Логин", user, &[], "если нужен");
-            f.add("pass", "Пароль", pass, &[], "");
+            f.add("user", tr("Логин"), user, &[], tr("если нужен"));
+            f.add("pass", tr("Пароль"), pass, &[], "");
         }
     }
 
-    f.section("ТРАНСПОРТ");
+    f.section(tr("ТРАНСПОРТ"));
     let network = if s.network.is_empty() { "tcp" } else { s.network.as_str() };
-    f.add("network", "Тип", network, &["tcp", "ws", "grpc", "xhttp", "httpupgrade", "kcp"], "");
+    f.add("network", tr("Тип"), network, &["tcp", "ws", "grpc", "xhttp", "httpupgrade", "kcp"], "");
     match network {
         "ws" | "httpupgrade" => {
-            f.add("host", "Host", &s.host, &[], "по умолчанию — адрес сервера");
+            f.add("host", "Host", &s.host, &[], tr("по умолчанию — адрес сервера"));
             f.add("path", "Path", &s.path, &[], "/");
         }
         "xhttp" => {
-            f.add("host", "Host", &s.host, &[], "по умолчанию — адрес сервера");
+            f.add("host", "Host", &s.host, &[], tr("по умолчанию — адрес сервера"));
             f.add("path", "Path", &s.path, &[], "/");
             let mode = if s.mode.is_empty() { "auto" } else { s.mode.as_str() };
-            f.add("mode", "Режим", mode, &["auto", "packet-up", "stream-up", "stream-one"], "");
+            f.add("mode", tr("Режим"), mode, &["auto", "packet-up", "stream-up", "stream-one"], "");
         }
         "grpc" => {
             f.add("service_name", "serviceName", &s.service_name, &[], "");
-            f.add("mode", "Режим", if s.mode == "multi" { "multi" } else { "gun" }, &["gun", "multi"], "");
+            f.add("mode", tr("Режим"), if s.mode == "multi" { "multi" } else { "gun" }, &["gun", "multi"], "");
         }
         "tcp" => {
             let header_type = if s.header_type == "http" { "http" } else { "none" };
-            f.add("header_type", "Маскировка", header_type, &["none", "http"], "");
+            f.add("header_type", tr("Маскировка"), header_type, &["none", "http"], "");
             if header_type == "http" {
                 f.add("host", "Host", &s.host, &[], "");
                 f.add("path", "Path", &s.path, &[], "/");
@@ -129,17 +130,17 @@ pub fn fields(p: &Profile) -> Vec<Field> {
         _ => {}
     }
 
-    f.section("БЕЗОПАСНОСТЬ");
+    f.section(tr("БЕЗОПАСНОСТЬ"));
     let security = if s.security.is_empty() { "none" } else { s.security.as_str() };
-    f.add("security", "Тип", security, &["none", "tls", "reality"], "");
+    f.add("security", tr("Тип"), security, &["none", "tls", "reality"], "");
     const FINGERPRINTS: &[&str] =
         &["chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"];
     match security {
         "tls" => {
-            f.add("sni", "SNI", &s.sni, &[], "по умолчанию — адрес сервера");
+            f.add("sni", "SNI", &s.sni, &[], tr("по умолчанию — адрес сервера"));
             f.add("fingerprint", "Fingerprint", if s.fingerprint.is_empty() { "chrome" } else { &s.fingerprint }, FINGERPRINTS, "");
             f.add("alpn", "ALPN", &s.alpn.join(", "), &[], "h2, http/1.1");
-            f.add("allow_insecure", "allowInsecure", if s.allow_insecure { "да" } else { "нет" }, &["нет", "да"], "");
+            f.add("allow_insecure", "allowInsecure", if s.allow_insecure { "true" } else { "false" }, &["false", "true"], "");
         }
         "reality" => {
             f.add("sni", "SNI", &s.sni, &[], "");
@@ -183,7 +184,8 @@ pub fn set(p: &mut Profile, key: &str, value: &str) {
         ("sni", _) => s.sni = v.into(),
         ("fingerprint", _) => s.fingerprint = v.into(),
         ("alpn", _) => s.alpn = v.split(',').map(str::trim).filter(|a| !a.is_empty()).map(String::from).collect(),
-        ("allow_insecure", _) => s.allow_insecure = v == "да",
+        // "да" from forms of older versions.
+        ("allow_insecure", _) => s.allow_insecure = v == "true" || v == "да",
         ("public_key", _) => s.public_key = v.into(),
         ("short_id", _) => s.short_id = v.into(),
         ("spider_x", _) => s.spider_x = v.into(),
@@ -194,27 +196,27 @@ pub fn set(p: &mut Profile, key: &str, value: &str) {
 /// First problem as (field key, message).
 pub fn validate(p: &Profile) -> Result<(), (&'static str, &'static str)> {
     if p.name.trim().is_empty() {
-        return Err(("name", "Укажите название"));
+        return Err(("name", tr("Укажите название")));
     }
     if p.address.is_empty() || p.address.contains(char::is_whitespace) {
-        return Err(("address", "Укажите адрес сервера"));
+        return Err(("address", tr("Укажите адрес сервера")));
     }
     if p.port == 0 {
-        return Err(("port", "Порт — число от 1 до 65535"));
+        return Err(("port", tr("Порт — число от 1 до 65535")));
     }
     match &p.protocol {
         Protocol::Vless { id, .. } | Protocol::Vmess { id, .. } if id.is_empty() => {
-            return Err(("id", "Укажите UUID"));
+            return Err(("id", tr("Укажите UUID")));
         }
-        Protocol::Vmess { alter_id, .. } if *alter_id == u32::MAX => return Err(("alter_id", "alterId — целое число")),
+        Protocol::Vmess { alter_id, .. } if *alter_id == u32::MAX => return Err(("alter_id", tr("alterId — целое число"))),
         Protocol::Trojan { password } | Protocol::Shadowsocks { password, .. } if password.is_empty() => {
-            return Err(("password", "Укажите пароль"));
+            return Err(("password", tr("Укажите пароль")));
         }
-        Protocol::Hysteria2 { auth, .. } if auth.is_empty() => return Err(("auth", "Укажите пароль")),
+        Protocol::Hysteria2 { auth, .. } if auth.is_empty() => return Err(("auth", tr("Укажите пароль"))),
         _ => {}
     }
     if p.stream.security == "reality" && p.stream.public_key.is_empty() {
-        return Err(("public_key", "Для Reality нужен public key"));
+        return Err(("public_key", tr("Для Reality нужен public key")));
     }
     Ok(())
 }

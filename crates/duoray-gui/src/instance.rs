@@ -1,4 +1,5 @@
 //! One GUI owns a data directory, including its xray PID and config files.
+use crate::i18n::tr;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -11,7 +12,7 @@ pub fn acquire(dir: &Path, wait: bool) -> Result<Option<File>> {
     let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
     std::fs::create_dir_all(dir)?;
     let file = OpenOptions::new().create(true).truncate(false).read(true).write(true)
-        .open(dir.join("instance.lock")).context("открытие блокировки DUORAY")?;
+        .open(dir.join("instance.lock")).context(tr("открытие блокировки DUORAY"))?;
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         match file.try_lock() {
@@ -20,7 +21,7 @@ pub fn acquire(dir: &Path, wait: bool) -> Result<Option<File>> {
                 std::thread::sleep(Duration::from_millis(100));
             }
             Err(TryLockError::WouldBlock) => return Ok(None),
-            Err(TryLockError::Error(e)) => return Err(e).context("блокировка DUORAY"),
+            Err(TryLockError::Error(e)) => return Err(e).context(tr("блокировка DUORAY")),
         }
     }
 }
@@ -76,7 +77,7 @@ pub fn already_running() {
     #[cfg(windows)]
     {
         use windows_sys::Win32::UI::WindowsAndMessaging::{MB_OK, MB_ICONINFORMATION, MessageBoxW};
-        let text: Vec<u16> = "DUORAY уже запущен. Используйте открытое окно приложения.\0".encode_utf16().collect();
+        let text: Vec<u16> = tr("DUORAY уже запущен. Используйте открытое окно приложения.").encode_utf16().chain([0]).collect();
         let title: Vec<u16> = "DUORAY\0".encode_utf16().collect();
         unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION); }
     }

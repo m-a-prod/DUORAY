@@ -1,5 +1,6 @@
 //! Talking to, and installing, the privileged helper.
 
+use crate::i18n::tr;
 use std::io::BufReader;
 use std::time::Duration;
 
@@ -82,17 +83,17 @@ impl HelperSession {
     pub fn status(&mut self) -> Result<Option<String>> {
         match self.call(&Request::Status)? {
             Response::Status { running: true, .. } => Ok(None),
-            Response::Status { error, .. } => Ok(Some(error.unwrap_or_else(|| "туннель остановлен".into()))),
+            Response::Status { error, .. } => Ok(Some(error.unwrap_or_else(|| tr("туннель остановлен").into()))),
             Response::Error { message } => bail!("{message}"),
             other => bail!("unexpected reply {other:?}"),
         }
     }
 
     fn call(&mut self, req: &Request) -> Result<Response> {
-        helper_proto::write_msg(self.conn.get_mut(), req).context("помощник не отвечает")?;
+        helper_proto::write_msg(self.conn.get_mut(), req).context(tr("помощник не отвечает"))?;
         helper_proto::read_msg(&mut self.conn)
-            .context("помощник не отвечает")?
-            .context("помощник закрыл соединение")
+            .context(tr("помощник не отвечает"))?
+            .context(tr("помощник закрыл соединение"))
     }
 }
 
@@ -145,18 +146,15 @@ mod install_impl {
         if p.contains('"') || p.contains('\\') {
             bail!("unexpected temp path {p}");
         }
-        let apple = format!(
-            "do shell script \"/bin/sh {}\" with prompt \"DUORAY устанавливает помощник для VPN-туннеля. Это нужно один раз.\" with administrator privileges",
-            shell_quote(&p)
-        );
+        let apple = trf!("do shell script \"/bin/sh {p0}\" with prompt \"DUORAY устанавливает помощник для VPN-туннеля. Это нужно один раз.\" with administrator privileges", p0 = shell_quote(&p));
         let out = std::process::Command::new("/usr/bin/osascript").args(["-e", &apple]).output()?;
         let _ = std::fs::remove_file(&path);
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
             if err.contains("-128") {
-                bail!("установка отменена");
+                bail!(tr("установка отменена"));
             }
-            bail!("установка не удалась: {}", err.trim());
+            bail!(trf!("установка не удалась: {p0}", p0 = err.trim()));
         }
         Ok(())
     }
@@ -164,7 +162,7 @@ mod install_impl {
     pub fn install() -> Result<()> {
         let src = std::env::current_exe()?.with_file_name("duoray-helper");
         if !src.exists() {
-            bail!("не найден {} (соберите workspace целиком)", src.display());
+            bail!(trf!("не найден {p0} (соберите workspace целиком)", p0 = src.display()));
         }
         check_fresh(&src)?;
         let uid = String::from_utf8(std::process::Command::new("/usr/bin/id").arg("-u").output()?.stdout)?

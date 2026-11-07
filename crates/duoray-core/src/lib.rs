@@ -6,6 +6,7 @@ pub mod cert_pin;
 pub mod device;
 pub mod geo;
 pub mod helper_proto;
+pub mod i18n;
 pub mod identity;
 pub mod link;
 pub mod mirrors;

@@ -1,0 +1,1685 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+msgid "Мбит/с"
+msgstr "Mbps"
+
+msgid "в очереди"
+msgstr "queued"
+
+msgid "нет скорости"
+msgstr "no speed"
+
+msgid "Системный"
+msgstr "System"
+
+msgid "Тёмная"
+msgstr "Dark"
+
+msgid "Основные"
+msgstr "General"
+
+msgid "Подключение"
+msgstr "Connection"
+
+msgid "Внешний вид"
+msgstr "Appearance"
+
+msgid "Пинг"
+msgstr "Ping"
+
+msgid "Подписки"
+msgstr "Subscriptions"
+
+msgid "Отчёты и обновления"
+msgstr "Reports and updates"
+
+msgid "О DUORAY"
+msgstr "About DUORAY"
+
+msgid "Настройки"
+msgstr "Settings"
+
+msgid "Запускать при входе в систему"
+msgstr "Start at login"
+
+msgid "DUORAY запускается вместе с компьютером и сразу прячется в трей."
+msgstr "DUORAY starts with your computer and goes straight to the tray."
+
+msgid "Сворачивать в трей при закрытии"
+msgstr "Close to the tray"
+
+msgid "Крестик прячет окно, VPN продолжает работать. Открыть окно или выйти — через значок DUORAY в трее."
+msgstr "The close button hides the window and the VPN keeps running. Open the window or quit from the DUORAY icon in the tray."
+
+msgid "Значок в трее недоступен в этом окружении (в GNOME нужно расширение AppIndicator), поэтому крестик закрывает DUORAY."
+msgstr "The tray icon isn't available in this environment (GNOME needs the AppIndicator extension), so the close button quits DUORAY."
+
+msgid "Подключаться при запуске"
+msgstr "Connect at start"
+
+msgid "Сразу после запуска DUORAY подключается к последнему выбранному серверу."
+msgstr "Right after starting, DUORAY connects to the last selected server."
+
+msgid "Переключаться при выборе сервера"
+msgstr "Switch when a server is picked"
+
+msgid "Если VPN подключён, выбор другого сервера в списке сразу переключает подключение на него. Если выключить, новый сервер применится при следующем подключении."
+msgstr "While the VPN is connected, picking another server in the list switches the connection to it right away. When off, the new server is used on the next connection."
+
+msgid "Блокировка PIN-кодом"
+msgstr "PIN lock"
+
+msgid "DUORAY спросит PIN-код при запуске и каждый раз, когда окно открывают из трея. Без него из трея не подключиться и не сменить сервер. Забыли PIN-код — закройте DUORAY и запустите его с ключом --reset-pin."
+msgstr "DUORAY asks for the PIN at start and whenever the window is opened from the tray. Without it you can't connect or switch servers from the tray. Forgot the PIN? Quit DUORAY and start it with --reset-pin."
+
+msgid "Сменить PIN-код"
+msgstr "Change PIN"
+
+msgid "Перенос на другой компьютер"
+msgstr "Move to another computer"
+
+msgid "«Экспорт» сохраняет настройки, подписки и ваши серверы в файл в папке «Загрузки». На другом компьютере перетащите этот файл в окно DUORAY или скопируйте его и нажмите «Импорт»."
+msgstr "“Export” saves your settings, subscriptions and servers to a file in the Downloads folder. On the other computer, drag that file onto the DUORAY window, or copy it and press “Import”."
+
+msgid "Экспорт"
+msgstr "Export"
+
+msgid "Импорт"
+msgstr "Import"
+
+msgid "Держать подключение"
+msgstr "Keep connected"
+
+msgid "Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, а интернет есть, DUORAY перейдёт на другой сервер той же подписки, самый быстрый по последнему пингу."
+msgstr "If the tunnel drops, DUORAY connects again. If the server stops answering while the internet works, DUORAY moves to another server of the same subscription, the fastest by the last ping."
+
+msgid "Аварийная блокировка (kill switch)"
+msgstr "Kill switch"
+
+msgid "Если связь с сервером оборвалась, трафик не пойдёт мимо VPN: DUORAY перезапускает подключение, а если не получилось — блокирует интернет, пока вы не нажмёте «Отключиться»."
+msgstr "If the connection to the server breaks, traffic won't go around the VPN: DUORAY restarts the connection, and if that fails, it blocks the internet until you press “Disconnect”."
+
+msgid "Режим прокси вместо TUN"
+msgstr "Proxy mode instead of TUN"
+
+msgid "DUORAY не создаёт VPN-туннель, а включает системный прокси 127.0.0.1 без логина и пароля (HTTP и SOCKS5 на одном порту). Через VPN идут программы, которые следуют системным настройкам прокси: браузеры и большинство приложений. Маршрутизация по приложениям в этом режиме не работает."
+msgstr "DUORAY doesn't create a VPN tunnel; it turns on the system proxy 127.0.0.1 without login or password (HTTP and SOCKS5 on one port). Programs that follow the system proxy settings go through the VPN: browsers and most apps. Per-app routing doesn't work in this mode."
+
+msgid "Порт прокси"
+msgstr "Proxy port"
+
+msgid "Перезапускать Hysteria2"
+msgstr "Restart Hysteria2"
+
+msgid "Если сервер работает через Hysteria2, DUORAY перезапускает xray по таймеру — Hysteria иногда «зависает» спустя время. VPN не отключается, рвутся только текущие соединения."
+msgstr "If the server uses Hysteria2, DUORAY restarts xray on a timer: Hysteria sometimes “hangs” after a while. The VPN stays on; only current connections are dropped."
+
+msgid "Каждые, минут"
+msgstr "Every, minutes"
+
+msgid "Помощник TUN"
+msgstr "TUN helper"
+
+msgid "Переустановить"
+msgstr "Reinstall"
+
+msgid "Установить"
+msgstr "Install"
+
+msgid "Удалить"
+msgstr "Remove"
+
+msgid "Тема"
+msgstr "Theme"
+
+msgid "Язык"
+msgstr "Language"
+
+msgid "Как в системе"
+msgstr "As the system"
+
+msgid "Размер текста"
+msgstr "Text size"
+
+msgid "Шрифт"
+msgstr "Font"
+
+msgid "Показывать тип сервера"
+msgstr "Show server type"
+
+msgid "Метки протокола и транспорта в списке серверов, например VLESS и xhttp · reality."
+msgstr "Protocol and transport labels in the server list, such as VLESS and xhttp · reality."
+
+msgid "Фильтр серверов"
+msgstr "Server filter"
+
+msgid "Кнопка фильтра над списком: оставить или скрыть серверы по регулярному выражению, например (lte|обход|россия)."
+msgstr "A filter button above the list: keep or hide servers by a regular expression, for example (lte|обход|россия)."
+
+msgid "Матовое стекло"
+msgstr "Frosted glass"
+
+msgid "Окно становится полупрозрачным, а то, что за ним, размывается. Размывают KDE и Hyprland; в других окружениях окно будет просто полупрозрачным. Окно рисуется видеокартой: если появятся артефакты, выключите."
+msgstr "The window turns translucent and what's behind it is blurred. KDE and Hyprland blur it; elsewhere the window is just translucent. The window is drawn by the graphics card: if artifacts appear, turn this off."
+
+msgid "Непрозрачность"
+msgstr "Opacity"
+
+msgid "Стекло включится после перезапуска DUORAY."
+msgstr "Glass turns on after DUORAY restarts."
+
+msgid "Стекло выключится после перезапуска DUORAY."
+msgstr "Glass turns off after DUORAY restarts."
+
+msgid "Перезапустить"
+msgstr "Restart"
+
+msgid "Способ"
+msgstr "Method"
+
+msgid "HTTP GET — через сам сервер"
+msgstr "HTTP GET — through the server itself"
+
+msgid "HTTP HEAD — через сервер, легче"
+msgstr "HTTP HEAD — through the server, lighter"
+
+msgid "TCP — соединение с сервером"
+msgstr "TCP — connection to the server"
+
+msgid "ICMP — обычный ping"
+msgstr "ICMP — plain ping"
+
+msgid "Потоков"
+msgstr "Threads"
+
+msgid "Адрес проверки"
+msgstr "Test URL"
+
+msgid "Режим"
+msgstr "Mode"
+
+msgid "Default: один запрос, включая установку соединения."
+msgstr "Default: one request, including setting up the connection."
+
+msgid "Double: два запроса в одной сессии xray без повторного использования соединения. Берётся лучший результат."
+msgstr "Double: two requests in one xray session without reusing the connection. The better result counts."
+
+msgid "KeepAlive: два запроса через один транспорт. Второй идёт по уже установленному соединению; берётся лучший результат."
+msgstr "KeepAlive: two requests over one transport. The second goes over the connection already set up; the better result counts."
+
+msgid "HTTP GET: запрос идёт через сам сервер, как при реальном подключении. Самый честный способ."
+msgstr "HTTP GET: the request goes through the server itself, as in a real connection. The most honest method."
+
+msgid "HTTP HEAD: как GET, но без тела ответа — чуть быстрее и легче для сервера."
+msgstr "HTTP HEAD: like GET, but without the response body: a bit faster and lighter on the server."
+
+msgid "TCP: время подключения к порту сервера. Быстро и без xray, но не проверяет, что прокси работает."
+msgstr "TCP: time to connect to the server's port. Fast and without xray, but it doesn't check that the proxy works."
+
+msgid "ICMP: обычный ping. Многие серверы на него не отвечают — будет «—», хотя сервер рабочий."
+msgstr "ICMP: plain ping. Many servers don't answer it, so you'll see “—” even though the server works."
+
+msgid "1 поток — медленно, щадящий режим. Больше потоков — быстрее, но при «белых списках» провайдер может заметить много соединений сразу и заблокировать их."
+msgstr "1 thread is slow and gentle. More threads are faster, but under “whitelists” the provider may notice many connections at once and block them."
+
+msgid "Тест скорости"
+msgstr "Speed test"
+
+msgid "Свой сервер"
+msgstr "Own server"
+
+msgid "Файл"
+msgstr "File"
+
+msgid "https://ваш-сервер/100mb.bin"
+msgstr "https://your-server/100mb.bin"
+
+msgid "«Проверить скорость» в меню сервера: загрузка и отдача через сервер до ближайшего к нему сервера Speedtest, в 4 потока, до 10 секунд на каждую."
+msgstr "“Test speed” in a server's menu: download and upload through the server to the Speedtest server nearest to it, 4 streams, up to 10 seconds each."
+
+msgid "Загрузка и отдача через сервер до Cloudflare, до 10 секунд на каждую."
+msgstr "Download and upload through the server to Cloudflare, up to 10 seconds each."
+
+msgid "Загрузка файла через сервер, до 10 секунд. Положите на свой сервер файл на 50–100 МБ и укажите его адрес."
+msgstr "Downloads a file through the server, up to 10 seconds. Put a 50–100 MB file on your server and enter its address."
+
+msgid "Отправлять HWID и данные устройства"
+msgstr "Send HWID and device info"
+
+msgid "Заголовки x-hwid, ОС и модель. Нужны панелям с лимитом устройств. Если выключить, уходит только User-Agent."
+msgstr "x-hwid, OS and model headers. Needed by panels with a device limit. When off, only the User-Agent is sent."
+
+msgid "Представляться клиентом Happ — для панелей, которые отдают подписку только ему. По умолчанию DUORAY представляется собой."
+msgstr "Present as the Happ client, for panels that give the subscription only to it. By default DUORAY presents itself."
+
+msgid "Версия Happ"
+msgstr "Happ version"
+
+msgid "ОС"
+msgstr "OS"
+
+msgid "Версия ОС"
+msgstr "OS version"
+
+msgid "Модель"
+msgstr "Model"
+
+msgid "Новые ID"
+msgstr "New IDs"
+
+msgid "Случайное устройство"
+msgstr "Random device"
+
+msgid "Сбросить"
+msgstr "Reset"
+
+msgid "Будет отправлено"
+msgstr "Will be sent"
+
+msgid "HWID и данные устройства не отправляются"
+msgstr "HWID and device info are not sent"
+
+msgid "Отправлять отчёты об ошибках"
+msgstr "Send error reports"
+
+msgid "Версия, ОС, текст ошибки и журнал последних действий — чтобы мы могли найти и исправить проблему. Ссылки подписок, адреса и названия серверов, ключи и UUID вырезаются и не отправляются."
+msgstr "Version, OS, the error text and a log of recent actions, so we can find and fix the problem. Subscription links, server addresses and names, keys and UUIDs are cut out and never sent."
+
+msgid "Проверять обновления"
+msgstr "Check for updates"
+
+msgid "Новая версия скачивается в фоне и проверяется по цифровой подписи. Устанавливается только по вашему нажатию."
+msgstr "A new version downloads in the background and is checked by its digital signature. It installs only when you press the button."
+
+msgid "Установлена версия {}."
+msgstr "Installed version {}."
+
+msgid "Проверить"
+msgstr "Check"
+
+msgid "Сообщить о проблеме"
+msgstr "Report a problem"
+
+msgid "Опишите, что случилось, — вы получите код отчёта. Передайте его в поддержку."
+msgstr "Describe what happened and you'll get a report code. Pass it on to support."
+
+msgid "Написать"
+msgstr "Write"
+
+msgid "Диагностика сети"
+msgstr "Network diagnostics"
+
+msgid "Проверяет по шагам сеть, DNS, интернет, часы, сервер подписки, выбранный сервер и путь через VPN. Результат можно скопировать для поддержки."
+msgstr "Checks step by step the network, DNS, the internet, the clock, the subscription server, the selected server and the path through the VPN. The result can be copied for support."
+
+msgid "Разработчик — DUALIZM. Новости и поддержка — в Telegram-канале @dualizm_vpn."
+msgstr "Made by DUALIZM. News and support: the @dualizm_vpn Telegram channel."
+
+msgid "© 2026 DUALIZM. Свободная программа: распространяется по лицензии GNU GPL v3, её можно изучать, менять и распространять. Поставляется без каких-либо гарантий. Учебный эксперимент, код написан с помощью ИИ-ассистента."
+msgstr "© 2026 DUALIZM. Free software under the GNU GPL v3: you may study, change and share it. It comes with no warranty of any kind. An educational experiment; the code was written with the help of an AI assistant."
+
+msgid "Исходный код"
+msgstr "Source code"
+
+msgid "Лицензия"
+msgstr "License"
+
+msgid "Сторонние компоненты"
+msgstr "Third-party components"
+
+msgid "Правило {}"
+msgstr "Rule {}"
+
+msgid "Через VPN"
+msgstr "Via VPN"
+
+msgid "Напрямую"
+msgstr "Direct"
+
+msgid "Блокировать"
+msgstr "Block"
+
+msgid "TCP и UDP"
+msgstr "TCP and UDP"
+
+msgid "Только TCP"
+msgstr "TCP only"
+
+msgid "Только UDP"
+msgstr "UDP only"
+
+msgid "Домены"
+msgstr "Domains"
+
+msgid "Порты"
+msgstr "Ports"
+
+msgid "Как в подписке"
+msgstr "As in the subscription"
+
+msgid "Маршрутизация"
+msgstr "Routing"
+
+msgid "Что пускать мимо VPN. «Напрямую» — значит с вашим обычным интернетом и IP. Всё остальное идёт так, как настроено в подписке."
+msgstr "What goes around the VPN. “Direct” means with your usual internet and IP. Everything else goes as the subscription sets it up."
+
+msgid "Продвинутый режим"
+msgstr "Advanced mode"
+
+msgid "Свои правила по доменам, IP и портам, несколько профилей. Для тех, кто знает, что такое geosite и CIDR."
+msgstr "Your own rules by domains, IPs and ports, several profiles. For those who know what geosite and CIDR are."
+
+msgid "НАПРЯМУЮ"
+msgstr "DIRECT"
+
+msgid "Российские сайты"
+msgstr "Russian sites"
+
+msgid "Все российские IP-адреса и сайты .ru, .рф, .su: Госуслуги, банки, маркетплейсы, видео. Они видят вас как обычно и работают быстрее."
+msgstr "All Russian IP addresses and .ru, .рф, .su sites: Gosuslugi, banks, marketplaces, video. They see you as usual and work faster."
+
+msgid "Белый список"
+msgstr "Whitelist"
+
+msgid "Только сайты из белых списков мобильных операторов — те, что открываются даже при ограничениях мобильного интернета. Остальные российские сайты пойдут через VPN."
+msgstr "Only sites from mobile operators' whitelists, the ones that open even when mobile internet is restricted. Other Russian sites go through the VPN."
+
+msgid "Локальная сеть"
+msgstr "Local network"
+
+msgid "Роутер, принтеры, NAS и другие устройства дома или в офисе."
+msgstr "Router, printers, NAS and other devices at home or in the office."
+
+msgid "ИГРЫ НАПРЯМУЮ"
+msgstr "GAMES DIRECT"
+
+msgid "Игры напрямую — минимальный пинг до игровых серверов. Если игра или магазин заблокированы у провайдера, оставьте их через VPN."
+msgstr "Games direct: the lowest ping to game servers. If a game or store is blocked by your provider, leave it on the VPN."
+
+msgid "ПРОФИЛЬ"
+msgstr "PROFILE"
+
+msgid "Новый"
+msgstr "New"
+
+msgid "Название"
+msgstr "Name"
+
+msgid "Остальной трафик"
+msgstr "Other traffic"
+
+msgid "Правила подписки"
+msgstr "Subscription rules"
+
+msgid "После ваших правил применять правила из подписки. Если выключить, работают только ваши."
+msgstr "Apply the subscription's rules after yours. When off, only yours work."
+
+msgid "ПРАВИЛА"
+msgstr "RULES"
+
+msgid "Добавить правило"
+msgstr "Add rule"
+
+msgid "Правил нет. Пример: «Напрямую» + домены «geosite:category-ru» или IP «geoip:ru»."
+msgstr "No rules. Example: “Direct” + domains “geosite:category-ru” or IP “geoip:ru”."
+
+msgid "Правила проверяются сверху вниз, срабатывает первое подходящее. Домены: example.com (с поддоменами), full:, keyword:, regexp:, geosite:… IP: адреса, подсети, geoip:ru, geoip:ru-whitelist, geoip:private. Через запятую."
+msgstr "Rules are checked top to bottom; the first match wins. Domains: example.com (with subdomains), full:, keyword:, regexp:, geosite:… IP: addresses, subnets, geoip:ru, geoip:ru-whitelist, geoip:private. Comma-separated."
+
+msgid "ПРИЛОЖЕНИЯ"
+msgstr "APPS"
+
+msgid "Выключено"
+msgstr "Off"
+
+msgid "Эти программы — мимо VPN"
+msgstr "These programs bypass the VPN"
+
+msgid "Только эти программы — через VPN"
+msgstr "Only these programs use the VPN"
+
+msgid "Все программы идут по правилам выше."
+msgstr "All programs follow the rules above."
+
+msgid "Выбранные программы работают с вашим обычным IP: например, Steam и игры, торрент-клиенты, рабочие программы."
+msgstr "The selected programs work with your usual IP: for example Steam and games, torrent clients, work programs."
+
+msgid "Через VPN идут только выбранные программы, всё остальное — напрямую."
+msgstr "Only the selected programs go through the VPN; everything else goes direct."
+
+msgid "steam.exe, Telegram или путь"
+msgstr "steam.exe, Telegram or a path"
+
+msgid "Добавить"
+msgstr "Add"
+
+msgid "Скрыть"
+msgstr "Hide"
+
+msgid "Из запущенных"
+msgstr "From running"
+
+msgid "БАЗЫ"
+msgstr "DATABASES"
+
+msgid "Российские IP, белые списки, серверы игр"
+msgstr "Russian IPs, whitelists, game servers"
+
+msgid "Обновление…"
+msgstr "Updating…"
+
+msgid "Обновить"
+msgstr "Update"
+
+msgid "Поиск в geoip.dat и geosite.dat"
+msgstr "Search in geoip.dat and geosite.dat"
+
+msgid "Форматировать"
+msgstr "Format"
+
+msgid "Как JSON"
+msgstr "As JSON"
+
+msgid "Показать"
+msgstr "Show"
+
+msgid "Вернуть версию подписки"
+msgstr "Restore the subscription's version"
+
+msgid "Ctrl+S — сохранить · Esc — отмена"
+msgstr "Ctrl+S — save · Esc — cancel"
+
+msgid "Отмена"
+msgstr "Cancel"
+
+msgid "Сохранить и переподключить"
+msgstr "Save and reconnect"
+
+msgid "Сохранить"
+msgstr "Save"
+
+msgid "Не подключено"
+msgstr "Not connected"
+
+msgid "Подключиться (Enter)"
+msgstr "Connect (Enter)"
+
+msgid "Отменить подключение (⌘S)"
+msgstr "Cancel connecting (⌘S)"
+
+msgid "Отключиться (⌘S)"
+msgstr "Disconnect (⌘S)"
+
+msgid "Пинг серверов"
+msgstr "Ping servers"
+
+msgid "Обновить подписку"
+msgstr "Update subscription"
+
+msgid "Добавить из буфера обмена (⌘V)"
+msgstr "Add from clipboard (⌘V)"
+
+msgid "Вид"
+msgstr "View"
+
+msgid "Серверы"
+msgstr "Servers"
+
+msgid "Справка"
+msgstr "Help"
+
+msgid "Поддержка"
+msgstr "Support"
+
+msgid "Сайт подписки"
+msgstr "Subscription website"
+
+msgid "Мои серверы"
+msgstr "My servers"
+
+msgid "ПОДПИСКИ"
+msgstr "SUBSCRIPTIONS"
+
+msgid "Из буфера обмена"
+msgstr "From clipboard"
+
+msgid "Ввести вручную"
+msgstr "Enter manually"
+
+msgid "Пока пусто. Добавьте ссылку на подписку или сервер."
+msgstr "Nothing here yet. Add a subscription or server link."
+
+msgid "Удалить?"
+msgstr "Remove?"
+
+msgid "Нет VPN?"
+msgstr "No VPN?"
+
+msgid "Купить DUALIZM"
+msgstr "Buy DUALIZM"
+
+msgid "Не показывать больше"
+msgstr "Don't show again"
+
+msgid "Продлить"
+msgstr "Renew"
+
+msgid "Скрыть напоминание"
+msgstr "Hide reminder"
+
+msgid "Подключено"
+msgstr "Connected"
+
+msgid "Отключиться"
+msgstr "Disconnect"
+
+msgid "Отменить"
+msgstr "Cancel"
+
+msgid "Отключение…"
+msgstr "Disconnecting…"
+
+msgid "Подключиться"
+msgstr "Connect"
+
+msgid "Выберите сервер"
+msgstr "Choose a server"
+
+msgid "← К серверам"
+msgstr "← Servers"
+
+msgid "Нет подписки"
+msgstr "No subscription"
+
+msgid "Нажмите «Добавить» и вставьте ссылку на подписку."
+msgstr "Press “Add” and paste a subscription link."
+
+msgid "Фильтр, например (lte|обход|россия)"
+msgstr "Filter, e.g. (lte|обход|россия)"
+
+msgid "Оставить"
+msgstr "Keep"
+
+msgid "Исключить"
+msgstr "Exclude"
+
+msgid "Скопировать ссылку"
+msgstr "Copy link"
+
+msgid "QR-код"
+msgstr "QR code"
+
+msgid "Подключиться к самому быстрому"
+msgstr "Connect to the fastest"
+
+msgid "Остановить тест скорости"
+msgstr "Stop speed test"
+
+msgid "Проверить скорость всех"
+msgstr "Test speed of all"
+
+msgid "Подмена HWID"
+msgstr "HWID spoofing"
+
+msgid "Точно удалить?"
+msgstr "Really remove?"
+
+msgid "Удалить подписку"
+msgstr "Remove subscription"
+
+msgid "Выберите сервер из списка ниже, затем нажмите «Подключиться»."
+msgstr "Choose a server from the list below, then press “Connect”."
+
+msgid "Пока нет серверов"
+msgstr "No servers yet"
+
+msgid "Нажмите «+» рядом с «Подписки» и добавьте ссылку на сервер."
+msgstr "Press “+” next to “Subscriptions” and add a server link."
+
+msgid "Убрать из избранного"
+msgstr "Remove from favorites"
+
+msgid "В избранное"
+msgstr "Add to favorites"
+
+msgid "Пропинговать"
+msgstr "Ping"
+
+msgid "Скопировать ссылки"
+msgstr "Copy links"
+
+msgid "Проверить скорость"
+msgstr "Test speed"
+
+msgid "Изменить JSON"
+msgstr "Edit JSON"
+
+msgid "Изменить параметры"
+msgstr "Edit settings"
+
+msgid "изменён"
+msgstr "edited"
+
+msgid "авто × {}"
+msgstr "auto × {}"
+
+msgid "Нужен помощник"
+msgstr "Helper needed"
+
+msgid "Ссылка на подписку из панели или бота, либо сами ссылки vless://, vmess://, trojan://, ss:// — можно несколько, каждую с новой строки. Одиночные ссылки попадут в группу «Мои серверы»."
+msgstr "A subscription link from the panel or bot, or the vless://, vmess://, trojan://, ss:// links themselves; several are fine, one per line. Single links go to the “My servers” group."
+
+msgid "https://…/sub/…  или  vless://…"
+msgstr "https://…/sub/…  or  vless://…"
+
+msgid "Название (необязательно)"
+msgstr "Name (optional)"
+
+msgid "проверяем…"
+msgstr "checking…"
+
+msgid "Повторить"
+msgstr "Retry"
+
+msgid "Скопировать"
+msgstr "Copy"
+
+msgid "Закрыть"
+msgstr "Close"
+
+msgid "Откройте ваше VPN-приложение на телефоне и отсканируйте QR-код. Подойдёт и камера."
+msgstr "Open your VPN app on the phone and scan the QR code. The camera works too."
+
+msgid "Кем DUORAY представляется панели, когда запрашивает эту подписку. Остальные подписки это не меняет."
+msgstr "How DUORAY presents itself to the panel when it requests this subscription. Other subscriptions are not affected."
+
+msgid "Представляться"
+msgstr "Present as"
+
+msgid "Как в настройках"
+msgstr "As in settings"
+
+msgid "Сгенерировать"
+msgstr "Generate"
+
+msgid "Отчёты об ошибках"
+msgstr "Error reports"
+
+msgid "Если что-то сломается, DUORAY может отправить нам отчёт, чтобы мы быстрее нашли и исправили ошибку. Отправлять или нет — решаете вы."
+msgstr "If something breaks, DUORAY can send us a report so we find and fix the bug faster. Whether to send it is up to you."
+
+msgid "В отчёте: версия DUORAY и ОС, текст ошибки, журнал последних действий, тип протокола и ваши настройки маршрутизации."
+msgstr "A report has the DUORAY and OS versions, the error text, a log of recent actions, the protocol type and your routing settings."
+
+msgid "Никогда не отправляются: ссылки подписок, адреса и названия серверов, ключи и UUID. Ваш IP-адрес с отчётом не сохраняется. Отчёты хранятся 90 дней."
+msgstr "Never sent: subscription links, server addresses and names, keys and UUIDs. Your IP address isn't stored with the report. Reports are kept for 90 days."
+
+msgid "Передумать можно в любой момент: Настройки → Отчёты и обновления."
+msgstr "You can change your mind any time: Settings → Reports and updates."
+
+msgid "Не отправлять"
+msgstr "Don't send"
+
+msgid "Разрешить отправку"
+msgstr "Allow sending"
+
+msgid "Что случилось и что вы делали перед этим? Вместе с описанием уйдёт журнал последних действий — без ссылок, адресов серверов и ключей."
+msgstr "What happened and what were you doing before? A log of recent actions goes with the description, without links, server addresses or keys."
+
+msgid "Например: не подключается к Нидерландам после обновления"
+msgstr "For example: won't connect to the Netherlands after the update"
+
+msgid "Что отправится?"
+msgstr "What will be sent?"
+
+msgid "Отправить"
+msgstr "Send"
+
+msgid "Отчёт отправлен. Код отчёта — передайте его в поддержку:"
+msgstr "Report sent. Your report code; pass it on to support:"
+
+msgid "Скопировать код"
+msgstr "Copy code"
+
+msgid "Готово"
+msgstr "Done"
+
+msgid "DUORAY заблокирован"
+msgstr "DUORAY is locked"
+
+msgid "Текущий PIN-код"
+msgstr "Current PIN"
+
+msgid "Придумайте PIN-код"
+msgstr "Choose a PIN"
+
+msgid "Повторите PIN-код"
+msgstr "Repeat the PIN"
+
+msgid "Введите PIN-код, чтобы продолжить"
+msgstr "Enter your PIN to continue"
+
+msgid "Чтобы изменить блокировку"
+msgstr "To change the lock"
+
+msgid "От 4 до 8 цифр"
+msgstr "4 to 8 digits"
+
+msgid "Ещё раз, для проверки"
+msgstr "Once more, to check"
+
+msgid "Далее"
+msgstr "Next"
+
+msgid "Можно вводить с клавиатуры"
+msgstr "You can type on the keyboard"
+
+msgid "автозапуск: LaunchAgent"
+msgstr "autostart: LaunchAgent"
+
+msgid "автозапуск: ~/.config/autostart"
+msgstr "autostart: ~/.config/autostart"
+
+msgid "автозапуск: ошибка реестра {err}"
+msgstr "autostart: registry error {err}"
+
+msgid "подключение отменено"
+msgstr "connecting cancelled"
+
+msgid "Маршрутизация по приложениям работает только в режиме TUN, в режиме прокси она выключена."
+msgstr "Per-app routing works only in TUN mode; in proxy mode it is off."
+
+msgid "Работает сетевое расширение AdGuard. При фильтрации оно может открывать соединения от своего имени: правила Chrome и Zen тогда не сработают. Исключите выбранные приложения из фильтрации AdGuard или временно выключите его защиту для проверки, затем полностью перезапустите браузер."
+msgstr "The AdGuard network extension is running. While filtering, it may open connections in its own name, and then the Chrome and Zen rules won't apply. Exclude the selected apps from AdGuard filtering, or turn its protection off for a test, then fully restart the browser."
+
+msgid "системный прокси"
+msgstr "system proxy"
+
+msgid "порт {port} занят другой программой. Выберите другой порт прокси в настройках"
+msgstr "port {port} is used by another program. Choose another proxy port in the settings"
+
+msgid "прокси 127.0.0.1:{port}"
+msgstr "proxy 127.0.0.1:{port}"
+
+msgid "xray остановился ({status}). {p0}"
+msgstr "xray stopped ({status}). {p0}"
+
+msgid "{why} | другие VPN: {p0}"
+msgstr "{why} | other VPNs: {p0}"
+
+msgid "Туннель остановился: {reason}"
+msgstr "The tunnel stopped: {reason}"
+
+msgid "duoray-xray.exe не найден рядом с DUORAY: скорее всего, его удалил антивирус. Переустановите DUORAY и добавьте его папку в исключения антивируса"
+msgstr "duoray-xray.exe was not found next to DUORAY: most likely the antivirus removed it. Reinstall DUORAY and add its folder to the antivirus exclusions"
+
+msgid "xray не найден: переустановите DUORAY или установите xray (brew install xray)"
+msgstr "xray was not found: reinstall DUORAY or install xray (brew install xray)"
+
+msgid "xray не найден: переустановите DUORAY или положите xray рядом с ним"
+msgstr "xray was not found: reinstall DUORAY or put xray next to it"
+
+msgid "сервер отклонил отчёт"
+msgstr "the server rejected the report"
+
+msgid "нет серверов"
+msgstr "no servers"
+
+msgid "слишком много отчётов, попробуйте позже"
+msgstr "too many reports, try again later"
+
+msgid "{kind}: нет интернета, не отправлено"
+msgstr "{kind}: no internet, not sent"
+
+msgid "сервер ответил {s}"
+msgstr "the server answered {s}"
+
+msgid "У этого сервера нет ссылки: его протокол передаётся только конфигом"
+msgstr "This server has no link: its protocol comes only as a config"
+
+msgid "Ссылка скопирована"
+msgstr "Link copied"
+
+msgid "Это балансировщик: для телефона откройте QR-код подписки (меню ⋯)"
+msgstr "This is a balancer: for a phone, open the subscription's QR code (the ⋯ menu)"
+
+msgid "Сервер сохранится как JSON-конфиг: в нём можно менять всё, что умеет xray. Вернуть форму можно через «Вернуть версию подписки»."
+msgstr "The server will be saved as a JSON config: everything xray can do can be changed in it. The form comes back with “Restore the subscription's version”."
+
+msgid "Правка сохранится и после обновления подписки."
+msgstr "The edit stays after the subscription updates."
+
+msgid "Раздел inbounds DUORAY при подключении заменяет своим."
+msgstr "DUORAY replaces the inbounds section with its own when connecting."
+
+msgid "Проверьте отмеченное поле"
+msgstr "Check the marked field"
+
+msgid "Сервера больше нет: подписка обновилась, пока редактор был открыт."
+msgstr "The server is gone: the subscription updated while the editor was open."
+
+msgid "Сервер сохранён"
+msgstr "Server saved"
+
+msgid "Возвращена версия подписки"
+msgstr "Subscription's version restored"
+
+msgid "Скопировано ссылок: {n}"
+msgstr "Links copied: {n}"
+
+msgid "Не удалось скопировать: {e}"
+msgstr "Couldn't copy: {e}"
+
+msgid "Конфиг в порядке · {p0} · {p1}:{p2}"
+msgstr "The config is fine · {p0} · {p1}:{p2}"
+
+msgid " · балансировщик, прокси: {p0}"
+msgstr " · balancer, proxies: {p0}"
+
+msgid "Строка {p0}, столбец {p1}: {p2}"
+msgstr "Line {p0}, column {p1}: {p2}"
+
+msgid "туннель остановлен"
+msgstr "the tunnel is stopped"
+
+msgid "помощник не отвечает"
+msgstr "the helper doesn't answer"
+
+msgid "помощник закрыл соединение"
+msgstr "the helper closed the connection"
+
+msgid "установка отменена"
+msgstr "installation cancelled"
+
+msgid "do shell script \"/bin/sh {p0}\" with prompt \"DUORAY устанавливает помощник для VPN-туннеля. Это нужно один раз.\" with administrator privileges"
+msgstr "do shell script \"/bin/sh {p0}\" with prompt \"DUORAY is installing the helper for the VPN tunnel. This is needed once.\" with administrator privileges"
+
+msgid "установка не удалась: {p0}"
+msgstr "installation failed: {p0}"
+
+msgid "не найден {p0} (соберите workspace целиком)"
+msgstr "{p0} not found (build the whole workspace)"
+
+msgid "Добавлено: {n}"
+msgstr "Added: {n}"
+
+msgid "открытие блокировки DUORAY"
+msgstr "opening the DUORAY lock"
+
+msgid "блокировка DUORAY"
+msgstr "the DUORAY lock"
+
+msgid "DUORAY уже запущен. Используйте открытое окно приложения."
+msgstr "DUORAY is already running. Use the app's open window."
+
+msgid "не отправляется"
+msgstr "not sent"
+
+msgid "Результат скопирован"
+msgstr "Result copied"
+
+msgid "Не удалось скопировать"
+msgstr "Couldn't copy"
+
+msgid "Нужен пароль администратора…"
+msgstr "Administrator password needed…"
+
+msgid "Скопировано в буфер обмена"
+msgstr "Copied to the clipboard"
+
+msgid "Дождитесь конца пинга"
+msgstr "Wait until the ping ends"
+
+msgid "В буфере обмена нет текста. Вставьте ссылку вручную."
+msgstr "There's no text in the clipboard. Paste the link by hand."
+
+msgid "Wi-Fi • Авто-выбор"
+msgstr "Wi-Fi • Auto-select"
+
+msgid "Нидерланды (Амстердам)"
+msgstr "Netherlands (Amsterdam)"
+
+msgid "Нидерланды"
+msgstr "Netherlands"
+
+msgid "38 мс"
+msgstr "38 ms"
+
+msgid "Германия (Франкфурт)"
+msgstr "Germany (Frankfurt)"
+
+msgid "загрузка 173 Мбит/с"
+msgstr "download 173 Mbps"
+
+msgid "full:пример.рф"
+msgstr "full:пример.рф"
+
+msgid "Найдено: 3"
+msgstr "Found: 3"
+
+msgid "LTE x1 • Авто-выбор · DUORAY"
+msgstr "LTE x1 • Auto-select · DUORAY"
+
+msgid "LTE x1 • Авто-выбор"
+msgstr "LTE x1 • Auto-select"
+
+msgid "94 мс"
+msgstr "94 ms"
+
+msgid "Польша"
+msgstr "Poland"
+
+msgid "Ошибка подключения"
+msgstr "Connection error"
+
+msgid "Ошибка в выражении"
+msgstr "Error in the expression"
+
+msgid "Маршрутизация применена"
+msgstr "Routing applied"
+
+msgid "Системный прокси в macOS меняется только с правами администратора, поэтому DUORAY нужен небольшой системный помощник. Он устанавливается один раз: система попросит пароль администратора. Дальше подключение работает без пароля."
+msgstr "On macOS the system proxy can be changed only with administrator rights, so DUORAY needs a small system helper. It is installed once: the system will ask for the administrator password. After that connecting needs no password."
+
+msgid "Для VPN-туннеля (TUN) DUORAY нужен небольшой системный помощник. Он устанавливается один раз: система попросит пароль администратора. Дальше подключение работает без пароля."
+msgstr "For the VPN tunnel (TUN) DUORAY needs a small system helper. It is installed once: the system will ask for the administrator password. After that connecting needs no password."
+
+msgid "Помощник отключился"
+msgstr "The helper disconnected"
+
+msgid "Нет серверов"
+msgstr "No servers"
+
+msgid "Сервер не выбран"
+msgstr "No server selected"
+
+msgid "Добавьте подписку, затем выберите сервер"
+msgstr "Add a subscription, then choose a server"
+
+msgid "Выберите сервер в списке справа"
+msgstr "Choose a server in the list on the right"
+
+msgid "Подключение…"
+msgstr "Connecting…"
+
+msgid "Переключение…"
+msgstr "Switching…"
+
+msgid "Интернет заблокирован"
+msgstr "Internet blocked"
+
+msgid "Сервер недоступен. Трафик остановлен, чтобы не идти мимо VPN"
+msgstr "The server is unreachable. Traffic is stopped so it doesn't go around the VPN"
+
+msgid "сервер"
+msgstr "server"
+
+msgid "сервера"
+msgstr "servers"
+
+msgid "серверов"
+msgstr "servers"
+
+msgid "не загружена"
+msgstr "not loaded"
+
+msgid "ещё не обновлялась"
+msgstr "not updated yet"
+
+msgid "Эта подписка уже добавлена."
+msgstr "This subscription is already added."
+
+msgid "Это не похоже на ссылку."
+msgstr "This doesn't look like a link."
+
+msgid "Ссылка должна начинаться с http:// или https://."
+msgstr "The link must start with http:// or https://."
+
+msgid "Вместо подписки пришла веб-страница. Проверьте ссылку."
+msgstr "A web page came instead of the subscription. Check the link."
+
+msgid "Сервер подписки не ответил вовремя."
+msgstr "The subscription server didn't answer in time."
+
+msgid "Подписка не найдена (404)."
+msgstr "Subscription not found (404)."
+
+msgid "Доступ к подписке запрещён (403). Возможно, поможет Happ Spoof в настройках."
+msgstr "Access to the subscription is denied (403). Happ Spoof in the settings may help."
+
+msgid "Windows не дал запустить netsh: похоже, мешает антивирус. Добавьте папку DUORAY в его исключения и подключитесь снова."
+msgstr "Windows didn't let netsh run: the antivirus seems to be in the way. Add the DUORAY folder to its exclusions and connect again."
+
+msgid "Hysteria2 перезапущена"
+msgstr "Hysteria2 restarted"
+
+msgid "Тест скорости уже идёт"
+msgstr "A speed test is already running"
+
+msgid "подключение…"
+msgstr "connecting…"
+
+msgid "загрузка…"
+msgstr "downloading…"
+
+msgid "отдача…"
+msgstr "uploading…"
+
+msgid "нет подключения к сети"
+msgstr "no network connection"
+
+msgid "Ссылка слишком длинная для QR-кода. Скопируйте её"
+msgstr "The link is too long for a QR code. Copy it instead"
+
+msgid "Эти серверы уже добавлены"
+msgstr "These servers are already added"
+
+msgid "Ни один сервер подписки не ответил"
+msgstr "No server of the subscription answered"
+
+msgid "{p0}/с"
+msgstr "{p0}/s"
+
+msgid "Не удалось прочитать данные: {e}"
+msgstr "Couldn't read the data: {e}"
+
+msgid "Не удалось перезапустить DUORAY ({e}). Закройте и откройте его вручную"
+msgstr "Couldn't restart DUORAY ({e}). Close and open it by hand"
+
+msgid "Настройки сохранены в {p0}"
+msgstr "Settings saved to {p0}"
+
+msgid "Не удалось сохранить настройки: {e}"
+msgstr "Couldn't save the settings: {e}"
+
+msgid "В буфере не ссылка на подписку: {p0}"
+msgstr "The clipboard has no subscription link: {p0}"
+
+msgid "{ms} мс"
+msgstr "{ms} ms"
+
+msgid "Предупреждения:\n{p0}"
+msgstr "Warnings:\n{p0}"
+
+msgid "Не удалось сохранить: {e}"
+msgstr "Couldn't save: {e}"
+
+msgid "Пинг: {done} из {total}"
+msgstr "Ping: {done} of {total}"
+
+msgid "Тест скорости {p0} из {total}{live}"
+msgstr "Speed test {p0} of {total}{live}"
+
+msgid "Обновление подписок… ({busy_count})"
+msgstr "Updating subscriptions… ({busy_count})"
+
+msgid "{p0} из {p1}"
+msgstr "{p0} of {p1}"
+
+msgid "{p0} · безлимит"
+msgstr "{p0} · unlimited"
+
+msgid "до {p0}"
+msgstr "until {p0}"
+
+msgid "{p0} · добавлены вручную"
+msgstr "{p0} · added by hand"
+
+msgid "Автообновление — {p0} ч"
+msgstr "Auto-update — {p0} h"
+
+msgid "пропущено {p0}"
+msgstr "{p0} skipped"
+
+msgid "Не удалось открыть файл: {e}"
+msgstr "Couldn't open the file: {e}"
+
+msgid "Импорт не удался: {e}"
+msgstr "Import failed: {e}"
+
+msgid "{b} Б"
+msgstr "{b} B"
+
+msgid "Подписка «{name}» закончилась"
+msgstr "Subscription “{name}” has ended"
+
+msgid "Подписка «{name}» заканчивается {p0}"
+msgstr "Subscription “{name}” ends {p0}"
+
+msgid "сегодня в {p0}"
+msgstr "today at {p0}"
+
+msgid "завтра в {p0}"
+msgstr "tomorrow at {p0}"
+
+msgid "через {p0} ({p1})"
+msgstr "in {p0} ({p1})"
+
+msgid "Подписка «{name}» заканчивается {when}"
+msgstr "Subscription “{name}” ends {when}"
+
+msgid "Панель отдала ссылку для приложения {app}, а не подписку. Скопируйте ссылку на подписку (https://…) в личном кабинете."
+msgstr "The panel gave a link for the {app} app, not a subscription. Copy the subscription link (https://…) in your account."
+
+msgid "Серверов нет, панель пишет: «{note}»"
+msgstr "No servers; the panel says: “{note}”"
+
+msgid "Перезапуск Hysteria2 не удался: {p0}"
+msgstr "Restarting Hysteria2 failed: {p0}"
+
+msgid "загрузка {p0} Мбит/с"
+msgstr "download {p0} Mbps"
+
+msgid "отдача {p0} Мбит/с"
+msgstr "upload {p0} Mbps"
+
+msgid "Добавлено: {p0}"
+msgstr "Added: {p0}"
+
+msgid "Б"
+msgstr "B"
+
+msgid "КБ"
+msgstr "KB"
+
+msgid "МБ"
+msgstr "MB"
+
+msgid "ГБ"
+msgstr "GB"
+
+msgid "ТБ"
+msgstr "TB"
+
+msgid "Светлая"
+msgstr "Light"
+
+msgid "Графитовая"
+msgstr "Graphite"
+
+msgid "OLED (чёрная)"
+msgstr "OLED (black)"
+
+msgid "Коралловая"
+msgstr "Coral"
+
+msgid "Тёмно-коралловая"
+msgstr "Dark coral"
+
+msgid "Матрица"
+msgstr "Matrix"
+
+msgid "подписка"
+msgstr "subscription"
+
+msgid "подписок"
+msgstr "subscriptions"
+
+msgid "день"
+msgstr "day"
+
+msgid "дней"
+msgstr "days"
+
+msgid "нет маршрута по умолчанию: компьютер не подключён к сети"
+msgstr "no default route: the computer is not connected to a network"
+
+msgid " (через VPN)"
+msgstr " (through the VPN)"
+
+msgid "не с чем сравнить: интернет не ответил"
+msgstr "nothing to compare with: the internet didn't answer"
+
+msgid "подписка не выбрана"
+msgstr "no subscription selected"
+
+msgid "работает по UDP: проверяется подключением"
+msgstr "works over UDP: checked by connecting"
+
+msgid "сервер не выбран или это балансировщик"
+msgstr "no server selected, or it's a balancer"
+
+msgid "VPN не подключён"
+msgstr "the VPN is not connected"
+
+msgid "не запущены"
+msgstr "not running"
+
+msgid "спешат"
+msgstr "ahead"
+
+msgid "отстают"
+msgstr "behind"
+
+msgid "точные"
+msgstr "accurate"
+
+msgid "нет адресов"
+msgstr "no addresses"
+
+msgid "подключение через {dev}"
+msgstr "connected through {dev}"
+
+msgid "имена находятся, {p0} мс"
+msgstr "names resolve, {p0} ms"
+
+msgid "имена не находятся: {e}"
+msgstr "names don't resolve: {e}"
+
+msgid "Google отвечает за {took} мс{via}"
+msgstr "Google answers in {took} ms{via}"
+
+msgid "Google не отвечает, Яндекс отвечает{via}"
+msgstr "Google doesn't answer, Yandex does{via}"
+
+msgid "сайты не отвечают{via}: {e}"
+msgstr "sites don't answer{via}: {e}"
+
+msgid "{host} отвечает за {took} мс{via}"
+msgstr "{host} answers in {took} ms{via}"
+
+msgid "{host} не отвечает: {e}"
+msgstr "{host} doesn't answer: {e}"
+
+msgid "порт {port} открыт, {took} мс"
+msgstr "port {port} is open, {took} ms"
+
+msgid "порт {port} не отвечает: {e}"
+msgstr "port {port} doesn't answer: {e}"
+
+msgid ", выход: {p0} ({p1})"
+msgstr ", exit: {p0} ({p1})"
+
+msgid "отвечает за {p0} мс{exit}"
+msgstr "answers in {p0} ms{exit}"
+
+msgid "сервер не пропускает трафик: {e}"
+msgstr "the server doesn't pass traffic: {e}"
+
+msgid "запущены {p0}: могут перехватывать трафик или останавливать xray"
+msgstr "running: {p0}. They may intercept traffic or stop xray"
+
+msgid "{ahead} на {p0} с"
+msgstr "{p0} s {ahead}"
+
+msgid "{ahead} на {p0} мин: защищённые подключения могут не устанавливаться. Включите синхронизацию времени"
+msgstr "{p0} min {ahead}: secure connections may fail to set up. Turn on time sync"
+
+msgid "адрес не находится: {e}"
+msgstr "the address doesn't resolve: {e}"
+
+msgid "Диагностика сети DUORAY {p0}\n{p1}"
+msgstr "DUORAY network diagnostics {p0}\n{p1}"
+
+msgid "Сеть"
+msgstr "Network"
+
+msgid "Интернет"
+msgstr "Internet"
+
+msgid "Часы"
+msgstr "Clock"
+
+msgid "Сервер подписки"
+msgstr "Subscription server"
+
+msgid "Выбранный сервер"
+msgstr "Selected server"
+
+msgid "Другие VPN"
+msgstr "Other VPNs"
+
+msgid "нужен IPv4-адрес"
+msgstr "an IPv4 address is needed"
+
+msgid "ICMP недоступен"
+msgstr "ICMP is not available"
+
+msgid "нет ответа"
+msgstr "no answer"
+
+msgid "не удалось запустить ping"
+msgstr "couldn't run ping"
+
+msgid "запуск xray"
+msgstr "starting xray"
+
+msgid "не удалось найти {host}"
+msgstr "couldn't find {host}"
+
+msgid "у {host} нет IPv4-адреса"
+msgstr "{host} has no IPv4 address"
+
+msgid "нет соединения: {e}"
+msgstr "no connection: {e}"
+
+msgid "нет ответа: {e}"
+msgstr "no answer: {e}"
+
+msgid "Неверный PIN-код"
+msgstr "Wrong PIN"
+
+msgid "Блокировка PIN-кодом выключена"
+msgstr "PIN lock is off"
+
+msgid "PIN-коды не совпали. Придумайте заново"
+msgstr "The PINs don't match. Choose again"
+
+msgid "PIN-код установлен"
+msgstr "PIN set"
+
+msgid "Слишком много попыток. Подождите {secs} с"
+msgstr "Too many tries. Wait {secs} s"
+
+msgid "Неверный PIN-код. Подождите {secs} с"
+msgstr "Wrong PIN. Wait {secs} s"
+
+msgid "Нужно от {p0} до {p1} цифр"
+msgstr "{p0} to {p1} digits needed"
+
+msgid "Поиск…"
+msgstr "Searching…"
+
+msgid "Геофайлы не найдены"
+msgstr "Geo files not found"
+
+msgid "Ничего не найдено"
+msgstr "Nothing found"
+
+msgid "Загрузка…"
+msgstr "Loading…"
+
+msgid "Ещё не загружены: используются встроенные списки"
+msgstr "Not loaded yet: the built-in lists are used"
+
+msgid "Профиль {n}"
+msgstr "Profile {n}"
+
+msgid "Показаны первые {p0} совпадений"
+msgstr "Showing the first {p0} matches"
+
+msgid "Найдено: {p0}"
+msgstr "Found: {p0}"
+
+msgid "{status}. Не удалось прочитать {p0}"
+msgstr "{status}. Couldn't read {p0}"
+
+msgid "Обновлено {p0}"
+msgstr "Updated {p0}"
+
+msgid "{when}. Ошибка обновления: {p0}"
+msgstr "{when}. Update error: {p0}"
+
+msgid "{when}. Обновляются сами раз в сутки."
+msgstr "{when}. They update by themselves once a day."
+
+msgid "ПОДКЛЮЧЕНИЕ"
+msgstr "CONNECTION"
+
+msgid "Адрес"
+msgstr "Address"
+
+msgid "example.com или 1.2.3.4"
+msgstr "example.com or 1.2.3.4"
+
+msgid "Порт"
+msgstr "Port"
+
+msgid "Шифрование"
+msgstr "Encryption"
+
+msgid "Пароль"
+msgstr "Password"
+
+msgid "Метод"
+msgstr "Method"
+
+msgid "пароль обфускации, если есть"
+msgstr "obfuscation password, if any"
+
+msgid "Логин"
+msgstr "Login"
+
+msgid "если нужен"
+msgstr "if needed"
+
+msgid "ТРАНСПОРТ"
+msgstr "TRANSPORT"
+
+msgid "Тип"
+msgstr "Type"
+
+msgid "по умолчанию — адрес сервера"
+msgstr "by default, the server address"
+
+msgid "Маскировка"
+msgstr "Disguise"
+
+msgid "БЕЗОПАСНОСТЬ"
+msgstr "SECURITY"
+
+msgid "Укажите название"
+msgstr "Enter a name"
+
+msgid "Укажите адрес сервера"
+msgstr "Enter the server address"
+
+msgid "Порт — число от 1 до 65535"
+msgstr "The port is a number from 1 to 65535"
+
+msgid "Укажите UUID"
+msgstr "Enter the UUID"
+
+msgid "alterId — целое число"
+msgstr "alterId is a whole number"
+
+msgid "Укажите пароль"
+msgstr "Enter the password"
+
+msgid "Для Reality нужен public key"
+msgstr "Reality needs a public key"
+
+msgid "список серверов Speedtest"
+msgstr "Speedtest server list"
+
+msgid "Speedtest не дал серверов"
+msgstr "Speedtest gave no servers"
+
+msgid "остановлено"
+msgstr "stopped"
+
+msgid "получено слишком мало данных"
+msgstr "too little data received"
+
+msgid "загрузка оборвалась"
+msgstr "the download broke off"
+
+msgid "отдача"
+msgstr "upload"
+
+msgid "получено слишком мало данных ({total} байт): проверьте адрес файла"
+msgstr "too little data received ({total} bytes): check the file address"
+
+msgid "Проверка обновлений…"
+msgstr "Checking for updates…"
+
+msgid "Открыть"
+msgstr "Open"
+
+msgid "Скачать"
+msgstr "Download"
+
+msgid "Установка обновления…"
+msgstr "Installing the update…"
+
+msgid "Установлена последняя версия ({p0}, {p1})."
+msgstr "The latest version is installed ({p0}, {p1})."
+
+msgid "Загрузка обновления… {pct}%"
+msgstr "Downloading the update… {pct}%"
+
+msgid "Загрузка обновления {v}…"
+msgstr "Downloading update {v}…"
+
+msgid "Доступно обновление {p0}"
+msgstr "Update {p0} is available"
+
+msgid "В этом окружении нет системных настроек прокси (они есть в GNOME и KDE). Укажите прокси 127.0.0.1:{port} (HTTP или SOCKS5) в нужных приложениях вручную."
+msgstr "This environment has no system proxy settings (GNOME and KDE have them). Set the proxy 127.0.0.1:{port} (HTTP or SOCKS5) in the apps you need by hand."
+
+msgid "Открыть DUORAY"
+msgstr "Open DUORAY"
+
+msgid "Выход"
+msgstr "Quit"
+
+msgid "нет серверов обновлений"
+msgstr "no update servers"
+
+msgid "манифест обновления"
+msgstr "update manifest"
+
+msgid "подпись манифеста"
+msgstr "manifest signature"
+
+msgid "подпись манифеста не сходится"
+msgstr "the manifest signature doesn't match"
+
+msgid "неверное имя файла в манифесте"
+msgstr "wrong file name in the manifest"
+
+msgid "загрузка обновления"
+msgstr "update download"
+
+msgid "файл обновления больше заявленного"
+msgstr "the update file is larger than stated"
+
+msgid "файл обновления повреждён (контрольная сумма не сходится)"
+msgstr "the update file is damaged (the checksum doesn't match)"
+
+msgid "нет прав на запись рядом с AppImage"
+msgstr "no right to write next to the AppImage"
+
+msgid "запуск новой версии"
+msgstr "starting the new version"
+
+msgid "команда скопирована, вставьте её в терминал"
+msgstr "the command is copied, paste it into a terminal"
+
+msgid "выполните в терминале"
+msgstr "run in a terminal"
+
+msgid "нет pkexec"
+msgstr "no pkexec"
+
+msgid "запуск pkexec"
+msgstr "starting pkexec"
+
+msgid "нет прав администратора"
+msgstr "no administrator rights"
+
+msgid "путь к DUORAY"
+msgstr "path to DUORAY"
+
+msgid "установщик Windows на этой системе не запускается"
+msgstr "the Windows installer doesn't run on this system"
+
+msgid "нечётная длина"
+msgstr "odd length"
+
+msgid "не hex"
+msgstr "not hex"
+
+msgid "запрос {p0}"
+msgstr "request {p0}"
+
+msgid "установщик не запустился (код {p0})"
+msgstr "the installer didn't start (code {p0})"
+
+msgid "не удалось запустить PowerShell"
+msgstr "couldn't start PowerShell"
+
+msgid "рядом с DUORAY нет duoray-helper.exe — переустановите программу"
+msgstr "there's no duoray-helper.exe next to DUORAY: reinstall the program"
+
+msgid "установка не удалась (код {code})"
+msgstr "installation failed (code {code})"
+
+msgid "geoip.dat без нужных разделов"
+msgstr "geoip.dat lacks the needed sections"
+
+msgid "RIPEstat: нет prefixes"
+msgstr "RIPEstat: no prefixes"
+
+msgid "{name}: пустой список"
+msgstr "{name}: empty list"
+
+msgid "слишком длинное значение (больше 512 символов)"
+msgstr "the value is too long (over 512 characters)"
+
+msgid "только латиница, цифры и знаки, без переносов строк"
+msgstr "Latin letters, digits and signs only, no line breaks"
+
+msgid "Мой профиль"
+msgstr "My profile"
+
+msgid "нет базы для {e}"
+msgstr "no database for {e}"
+
+msgid "Steam и CS2"
+msgstr "Steam and CS2"
+
+msgid "Матчи CS2 и Dota 2 (серверы Valve)"
+msgstr "CS2 and Dota 2 matches (Valve servers)"
+
+msgid "Клиент и серверы FACEIT"
+msgstr "FACEIT client and servers"
+
+msgid "Fortnite и магазин Epic"
+msgstr "Fortnite and the Epic store"
+
+msgid "нет свободного локального порта"
+msgstr "no free local port"
+
+msgid "Пропущено узлов балансера: {p0} — не найден адрес {p1}"
+msgstr "Balancer nodes skipped: {p0}; no address found for {p1}"
+
+msgid "Конфиг должен быть объектом { … }"
+msgstr "The config must be an object { … }"
+
+msgid "В outbounds нет прокси: нужен исходящий vless, vmess, trojan, shadowsocks, hysteria…"
+msgstr "There's no proxy in outbounds: an outgoing vless, vmess, trojan, shadowsocks, hysteria… is needed"
+
+msgid "Текст обрывается: не хватает закрывающей скобки или кавычки"
+msgstr "The text breaks off: a closing bracket or quote is missing"
+
+msgid "Лишняя запятая перед закрывающей скобкой"
+msgstr "An extra comma before a closing bracket"
+
+msgid "Ожидается запятая или }"
+msgstr "A comma or } is expected"
+
+msgid "Ожидается запятая или ]"
+msgstr "A comma or ] is expected"
+
+msgid "Ожидается двоеточие после ключа"
+msgstr "A colon is expected after the key"
+
+msgid "Ключ должен быть в двойных кавычках"
+msgstr "The key must be in double quotes"
+
+msgid "Ожидается значение"
+msgstr "A value is expected"
+
+msgid "Лишний текст после конца конфига"
+msgstr "Extra text after the end of the config"
+
+msgid "это не файл настроек DUORAY"
+msgstr "this is not a DUORAY settings file"
+
+msgid "файл из более новой версии DUORAY, обновите её"
+msgstr "the file is from a newer DUORAY version, update it"
+

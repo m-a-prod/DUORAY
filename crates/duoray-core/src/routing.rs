@@ -33,9 +33,9 @@ impl Action {
 
     pub fn title(self) -> &'static str {
         match self {
-            Action::Proxy => "Через VPN",
-            Action::Direct => "Напрямую",
-            Action::Block => "Блокировать",
+            Action::Proxy => crate::i18n::tr("Через VPN"),
+            Action::Direct => crate::i18n::tr("Напрямую"),
+            Action::Block => crate::i18n::tr("Блокировать"),
         }
     }
 }
@@ -105,7 +105,7 @@ pub struct RouteProfile {
 impl Default for RouteProfile {
     fn default() -> Self {
         Self {
-            name: "Мой профиль".into(),
+            name: crate::i18n::tr("Мой профиль").into(),
             rules: vec![],
             default_action: Action::Proxy,
             keep_panel_rules: true,
@@ -181,14 +181,14 @@ pub struct Game {
 pub const GAMES: &[Game] = &[
     Game {
         id: "steam",
-        title: "Steam и CS2",
-        subtitle: "Матчи CS2 и Dota 2 (серверы Valve)",
+        title: crate::i18n::n("Steam и CS2"),
+        subtitle: crate::i18n::n("Матчи CS2 и Dota 2 (серверы Valve)"),
         // Game traffic only. The store, community and CDNs stay in the VPN:
         // their Russian Akamai edges block IPs that send many requests.
         geosite: &[],
         ips: Some("valve"),
     },
-    Game { id: "faceit", title: "FACEIT", subtitle: "Клиент и серверы FACEIT", geosite: &["faceit"], ips: None },
+    Game { id: "faceit", title: "FACEIT", subtitle: crate::i18n::n("Клиент и серверы FACEIT"), geosite: &["faceit"], ips: None },
     Game {
         id: "riot",
         title: "Riot Games",
@@ -203,7 +203,7 @@ pub const GAMES: &[Game] = &[
         geosite: &["blizzard"],
         ips: Some("blizzard"),
     },
-    Game { id: "epic", title: "Epic Games", subtitle: "Fortnite и магазин Epic", geosite: &["epicgames"], ips: None },
+    Game { id: "epic", title: "Epic Games", subtitle: crate::i18n::n("Fortnite и магазин Epic"), geosite: &["epicgames"], ips: None },
     Game { id: "ea", title: "EA", subtitle: "EA app, Apex Legends, EA FC", geosite: &["ea", "origin"], ips: None },
     Game { id: "ubisoft", title: "Ubisoft", subtitle: "Ubisoft Connect", geosite: &["ubisoft"], ips: None },
 ];
@@ -588,7 +588,7 @@ fn checked(entries: Vec<String>, geo: &GeoData, warnings: &mut Vec<String>) -> O
             let tag = tag.trim_start_matches('!').split('@').next().unwrap_or_default().to_lowercase();
             let ok = set.contains(&tag);
             if !ok {
-                warnings.push(format!("нет базы для {e}"));
+                warnings.push(crate::core_trf!("нет базы для {e}", e = e));
             }
             ok
         })
