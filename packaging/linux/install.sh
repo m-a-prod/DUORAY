@@ -9,10 +9,10 @@ set -eu
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
-# The newest stable xray-core (XRAY_VERSION=vX.Y.Z pins one), from GitHub's
-# releases/latest redirect.
-XRAY_VERSION=${XRAY_VERSION:-$(curl -fsSI --retry 3 --connect-timeout 20 https://github.com/XTLS/Xray-core/releases/latest 2>/dev/null |
-    sed -n 's|^[Ll]ocation: .*/tag/\([^[:space:]]*\).*|\1|p')}
+# The newest stable xray-core that is not known broken (packaging/latest.sh;
+# XRAY_VERSION=vX.Y.Z pins one).
+. packaging/latest.sh
+XRAY_VERSION=${XRAY_VERSION:-$(latest_xray)}
 LIB=/usr/lib/duoray
 LIBEXEC=/usr/libexec/duoray
 

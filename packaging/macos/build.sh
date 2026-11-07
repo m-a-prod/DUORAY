@@ -15,7 +15,7 @@ ARCH=${1:-$(uname -m)}
 # The newest stable xray-core (wintun and the geo databases come in its
 # archive); XRAY_VERSION=vX.Y.Z pins one.
 . packaging/latest.sh
-XRAY_VERSION=${XRAY_VERSION:-$(latest_tag XTLS/Xray-core)}
+XRAY_VERSION=${XRAY_VERSION:-$(latest_xray)}
 case "$ARCH" in
     aarch64) XRAY_ZIP=Xray-macos-arm64-v8a.zip ;;
     x86_64) XRAY_ZIP=Xray-macos-64.zip ;;

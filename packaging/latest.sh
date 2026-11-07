@@ -12,6 +12,24 @@ latest_tag() {
     echo "$tag"
 }
 
+# Xray-core releases that broke DUORAY, each with the one used instead
+# while it is still the newest; a later release is taken again as it comes.
+#   v26.10.31: XHTTP packet-up uploads (xhttp over TLS, mode auto) crash xray
+#   at once: SIGSEGV in splithttp (*Config).FillPacketRequest. 26.10.21 works.
+XRAY_BROKEN="v26.10.31=v26.10.21"
+
+# latest_xray: the newest stable Xray-core release that is not broken.
+latest_xray() {
+    tag=$(latest_tag XTLS/Xray-core) || return 1
+    for pair in $XRAY_BROKEN; do
+        if [ "$tag" = "${pair%%=*}" ]; then
+            echo "xray $tag is known broken, using ${pair#*=}" >&2
+            tag=${pair#*=}
+        fi
+    done
+    echo "$tag"
+}
+
 # xray_sha256 TAG ZIP: SHA-256 of an Xray-core archive, from its .dgst file.
 xray_sha256() {
     sha=$(curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 "https://github.com/XTLS/Xray-core/releases/download/$1/$2.dgst" |
