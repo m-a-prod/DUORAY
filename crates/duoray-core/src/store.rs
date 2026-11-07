@@ -73,6 +73,10 @@ pub struct Settings {
     pub switch_on_select: bool,
     /// Reconnect after the tunnel drops, and move to another server of the
     /// subscription when the connected one stops answering.
+    /// Off by default. Saved under a new name: 0.4.3–0.4.6 had it on by
+    /// default and wrote that into every store, so the old key is not read
+    /// (people found the switching between servers unwanted).
+    #[serde(rename = "keep_connected_v2")]
     pub keep_connected: bool,
     /// Starred servers, by the GUI's server key, in the order starred: marked
     /// in the list, and in the tray menu to switch to.
@@ -128,7 +132,7 @@ impl Default for Settings {
             install_id: String::new(),
             auto_update: true,
             switch_on_select: true,
-            keep_connected: true,
+            keep_connected: false,
             favorites: Vec::new(),
             pin_lock: None,
             glass: false,
@@ -567,6 +571,18 @@ mod tests {
         let (added, servers) = b.import(&text).unwrap();
         assert_eq!((added.len(), servers), (0, 0));
         assert!(b.import("{}").is_err());
+    }
+
+    #[test]
+    fn keep_connected_is_off_unless_turned_on_again() {
+        // Stores of 0.4.3–0.4.6 hold the old default under the old key.
+        let old: Store = serde_json::from_str(r#"{"subscriptions": [], "settings": {"keep_connected": true}}"#).unwrap();
+        assert!(!old.settings.keep_connected);
+        assert!(!Store::default().settings.keep_connected);
+        let mut on = Store::default();
+        on.settings.keep_connected = true;
+        let back: Store = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert!(back.settings.keep_connected);
     }
 
     #[test]

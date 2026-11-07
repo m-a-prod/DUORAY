@@ -3021,7 +3021,9 @@ fn save_settings_from_ui(ui: &AppWindow, app: &Shared) {
     }
     let mode = (st.store.settings.proxy_mode, st.store.settings.proxy_port);
     st.store.settings.proxy_mode = ui.get_proxy_mode();
-    if let Some(port) = ui.get_proxy_port().trim().parse::<u16>().ok().filter(|&p| p > 0) {
+    // Below 1024 takes root; a port typed digit by digit is saved on every
+    // keystroke, and "2" of "20808" made the reconnect fail ("port 2 is used").
+    if let Some(port) = ui.get_proxy_port().trim().parse::<u16>().ok().filter(|&p| p >= 1024) {
         st.store.settings.proxy_port = port;
     }
     // TUN ↔ proxy (or another port) while connected: connect the new way.
