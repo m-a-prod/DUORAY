@@ -19,7 +19,7 @@ self-updates and Arch packages. Daily totals only, no cookies or scripts.
   GET  /v1/update/manifest.sig
   GET  /v1/update/files/<name>     installers / AppImages
   GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
-  GET  /download/<kind>              302 to the current build, e.g. /download/windows
+  GET  /download/<kind>              302 to the current build, e.g. /download/windows, /download/android
   GET  /, /robots.txt, /og.png, ... download page and its files (site/, see PAGES)
   GET  /v1/badge/<downloads|installs>.json   totals for a shields.io endpoint badge
   GET  /health
@@ -89,6 +89,11 @@ DOWNLOADS = {
     "deb-arm": "duoray_{v}-1_arm64.deb",
     "rpm": "duoray-{v}-1.x86_64.rpm",
     "rpm-arm": "duoray-{v}-1.aarch64.rpm",
+}
+# The Android app (DUORAY-Mobile): its version is the manifest's "android" section.
+ANDROID_DOWNLOADS = {
+    "android": "DUORAY-{v}-arm64-v8a.apk",
+    "android-x86": "DUORAY-{v}-x86_64.apk",
 }
 
 _db_lock = threading.Lock()
@@ -370,18 +375,21 @@ class Handler(BaseHTTPRequestHandler):
                 # The app updating itself (people come here through /download/).
                 if get and self.user_agent().startswith(CLIENT_UA):
                     count("update", self.client_ip())
+                # Android offers to install an APK sent as one.
+                ctype = "application/vnd.android.package-archive" if name.endswith(".apk") else "application/octet-stream"
                 return self.send_file(
                     os.path.join(UPDATES, "files", name),
-                    "application/octet-stream",
+                    ctype,
                     {"Content-Disposition": f'attachment; filename="{name}"'},
                 )
         if self.path.startswith("/download/"):
             kind = self.path[len("/download/"):].split("?", 1)[0].strip("/")
-            template = DOWNLOADS.get(kind)
+            template = DOWNLOADS.get(kind) or ANDROID_DOWNLOADS.get(kind)
             try:
                 with open(os.path.join(UPDATES, "manifest.json"), encoding="utf-8") as f:
-                    version = json.load(f)["version"]
-            except (OSError, ValueError, KeyError):
+                    manifest = json.load(f)
+                version = manifest["android"]["version"] if kind in ANDROID_DOWNLOADS else manifest["version"]
+            except (OSError, ValueError, KeyError, TypeError):
                 version = None
             if template and version:
                 name = template.format(v=version)

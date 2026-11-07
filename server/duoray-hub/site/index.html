@@ -322,13 +322,15 @@ h2 { margin-top: 14px; font: 800 clamp(30px, 4.4vw, 56px)/1.05 var(--display); l
 .toast.dim { opacity: .6; }
 
 /* ---------- downloads ---------- */
-.os { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.os { margin-top: 56px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+@media (max-width: 1100px) { .os { grid-template-columns: repeat(2, 1fr); } }
 .os-col {
   position: relative; padding: 28px; border-radius: 24px; background: var(--bg-2); border: 1px solid var(--line);
   transition: border-color .3s;
 }
 .os-col.mine { border-color: #f4c2d766; box-shadow: 0 0 0 1px #f4c2d733, 0 30px 80px -40px #f4c2d766; }
-.os-col .yours { position: absolute; top: 24px; right: 24px; font: 500 12px var(--mono); color: var(--pink); letter-spacing: .06em; text-transform: uppercase; display: none; }
+/* Above the heading, not in its corner: four columns leave no room beside it. */
+.os-col .yours { font: 500 12px var(--mono); color: var(--pink); letter-spacing: .06em; text-transform: uppercase; display: none; margin-bottom: 10px; }
 .os-col.mine .yours { display: block; }
 .os-col h3 { display: flex; align-items: center; gap: 12px; font: 800 24px var(--display); }
 .os-col h3 svg { width: 26px; height: 26px; color: var(--pink); }
@@ -402,6 +404,8 @@ footer a:hover, .src a:hover { color: var(--pink); }
   .hero .shot { margin-top: 48px; }
   .features { grid-template-columns: 1fr; }
   .os { grid-template-columns: 1fr; }
+  /* On a phone the visitor's own system comes first. */
+  .os-col.mine { order: -1; }
 }
 @media (max-width: 600px) {
   header nav a:not(:last-child) { display: none; }
@@ -440,10 +444,10 @@ footer a:hover, .src a:hover { color: var(--pink); }
     <div class="wrap hero">
       <div class="hero-copy">
         <div>
-          <h1><span class="name">DUORAY</span> <span class="lead">Ваш VPN на&nbsp;компьютере в&nbsp;одну кнопку</span></h1>
+          <h1><span class="name">DUORAY</span> <span class="lead" id="lead">Ваш VPN на&nbsp;компьютере в&nbsp;одну кнопку</span></h1>
         </div>
         <div>
-        <p class="sub">Для Windows, macOS и&nbsp;Linux. Маршрутизация по&nbsp;сайтам, играм и&nbsp;приложениям.</p>
+        <p class="sub">Для Windows, macOS, Linux и&nbsp;Android. Маршрутизация по&nbsp;сайтам, играм и&nbsp;приложениям.</p>
         <div class="cta">
           <a class="btn btn-main" id="primary" href="#download">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>
@@ -451,7 +455,7 @@ footer a:hover, .src a:hover { color: var(--pink); }
           </a>
           <a class="btn btn-ghost" href="#download">Все платформы</a>
         </div>
-        <p class="hint" id="primary-note">Windows · macOS · Linux</p>
+        <p class="hint" id="primary-note">Windows · macOS · Linux · Android</p>
         </div>
       </div>
 
@@ -658,6 +662,14 @@ footer a:hover, .src a:hover { color: var(--pink); }
         </ul>
         <p class="note">ARM: <a href="/download/linux-arm">AppImage</a> · <a href="/download/deb-arm">deb</a> · <a href="/download/rpm-arm">rpm</a></p>
       </div>
+      <div class="os-col reveal" data-os="android">
+        <span class="yours">Ваша система</span>
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>Android</h3>
+        <ul class="files">
+          <li><a href="/download/android">Телефон <span>Android 8+ · apk</span></a></li>
+        </ul>
+        <p class="note">Установите APK из загрузок: Android попросит разрешить установку. Дальше DUORAY обновляется сам. Эмуляторы: <a href="/download/android-x86">x86_64</a> · <a href="https://github.com/m-a-prod/DUORAY-Mobile">исходный код</a></p>
+      </div>
     </div>
 
     <div class="arch reveal">
@@ -696,9 +708,13 @@ sudo pacman -Sy duoray</code></pre>
   var ua = navigator.userAgent;
   var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
   var os = null;
-  if (/Win/i.test(platform)) os = ["win", "/download/windows", "Скачать для Windows", "Windows 10 и 11 · 64-бит"];
+  if (/Android/i.test(ua)) os = ["android", "/download/android", "Скачать для Android", "APK · Android 8 и новее"];
+  else if (/Win/i.test(platform)) os = ["win", "/download/windows", "Скачать для Windows", "Windows 10 и 11 · 64-бит"];
   else if (/Mac/i.test(platform) && !/iPhone|iPad/i.test(ua)) os = ["mac", "/download/macos", "Скачать для macOS", "Apple M1 и новее · для Intel — ниже"];
   else if (/Linux/i.test(platform) && !/Android/i.test(ua)) os = ["linux", "/download/linux", "Скачать для Linux", "AppImage · deb, rpm и Arch — ниже"];
+  if (os && os[0] === "android") {
+    document.getElementById("lead").innerHTML = "Ваш VPN на&nbsp;телефоне в&nbsp;одну кнопку";
+  }
   if (os) {
     document.getElementById("primary").href = os[1];
     document.getElementById("primary-label").textContent = os[2];
