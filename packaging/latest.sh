@@ -16,7 +16,11 @@ latest_tag() {
 # while it is still the newest; a later release is taken again as it comes.
 #   v26.10.31: XHTTP packet-up uploads (xhttp over TLS, mode auto) crash xray
 #   at once: SIGSEGV in splithttp (*Config).FillPacketRequest. 26.10.21 works.
-XRAY_BROKEN="v26.10.31=v26.10.21"
+#   v26.11.9: no change to splithttp since v26.10.31, so the crash above is
+#   most likely still there (not reproduced either way: the server it hit is
+#   gone from the subscription); also a new default uTLS fingerprint and
+#   REALITY library. Kept on 26.10.21 until a release is checked.
+XRAY_BROKEN="v26.10.31=v26.10.21 v26.11.9=v26.10.21"
 
 # latest_xray: the newest stable Xray-core release that is not broken.
 latest_xray() {
