@@ -576,6 +576,20 @@ fn keep_inbounds(config: &mut serde_json::Value, socks: u16, direct: Option<u16>
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn wait_listening_sees_a_listener_and_names_the_error_without_one() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        assert!(wait_listening(addr, &mut child, Duration::from_secs(3), None).is_ok());
+        drop(listener);
+        let err = wait_listening(addr, &mut child, Duration::from_millis(300), None).unwrap_err().to_string();
+        assert!(err.contains("порт свободен; ConnectionRefused os error"), "{err}");
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
     #[test]
     fn settle_retries_only_right_after_a_teardown() {
         let cancel = AtomicBool::new(false);
@@ -1001,7 +1015,10 @@ fn processes() -> Vec<(String, String)> {
 }
 
 pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration, cancel: Option<&AtomicBool>) -> Result<()> {
-    let deadline = Instant::now() + timeout;
+    let start = Instant::now();
+    let deadline = start + timeout;
+    let mut probe = Duration::from_millis(50);
+    let mut last = None;
     while Instant::now() < deadline {
         if cancel.is_some_and(|c| c.load(Ordering::SeqCst)) {
             bail!("cancelled");
@@ -1013,22 +1030,40 @@ pub fn wait_listening(addr: SocketAddr, child: &mut Child, timeout: Duration, ca
             }
             bail!("xray завершился при старте ({status}); другие VPN: {}", others.join(", "));
         }
-        // Short probes: Windows does not refuse a connection to a closed
+        // Short probes first: Windows does not refuse a connection to a closed
         // loopback port, it retries the SYN, so a 500 ms probe made every
-        // connect wait ~0.6 s for an xray that was ready in tens of ms.
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
-            return Ok(());
+        // connect wait ~0.6 s for an xray that was ready in tens of ms. After
+        // two seconds longer ones: where an antivirus holds loopback
+        // connections a while, a 50 ms probe never gets through.
+        match TcpStream::connect_timeout(&addr, probe) {
+            Ok(_) => return Ok(()),
+            Err(e) => last = Some(e),
+        }
+        if start.elapsed() > Duration::from_secs(2) {
+            probe = (probe * 2).min(Duration::from_secs(1));
         }
         std::thread::sleep(Duration::from_millis(10));
     }
     // Tells apart "xray never listened" from "something blocks loopback
-    // connections" (antivirus, firewall filters) in reports.
-    let bound = std::net::TcpListener::bind(addr).is_err();
-    bail!(
-        "xray не открыл порт за {}с ({})",
-        timeout.as_secs(),
-        if bound { "порт занят, но подключение к нему не проходит" } else { "порт свободен" }
-    )
+    // connections" (antivirus, firewall filters) in reports, with the errors
+    // themselves: a failed bind is not always a taken port.
+    let probe_error = last.map(|e| io_error(&e)).unwrap_or_default();
+    match std::net::TcpListener::bind(addr) {
+        Ok(_) => bail!("xray не открыл порт за {}с (порт свободен; {probe_error})", timeout.as_secs()),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => bail!(
+            "xray не открыл порт за {}с (порт занят, но подключение к нему не проходит: {probe_error})",
+            timeout.as_secs()
+        ),
+        Err(e) => bail!("xray не открыл порт за {}с (bind: {}; {probe_error})", timeout.as_secs(), io_error(&e)),
+    }
+}
+
+/// An I/O error with its OS code, which the localized text hides.
+fn io_error(e: &std::io::Error) -> String {
+    match e.raw_os_error() {
+        Some(code) => format!("{:?} os error {code}", e.kind()),
+        None => format!("{:?}", e.kind()),
+    }
 }
 
 /// An xray left over from a crashed session would keep the port and the old config.
