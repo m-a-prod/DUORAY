@@ -198,6 +198,10 @@ struct App {
     live_failures: u32,
     /// Servers moved away from since the last answer through the tunnel.
     failover_tried: std::collections::HashSet<String>,
+    /// Failover probes are running (never stack them).
+    failover_busy: bool,
+    /// Pause live-ping failover until this time when all probed servers failed.
+    failover_quiet_until: Option<std::time::Instant>,
     /// Show servers ordered by ping instead of the panel's order.
     sort_by_ping: bool,
     /// Latency of the active connection, re-measured every 5 s: (label, level).
@@ -376,6 +380,8 @@ fn main() -> anyhow::Result<()> {
         ping_results: pings,
         live_failures: 0,
         failover_tried: Default::default(),
+        failover_busy: false,
+        failover_quiet_until: None,
         sort_by_ping: false,
         live_ping: None,
         live_ping_busy: false,
@@ -418,6 +424,13 @@ fn main() -> anyhow::Result<()> {
     background(&ui, &app, &data_dir);
     {
         let mut st = app.lock().unwrap();
+        let (store_moved, pings_moved) = follow_moved(&mut st, None);
+        if store_moved {
+            save(&mut st);
+        }
+        if pings_moved {
+            save_pings(&st);
+        }
         apply_appearance(&ui, &st.store.settings);
         if !restore_selection(&ui, &st) {
             // An empty "Мои серверы" is not listed: start on something that is.
@@ -490,6 +503,10 @@ fn main() -> anyhow::Result<()> {
                 return;
             }
             st.ping_results.remove(&removed);
+            st.speed_results.remove(&removed);
+            st.store.settings.favorites.retain(|k| k != &removed);
+            st.store.settings.no_failover.retain(|k| k != &removed);
+            st.failover_tried.remove(&removed);
             if st.store.settings.last_server.as_ref() == Some(&removed) {
                 st.store.settings.last_server = None;
             }
@@ -2042,7 +2059,7 @@ fn apply_routing(ui: &AppWindow, app: &Shared) {
     };
     let Some(job) = conn.rerouter(&st.store.settings.routing, &geo) else {
         drop(st);
-        diag::log("routing: apps changed, reconnecting");
+        diag::log("routing: tunnel settings changed, reconnecting");
         return reconnect(ui, app);
     };
     let generation = st.conn_gen;
@@ -2153,6 +2170,8 @@ fn toggle_connection(ui: &AppWindow, app: &Shared) {
         ConnState::Connected { .. } | ConnState::Blocked => {
             let conn = st.conn.take();
             diag::log("disconnect");
+            st.failover_tried.clear();
+            st.failover_quiet_until = None;
             st.conn_state = ConnState::Disconnecting;
             render(ui, &st);
             let (ui_weak, app) = (ui.as_weak(), app.clone());
@@ -2200,6 +2219,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
     let generation = st.conn_gen;
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     st.conn_cancel = cancel.clone();
+    st.failover_quiet_until = None;
     st.conn_state = ConnState::Connecting { name: name.clone() };
     let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
     let routing = st.store.settings.routing.clone();
@@ -2480,7 +2500,11 @@ fn refresh(ui: &AppWindow, app: &Shared, device: &Arc<Device>, id: String) {
                 }
             }
             st.store.apply(&id, result);
+            let (_, pings_moved) = follow_moved(&mut st, Some(std::slice::from_ref(&id)));
             save(&mut st);
+            if pings_moved {
+                save_pings(&st);
+            }
             // The list may have been reordered: find the selected server again.
             if current(&ui, &st).is_some_and(|s| s.id == id) {
                 ui.set_current_server(-1);
@@ -2631,6 +2655,7 @@ fn render(ui: &AppWindow, st: &App) {
                 speed_up: speed.2.into(),
                 edited: s.override_key.is_some(),
                 favorite: st.store.settings.favorites.contains(&key_of(sub, s)),
+                no_failover: st.store.settings.no_failover.contains(&key_of(sub, s)),
                 is_json: matches!(s.source, duoray_core::server::Source::Json(_)),
             }
         })
@@ -3276,10 +3301,13 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
             if answered {
                 st.live_failures = 0;
                 st.failover_tried.clear();
+                st.failover_quiet_until = None;
             } else {
                 st.live_failures += 1;
             }
-            let unresponsive = st.live_failures >= LIVE_FAILURES && st.store.settings.keep_connected;
+            let quiet = st.failover_quiet_until.is_some_and(|t| t > std::time::Instant::now());
+            let unresponsive =
+                st.live_failures >= LIVE_FAILURES && st.store.settings.keep_connected && !st.failover_busy && !quiet;
             render(&ui, &st);
             drop(st);
             if unresponsive {
@@ -3290,52 +3318,132 @@ fn measure_live_ping(ui: &AppWindow, app: &Shared, st: &mut App) {
 }
 
 /// Live pings in a row that a server may miss before "Держать подключение"
-/// moves away from it: 15 s with the window shown, 30 s hidden.
+/// probes alternatives: 15 s with the window shown, 30 s hidden.
 const LIVE_FAILURES: u32 = 3;
 
+/// Maximum alternative servers to probe before concluding the internet is down.
+const FAILOVER_PROBES: usize = 5;
+
 /// "Держать подключение": the connected server has missed LIVE_FAILURES live
-/// pings. With the network up, move to the best other server of the same
-/// subscription; with it down, there is nothing to do but wait.
+/// pings. Probe up to FAILOVER_PROBES other servers of the same subscription
+/// (fastest first) through their own xray configs; switch to the first one that
+/// answers. If none answer, internet is likely down — stay put for a while.
 fn server_unresponsive(ui: &AppWindow, app: &Shared) {
-    let (ui_weak, app) = (ui.as_weak(), app.clone());
-    // Off the UI thread: finding the default route runs a command.
-    std::thread::spawn(move || {
-        if connection::uplink_interface().is_none() {
-            diag::log("keep connected: нет сети, ждём");
+    let (key, name, generation, ping_settings, run_dir, candidates) = {
+        let mut st = app.lock().unwrap();
+        if st.failover_busy {
             return;
+        }
+        let ConnState::Connected { key, name, .. } = &st.conn_state else { return };
+        if st.live_failures < LIVE_FAILURES || !st.store.settings.keep_connected {
+            return;
+        }
+        let (key, name) = (key.clone(), name.clone());
+        let generation = st.conn_gen;
+        let ping_settings = st.store.settings.ping.clone();
+        let run_dir = st.path.parent().map(|p| p.join("run")).unwrap_or_else(|| PathBuf::from("run"));
+        let candidates = failover_candidates(&st, &key);
+        st.failover_busy = true;
+        (key, name, generation, ping_settings, run_dir, candidates)
+    };
+
+    let (ui_weak, app) = (ui.as_weak(), app.clone());
+    // Off the UI thread: finding the default route and running xray probes block.
+    std::thread::spawn(move || {
+        let uplink = connection::uplink_interface();
+        let mut probed: Vec<(String, Option<u128>)> = Vec::new();
+        let mut winner: Option<(String, String, u128)> = None;
+        if let Some(iface) = uplink.as_deref() {
+            for (cand_key, cand_name, server) in candidates {
+                let still_valid = {
+                    let st = app.lock().unwrap();
+                    st.conn_gen == generation
+                        && matches!(&st.conn_state, ConnState::Connected { key: k, .. } if k == &key)
+                        && st.live_failures >= LIVE_FAILURES
+                };
+                if !still_valid {
+                    break;
+                }
+                match ping::check(&server, &ping_settings, iface, &run_dir) {
+                    Ok(d) => {
+                        let ms = d.as_millis().max(1);
+                        probed.push((cand_key.clone(), Some(ms)));
+                        winner = Some((cand_key, cand_name, ms));
+                        break;
+                    }
+                    Err(e) => {
+                        diag::log(format!("keep connected: probe {cand_name} failed: {}", first_line(&format!("{e:#}"))));
+                        probed.push((cand_key, None));
+                    }
+                }
+            }
         }
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let mut st = app.lock().unwrap();
-            // Answered meanwhile, or no longer connected.
-            let ConnState::Connected { key, name, .. } = &st.conn_state else { return };
-            if st.live_failures < LIVE_FAILURES {
+            st.failover_busy = false;
+            if uplink.is_none() {
+                diag::log("keep connected: нет сети, ждём");
                 return;
             }
-            let (key, name) = (key.clone(), name.clone());
+            // Answered meanwhile, switched, or disconnected.
+            if st.conn_gen != generation
+                || !matches!(&st.conn_state, ConnState::Connected { key: k, .. } if k == &key)
+                || st.live_failures < LIVE_FAILURES
+            {
+                return;
+            }
             st.live_failures = 0;
-            st.failover_tried.insert(key.clone());
-            let Some((next, next_name)) = failover_target(&st, &key) else {
-                // Every one tried: start over after the next misses.
+            if let Some((next_key, next_name, _)) = winner {
+                st.failover_tried.insert(key);
+                for (k, ms) in probed {
+                    if ms.is_none() {
+                        st.failover_tried.insert(k.clone());
+                    }
+                    st.ping_results.insert(k, ping_entry(ms));
+                }
+                save_pings(&st);
+                diag::log(format!("keep connected: {name} не отвечает, переходим на {next_name}"));
+                st.store.settings.last_server = Some(next_key);
+                save(&mut st);
+                restore_selection(&ui, &st);
+                flash_status_for(
+                    &ui,
+                    &app,
+                    &mut st,
+                    trf!("«{name}» не отвечает, переключаемся на «{next_name}»", name = name, next_name = next_name),
+                    8,
+                );
+                drop(st);
+                switch_connection(&ui, &app, false);
+            } else {
+                // None answered (likely internet outage): clear tried set, pause 60s,
+                // and do not overwrite stored ping_results with failures.
                 st.failover_tried.clear();
-                diag::log(format!("keep connected: {name} не отвечает, другим некуда"));
-                flash_status_for(&ui, &app, &mut st, "Серверы подписки не отвечают. Проверьте интернет".into(), 8);
-                return render(&ui, &st);
-            };
-            diag::log(format!("keep connected: {name} не отвечает, переходим на {next_name}"));
-            st.store.settings.last_server = Some(next);
-            save(&mut st);
-            restore_selection(&ui, &st);
-            flash_status_for(&ui, &app, &mut st, format!("«{name}» не отвечает, переключаемся на «{next_name}»"), 8);
-            drop(st);
-            switch_connection(&ui, &app, false);
+                st.failover_quiet_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+                diag::log(format!("keep connected: {name} не отвечает, другие серверы тоже; остаёмся"));
+                flash_status_for(
+                    &ui,
+                    &app,
+                    &mut st,
+                    trf!(
+                        "«{name}» не отвечает, другие серверы тоже: похоже, пропал интернет. Остаёмся на «{name}»",
+                        name = name
+                    ),
+                    8,
+                );
+                render(&ui, &st);
+            }
         });
     });
 }
 
-/// Where to move from the server `key`: another of its subscription, see
-/// [`failover_pick`]. (key, name).
-fn failover_target(st: &App, key: &str) -> Option<(String, String)> {
-    let sub = st.store.subscriptions.iter().find(|s| s.servers.iter().any(|x| key_of(s, x) == key))?;
+/// Up to `FAILOVER_PROBES` alternative servers of the same subscription to
+/// check before moving away from `key`, ordered by [`failover_pick_order`].
+fn failover_candidates(st: &App, key: &str) -> Vec<(String, String, duoray_core::server::Server)> {
+    let Some(sub) = st.store.subscriptions.iter().find(|s| s.servers.iter().any(|x| key_of(s, x) == key)) else {
+        return Vec::new();
+    };
+    let no_failover: HashSet<&str> = st.store.settings.no_failover.iter().map(String::as_str).collect();
     let servers: Vec<(String, Option<(i32, u128)>)> = sub
         .servers
         .iter()
@@ -3345,20 +3453,162 @@ fn failover_target(st: &App, key: &str) -> Option<(String, String)> {
             (k, ping)
         })
         .collect();
-    let i = failover_pick(&servers, key, &st.failover_tried)?;
-    Some((servers[i].0.clone(), display_name(&sub.servers[i].name).1))
+    failover_pick_order(&servers, key, &st.failover_tried, &no_failover, FAILOVER_PROBES)
+        .into_iter()
+        .map(|i| (servers[i].0.clone(), display_name(&sub.servers[i].name).1, sub.servers[i].clone()))
+        .collect()
 }
 
-/// Of `servers` (key, last ping as (level, ms)): the fastest by the last
-/// ping, then the ones not pinged in list order. Not `current`, not one
-/// already tried, not one whose last ping failed (level 4).
-fn failover_pick(servers: &[(String, Option<(i32, u128)>)], current: &str, tried: &std::collections::HashSet<String>) -> Option<usize> {
-    servers
+/// Indices into `servers` (key, last ping as (level, ms)) to probe in order:
+/// fastest by last ping, then unpinged in list order, capped at `limit`.
+/// Excludes `current`, already `tried`, `no_failover`, and level-4 failed pings.
+fn failover_pick_order(
+    servers: &[(String, Option<(i32, u128)>)],
+    current: &str,
+    tried: &HashSet<String>,
+    no_failover: &HashSet<&str>,
+    limit: usize,
+) -> Vec<usize> {
+    let mut idxs: Vec<usize> = servers
         .iter()
         .enumerate()
-        .filter(|(_, (k, ping))| k != current && !tried.contains(k) && !matches!(ping, Some((4, _))))
-        .min_by_key(|(i, (_, ping))| (ping.map_or(u128::MAX, |(_, ms)| ms), *i))
+        .filter(|(_, (k, ping))| {
+            k != current && !tried.contains(k) && !no_failover.contains(k.as_str()) && !matches!(ping, Some((4, _)))
+        })
         .map(|(i, _)| i)
+        .collect();
+    idxs.sort_by_key(|&i| (servers[i].1.map_or(u128::MAX, |(_, ms)| ms), i));
+    idxs.truncate(limit);
+    idxs
+}
+
+/// Finds renamed/moved server keys within `sub`: for any key belonging to
+/// `sub.id` that is no longer present verbatim, matches a unique server by
+/// `name` or else by `address:port`.
+fn moved_keys(sub: &Subscription, keys: &[&str]) -> std::collections::HashMap<String, String> {
+    let live: HashSet<String> = sub.servers.iter().map(|s| key_of(sub, s)).collect();
+    let mut out = std::collections::HashMap::new();
+    for &k in keys {
+        if live.contains(k) || out.contains_key(k) {
+            continue;
+        }
+        let Some((sub_id, rest)) = k.split_once('\u{1f}') else { continue };
+        if sub_id != sub.id {
+            continue;
+        }
+        let Some((old_name, old_endpoint)) = rest.rsplit_once('\u{1f}') else { continue };
+        let mut by_name = sub.servers.iter().filter(|s| s.name == old_name);
+        let matched = match (by_name.next(), by_name.next()) {
+            (Some(s), None) => Some(s),
+            _ => {
+                let mut by_ep = sub.servers.iter().filter(|s| format!("{}:{}", s.address, s.port) == old_endpoint);
+                match (by_ep.next(), by_ep.next()) {
+                    (Some(s), None) => Some(s),
+                    _ => None,
+                }
+            }
+        };
+        if let Some(s) = matched {
+            out.insert(k.to_string(), key_of(sub, s));
+        }
+    }
+    out
+}
+
+fn migrate_key_map(list: &mut Vec<String>, map: &std::collections::HashMap<String, String>) -> bool {
+    let mut changed = false;
+    let mut seen = HashSet::with_capacity(list.len());
+    let mut out = Vec::with_capacity(list.len());
+    for k in list.drain(..) {
+        let next = if let Some(mapped) = map.get(&k) {
+            changed = true;
+            mapped.clone()
+        } else {
+            k
+        };
+        if seen.insert(next.clone()) {
+            out.push(next);
+        } else {
+            changed = true;
+        }
+    }
+    *list = out;
+    changed
+}
+
+pub(crate) fn migrate_key_list(list: &mut Vec<String>, old_key: &str, new_key: &str) {
+    if old_key == new_key {
+        return;
+    }
+    let mut map = std::collections::HashMap::with_capacity(1);
+    map.insert(old_key.to_string(), new_key.to_string());
+    migrate_key_map(list, &map);
+}
+
+/// Migrates stored keys (`last_server`, `favorites`, `no_failover`, pings,
+/// speeds, `failover_tried`, live `ConnState`) when subscription servers
+/// change host/port or display name. Returns `(store_changed, pings_changed)`.
+fn follow_moved(st: &mut App, sub_ids: Option<&[String]>) -> (bool, bool) {
+    let mut all_keys: Vec<String> = Vec::new();
+    if let Some(k) = &st.store.settings.last_server {
+        all_keys.push(k.clone());
+    }
+    all_keys.extend(st.store.settings.favorites.iter().cloned());
+    all_keys.extend(st.store.settings.no_failover.iter().cloned());
+    all_keys.extend(st.ping_results.keys().cloned());
+    all_keys.extend(st.speed_results.keys().cloned());
+    all_keys.extend(st.failover_tried.iter().cloned());
+    if let ConnState::Connected { key, .. } = &st.conn_state {
+        all_keys.push(key.clone());
+    }
+    if all_keys.is_empty() {
+        return (false, false);
+    }
+    let refs: Vec<&str> = all_keys.iter().map(String::as_str).collect();
+    let mut moves = std::collections::HashMap::new();
+    for sub in &st.store.subscriptions {
+        if let Some(ids) = sub_ids
+            && !ids.iter().any(|id| id == &sub.id)
+        {
+            continue;
+        }
+        moves.extend(moved_keys(sub, &refs));
+    }
+    if moves.is_empty() {
+        return (false, false);
+    }
+    let mut store_changed = false;
+    let mut pings_changed = false;
+    if let Some(last) = st.store.settings.last_server.as_mut()
+        && let Some(new_key) = moves.get(last.as_str())
+    {
+        *last = new_key.clone();
+        store_changed = true;
+    }
+    if migrate_key_map(&mut st.store.settings.favorites, &moves) {
+        store_changed = true;
+    }
+    if migrate_key_map(&mut st.store.settings.no_failover, &moves) {
+        store_changed = true;
+    }
+    for (old, new) in &moves {
+        if let Some(val) = st.ping_results.remove(old) {
+            st.ping_results.entry(new.clone()).or_insert(val);
+            pings_changed = true;
+        }
+        if let Some(val) = st.speed_results.remove(old) {
+            st.speed_results.entry(new.clone()).or_insert(val);
+        }
+        if st.failover_tried.remove(old) {
+            st.failover_tried.insert(new.clone());
+        }
+    }
+    if let ConnState::Connected { key, .. } = &mut st.conn_state
+        && let Some(new_key) = moves.get(key.as_str())
+    {
+        *key = new_key.clone();
+    }
+    (store_changed, pings_changed)
 }
 
 /// Reads the traffic counters of the active connection, every second while
@@ -3726,16 +3976,77 @@ mod tests {
 
     #[test]
     fn failover_picks_the_fastest_untried_answering_server() {
-        use std::collections::HashSet;
         let s = |k: &str, ping: Option<(i32, u128)>| (k.to_string(), ping);
-        let servers = [s("a", Some((1, 40))), s("b", Some((4, u128::MAX))), s("c", None), s("d", Some((2, 200))), s("e", Some((1, 90)))];
-        // e is the fastest other one; b failed its last ping.
-        assert_eq!(failover_pick(&servers, "a", &HashSet::new()), Some(4));
-        // Pinged ones first, then the ones not pinged.
+        let servers = [
+            s("a", Some((1, 40))),
+            s("b", Some((4, u128::MAX))),
+            s("c", None),
+            s("d", Some((2, 200))),
+            s("e", Some((1, 90))),
+            s("f", Some((1, 110))),
+            s("g", Some((2, 250))),
+            s("h", Some((3, 500))),
+            s("i", Some((3, 600))),
+        ];
+        let empty = HashSet::new();
+        let none: HashSet<&str> = HashSet::new();
+        // Ordered fastest first, unpinged last; failed (b) and current (a) excluded; capped at 5.
+        assert_eq!(failover_pick_order(&servers, "a", &empty, &none, 5), vec![4, 5, 3, 6, 7]);
+        // Excluded servers (no_failover) and already-tried servers are skipped.
         let tried: HashSet<String> = ["e", "d"].map(String::from).into();
-        assert_eq!(failover_pick(&servers, "a", &tried), Some(2));
-        let all: HashSet<String> = ["c", "d", "e"].map(String::from).into();
-        assert_eq!(failover_pick(&servers, "a", &all), None);
+        let no_failover: HashSet<&str> = ["f"].into();
+        assert_eq!(failover_pick_order(&servers, "a", &tried, &no_failover, 5), vec![6, 7, 8, 2]);
+        let all: HashSet<String> = ["c", "d", "e", "f", "g", "h", "i"].map(String::from).into();
+        assert!(failover_pick_order(&servers, "a", &all, &none, 5).is_empty());
+    }
+
+    #[test]
+    fn moved_keys_matches_by_unique_name_or_endpoint() {
+        let mk = |name: &str, addr: &str, port: u16| duoray_core::server::Server {
+            name: name.into(),
+            description: None,
+            protocol: "VLESS".into(),
+            address: addr.into(),
+            port,
+            network: "tcp".into(),
+            security: "tls".into(),
+            proxies: 1,
+            source: duoray_core::server::Source::Json(serde_json::json!({})),
+            override_key: None,
+        };
+        let sub = Subscription {
+            id: "sub1".into(),
+            servers: vec![
+                mk("DE 1", "10.0.0.2", 443),      // host changed, unique name
+                mk("NL Renamed", "1.1.1.1", 8443), // name changed, unique endpoint
+                mk("DupName", "2.2.2.2", 443),
+                mk("DupName", "3.3.3.3", 443),
+                mk("SameEp", "4.4.4.4", 443),
+                mk("OtherEp", "4.4.4.4", 443),
+                mk("Exact", "5.5.5.5", 443),
+            ],
+            ..Default::default()
+        };
+        let k_name = "sub1\u{1f}DE 1\u{1f}10.0.0.1:443";
+        let k_ep = "sub1\u{1f}NL Old\u{1f}1.1.1.1:8443";
+        let k_amb_name = "sub1\u{1f}DupName\u{1f}9.9.9.9:443";
+        let k_amb_ep = "sub1\u{1f}OldEp\u{1f}4.4.4.4:443";
+        let k_exact = "sub1\u{1f}Exact\u{1f}5.5.5.5:443";
+        let k_other_sub = "sub2\u{1f}DE 1\u{1f}10.0.0.1:443";
+        let map = moved_keys(&sub, &[k_name, k_ep, k_amb_name, k_amb_ep, k_exact, k_other_sub]);
+        assert_eq!(map.get(k_name).map(String::as_str), Some("sub1\u{1f}DE 1\u{1f}10.0.0.2:443"));
+        assert_eq!(map.get(k_ep).map(String::as_str), Some("sub1\u{1f}NL Renamed\u{1f}1.1.1.1:8443"));
+        assert!(!map.contains_key(k_amb_name));
+        assert!(!map.contains_key(k_amb_ep));
+        assert!(!map.contains_key(k_exact));
+        assert!(!map.contains_key(k_other_sub));
+    }
+
+    #[test]
+    fn migrate_key_list_preserves_order_and_dedups() {
+        let mut list = vec!["a".into(), "old".into(), "b".into(), "new".into()];
+        migrate_key_list(&mut list, "old", "new");
+        assert_eq!(list, vec!["a", "new", "b"]);
     }
 
     #[test]

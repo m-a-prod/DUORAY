@@ -78,6 +78,9 @@ pub struct Settings {
     /// (people found the switching between servers unwanted).
     #[serde(rename = "keep_connected_v2")]
     pub keep_connected: bool,
+    /// Servers excluded from automatic failover ("Держать подключение"),
+    /// by the GUI's server key.
+    pub no_failover: Vec<String>,
     /// Starred servers, by the GUI's server key, in the order starred: marked
     /// in the list, and in the tray menu to switch to.
     pub favorites: Vec<String>,
@@ -133,6 +136,7 @@ impl Default for Settings {
             auto_update: true,
             switch_on_select: true,
             keep_connected: false,
+            no_failover: Vec::new(),
             favorites: Vec::new(),
             pin_lock: None,
             glass: false,
@@ -548,6 +552,7 @@ mod tests {
         a.settings.telemetry = Some(true);
         a.settings.kill_switch = true;
         a.settings.favorites = vec!["x".into()];
+        a.settings.no_failover = vec!["y".into()];
         let id = a.add("https://panel.example/sub/1", "VPN").unwrap();
         a.add_links("vless://u@1.2.3.4:443?security=tls#Mine").unwrap();
         // As if fetched: the export leaves these out.
@@ -565,6 +570,7 @@ mod tests {
         assert_eq!(servers, 1);
         assert!(b.settings.kill_switch);
         assert_eq!(b.settings.favorites, vec!["x".to_string()]);
+        assert_eq!(b.settings.no_failover, vec!["y".to_string()]);
         assert_eq!((b.settings.install_id.as_str(), b.settings.telemetry), ("bbbb", Some(false)));
         assert!(b.get(&id).unwrap().servers.is_empty(), "fetched anew");
         // Again: nothing doubles.

@@ -82,6 +82,25 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         }
     });
 
+    ui.on_toggle_no_failover({
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        move |row| {
+            let ui = ui_weak.unwrap();
+            let mut st = app.lock().unwrap();
+            let Some((sub, index)) = server_at(&ui, &st, row) else { return };
+            let key = key_of(sub, &sub.servers[index]);
+            let list = &mut st.store.settings.no_failover;
+            match list.iter().position(|k| *k == key) {
+                Some(i) => {
+                    list.remove(i);
+                }
+                None => list.push(key),
+            }
+            crate::save(&mut st);
+            crate::render(&ui, &st);
+        }
+    });
+
     ui.on_speed_test_server({
         let (ui_weak, app) = (ui.as_weak(), app.clone());
         move |row| {
@@ -347,8 +366,15 @@ fn finish(ui: &AppWindow, app: &Shared, mut st: MutexGuard<App>, sub_id: &str, i
     let live = matches!(&st.conn_state, ConnState::Connected { key, .. } if *key == old_key);
     let Some(new_key) = st.store.get(sub_id).map(|sub| key_of(sub, &sub.servers[index])) else { return };
     st.ping_results.remove(&old_key);
-    if st.store.settings.last_server.as_deref() == Some(old_key.as_str()) {
-        st.store.settings.last_server = Some(new_key.clone());
+    if old_key != new_key {
+        if st.store.settings.last_server.as_deref() == Some(old_key.as_str()) {
+            st.store.settings.last_server = Some(new_key.clone());
+        }
+        crate::migrate_key_list(&mut st.store.settings.favorites, &old_key, &new_key);
+        crate::migrate_key_list(&mut st.store.settings.no_failover, &old_key, &new_key);
+        if st.failover_tried.remove(&old_key) {
+            st.failover_tried.insert(new_key.clone());
+        }
     }
     st.editor = None;
     ui.set_editor_open(false);

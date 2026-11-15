@@ -68,6 +68,14 @@ pub fn ping(server: &Server, s: &PingSettings, iface: Option<&str>, run_dir: &Pa
     }
 }
 
+/// Verifies that `server` answers an HTTP request through its own config,
+/// used by "Держать подключение" before switching away from a silent server.
+pub fn check(server: &Server, s: &PingSettings, iface: &str, run_dir: &Path) -> Result<Duration> {
+    through_server(server, iface, run_dir, "failover", |socks, user, pass| {
+        via_socks_mode(socks, user, pass, &s.url, s.mode == PingMode::HttpHead, Duration::from_secs(5), s.proxy_mode)
+    })
+}
+
 fn resolve(host: &str, port: u16) -> Result<SocketAddr> {
     (host, port)
         .to_socket_addrs()

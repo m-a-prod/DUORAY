@@ -51,6 +51,8 @@ export struct ServerRow {
     edited: bool,
     // Starred: marked here and listed in the tray menu.
     favorite: bool,
+    // Excluded from automatic failover ("Держать подключение").
+    no-failover: bool,
     // Edited as JSON (else as a form of share-link fields).
     is-json: bool,
 }
@@ -1291,7 +1293,7 @@ component SettingsPage inherits Rectangle {
                 if root.section == 1: SettingsCard {
                     ToggleRow {
                         title: @tr("Держать подключение");
-                        description: @tr("Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, а интернет есть, DUORAY перейдёт на другой сервер той же подписки, самый быстрый по последнему пингу.");
+                        description: @tr("Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, DUORAY проверит до 5 других серверов этой подписки (начиная с самого быстрого) и переключится на первый ответивший. Если не отвечает ни один — интернет, скорее всего, пропал, и подключение останется на месте. Отдельные серверы можно исключить через контекстное меню.");
                         checked <=> root.keep-connected;
                         toggled => {
                             root.changed();
@@ -3304,6 +3306,7 @@ export component AppWindow inherits Window {
     callback show-server-qr(int);
     // Stars or unstars the server of a row (tray menu, ★ in the list).
     callback toggle-favorite(int);
+    callback toggle-no-failover(int);
     callback speed-test-server(int);
     // Speed test of every server of the subscription (or stop it).
     callback speed-test-all();
@@ -4539,6 +4542,13 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                         MenuItem {
+                                            text: srv.no-failover ? @tr("Вернуть в переключение") : @tr("Исключить из переключения");
+                                            clicked => {
+                                                row-menu.close();
+                                                root.toggle-no-failover(i);
+                                            }
+                                        }
+                                        MenuItem {
                                             text: @tr("Пропинговать");
                                             enabled: !root.pinging;
                                             clicked => {
@@ -4642,6 +4652,12 @@ export component AppWindow inherits Window {
                                     Chip {
                                         text: @tr("изменён");
                                         accent: true;
+                                    }
+                                }
+                                if srv.no-failover: VerticalLayout {
+                                    alignment: center;
+                                    Chip {
+                                        text: @tr("не переключать");
                                     }
                                 }
                                 if srv.proxies > 1: VerticalLayout {

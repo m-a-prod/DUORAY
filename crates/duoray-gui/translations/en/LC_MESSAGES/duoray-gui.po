@@ -93,8 +93,8 @@ msgstr "Import"
 msgid "Держать подключение"
 msgstr "Keep connected"
 
-msgid "Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, а интернет есть, DUORAY перейдёт на другой сервер той же подписки, самый быстрый по последнему пингу."
-msgstr "If the tunnel drops, DUORAY connects again. If the server stops answering while the internet works, DUORAY moves to another server of the same subscription, the fastest by the last ping."
+msgid "Если туннель оборвался, DUORAY подключится снова. Если сервер перестал отвечать, DUORAY проверит до 5 других серверов этой подписки (начиная с самого быстрого) и переключится на первый ответивший. Если не отвечает ни один — интернет, скорее всего, пропал, и подключение останется на месте. Отдельные серверы можно исключить через контекстное меню."
+msgstr "If the tunnel drops, DUORAY reconnects. If the server stops responding, DUORAY probes up to 5 other servers in the same subscription (fastest first) and switches to the first one that answers. If none respond, the internet connection is likely down and DUORAY stays on the current server. Individual servers can be excluded via the context menu."
 
 msgid "Аварийная блокировка (kill switch)"
 msgstr "Kill switch"
@@ -645,6 +645,12 @@ msgstr "Remove from favorites"
 msgid "В избранное"
 msgstr "Add to favorites"
 
+msgid "Вернуть в переключение"
+msgstr "Include in failover"
+
+msgid "Исключить из переключения"
+msgstr "Exclude from failover"
+
 msgid "Пропинговать"
 msgstr "Ping"
 
@@ -662,6 +668,9 @@ msgstr "Edit settings"
 
 msgid "изменён"
 msgstr "edited"
+
+msgid "не переключать"
+msgstr "no failover"
 
 msgid "авто × {}"
 msgstr "auto × {}"
@@ -1169,6 +1178,12 @@ msgstr "No servers; the panel says: “{note}”"
 
 msgid "Перезапуск Hysteria2 не удался: {p0}"
 msgstr "Restarting Hysteria2 failed: {p0}"
+
+msgid "«{name}» не отвечает, переключаемся на «{next_name}»"
+msgstr "\"{name}\" is not responding, switching to \"{next_name}\""
+
+msgid "«{name}» не отвечает, другие серверы тоже: похоже, пропал интернет. Остаёмся на «{name}»"
+msgstr "\"{name}\" is not responding and neither are other servers: internet may be down. Staying on \"{name}\""
 
 msgid "загрузка {p0} Мбит/с"
 msgstr "download {p0} Mbps"
