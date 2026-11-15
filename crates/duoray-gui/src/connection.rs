@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 #[cfg(target_os = "macos")]
 use duoray_core::helper_proto::PROTOCOL_PROXY;
-use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, TunRequest};
+use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, PROTOCOL_PRIVATE, TunRequest};
 use duoray_core::routing::AppMode;
 use duoray_core::geo::GeoDir;
 use duoray_core::routing::{GeoData, RoutingSettings};
@@ -84,6 +84,7 @@ struct TunnelInputs {
     server: Server,
     iface: String,
     apps: duoray_core::routing::AppRouting,
+    route_private: bool,
     bypass: Vec<std::net::IpAddr>,
     direct_socks: Option<SocketAddr>,
     /// xray's API address, kept when the config is rebuilt.
@@ -172,6 +173,7 @@ pub fn connect(
     let Options { proxy_port, kill_switch, cancel } = options;
     let cancelled = || cancel.load(Ordering::SeqCst);
     let started = Instant::now();
+    let route_private = proxy_port.is_none() && duoray_core::routing::route_private_in_tun(routing);
     // Proxy mode needs no TUN, and the app sets the system proxy itself,
     // except on macOS: changing it needs root there, so the helper does it.
     let mut helper = if proxy_port.is_none() || cfg!(target_os = "macos") {
@@ -180,8 +182,8 @@ pub fn connect(
             OpenError::Outdated(v) => ConnectError::HelperOutdated(v),
             OpenError::Other(e) => ConnectError::Other(e),
         })?;
-        // Per-app routing needs a helper that knows it; so does the proxy.
-        let needed = match proxy_port {
+        // Per-app routing and private-network capture need helpers that support them; so does the proxy.
+        let mut needed = match proxy_port {
             #[cfg(target_os = "macos")]
             Some(_) => PROTOCOL_PROXY,
             #[cfg(not(target_os = "macos"))]
@@ -189,6 +191,9 @@ pub fn connect(
             None if routing.apps.active() => PROTOCOL_APPS,
             None => 0,
         };
+        if route_private {
+            needed = needed.max(PROTOCOL_PRIVATE);
+        }
         if helper.protocol < needed {
             return Err(ConnectError::HelperOutdated(helper.version.clone()));
         }
@@ -292,6 +297,7 @@ pub fn connect(
         server: server.clone(),
         iface: iface.clone(),
         apps: routing.apps.clone(),
+        route_private,
         bypass: rt.bypass.clone(),
         direct_socks: rt.direct_socks,
         api,
@@ -325,6 +331,7 @@ pub fn connect(
                     apps: routing.apps.apps.clone(),
                     direct_socks,
                 }),
+                route_private,
             })
             .context("TUN"),
         (None, None) => unreachable!("TUN mode always opens the helper"),
@@ -483,7 +490,8 @@ impl Connection {
         geo: &GeoDir,
     ) -> Option<impl FnOnce() -> Result<Option<Vec<String>>> + Send + 'static> {
         let routing = effective_routing(routing, self.tunnel.proxy);
-        if routing.apps != self.tunnel.apps {
+        let route_private = self.tunnel.proxy.is_none() && duoray_core::routing::route_private_in_tun(&routing);
+        if routing.apps != self.tunnel.apps || route_private != self.tunnel.route_private {
             return None;
         }
         let (t, r, xray) = (self.tunnel.clone(), self.respawn.clone(), self.xray.clone());

@@ -330,6 +330,7 @@ async fn start(req: TunRequest) -> Result<(Session, String)> {
             auth: Some((req.user, req.pass)),
         },
         bypass: req.bypass,
+        route_private: req.route_private,
         ..Default::default()
     };
     if let Some(a) = req.apps {

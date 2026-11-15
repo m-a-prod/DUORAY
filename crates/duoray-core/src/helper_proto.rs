@@ -18,13 +18,16 @@ use serde::{Deserialize, Serialize};
 /// Bumped on protocol changes; the GUI offers to reinstall the helper.
 /// v3: per-app routing (`TunRequest::apps`).
 /// v4: system proxy on macOS (`Request::SystemProxy`).
-pub const PROTOCOL: u32 = 4;
+/// v5: routing private networks through the TUN (`TunRequest::route_private`).
+pub const PROTOCOL: u32 = 5;
 /// Oldest helper the GUI still works with (without the newer features).
 pub const MIN_PROTOCOL: u32 = 2;
 /// First protocol with per-app routing.
 pub const PROTOCOL_APPS: u32 = 3;
 /// First protocol with the system proxy (macOS: changing it needs root).
 pub const PROTOCOL_PROXY: u32 = 4;
+/// First protocol with private-network routing into the TUN.
+pub const PROTOCOL_PRIVATE: u32 = 5;
 
 #[cfg(unix)]
 pub const SOCKET_PATH: &str = "/var/run/duoray-helper.sock";
@@ -61,6 +64,9 @@ pub struct TunRequest {
     /// Per-app routing (protocol 3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apps: Option<AppsRequest>,
+    /// Route private/LAN/CGNAT/ULA networks into the TUN (protocol 5).
+    #[serde(default)]
+    pub route_private: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,20 +119,21 @@ mod tests {
             bypass: vec!["1.2.3.4".parse().unwrap()],
             ipv6: true,
             apps: None,
+            route_private: true,
         });
         let mut buf = vec![];
         write_msg(&mut buf, &req).unwrap();
         let back: Request = read_msg(&mut buf.as_slice()).unwrap().unwrap();
-        assert!(matches!(back, Request::Start(t) if t.user == "u"));
+        assert!(matches!(back, Request::Start(t) if t.user == "u" && t.route_private));
         assert!(read_msg::<_, Request>(&mut &b""[..]).unwrap().is_none());
     }
 
-    /// A v2 client's request (no `apps`) still parses in a v3 helper.
+    /// A v2 client's request (no `apps` or `route_private`) still parses in a v5 helper.
     #[test]
     fn v2_request_parses() {
         let line = br#"{"cmd":"start","socks":"127.0.0.1:1","user":"u","pass":"p","bypass":[],"ipv6":true}
 "#;
         let back: Request = read_msg(&mut &line[..]).unwrap().unwrap();
-        assert!(matches!(back, Request::Start(t) if t.apps.is_none()));
+        assert!(matches!(back, Request::Start(t) if t.apps.is_none() && !t.route_private));
     }
 }

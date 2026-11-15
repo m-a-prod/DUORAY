@@ -524,6 +524,29 @@ pub fn user_rules(s: &RoutingSettings, geo: &GeoData, proxy: &Target, warnings: 
         return out;
     }
 
+    const PRIVATE_CIDRS: &[&str] = &[
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "fc00::/7",
+        "fe80::/10",
+    ];
+    let simple = &s.simple;
+    if !simple.lan_direct {
+        // Panels and link configs ship a `geoip:private -> direct` rule:
+        // place our proxy rule ahead of panel rules so turning LAN direct off
+        // actually sends private destinations through the VPN.
+        let ips: Vec<String> = if geo.geoip.contains("private") {
+            vec!["geoip:private".into()]
+        } else {
+            PRIVATE_CIDRS.iter().map(|c| (*c).to_string()).collect()
+        };
+        let mut rule = json!({ "type": "field", "ip": ips });
+        proxy.apply(&mut rule);
+        out.push(rule);
+    }
+
     let mut push = |domains: Vec<String>, ips: Vec<String>, warnings: &mut Vec<String>| {
         if let Some(d) = checked(domains, geo, warnings) {
             out.push(json!({ "type": "field", "domain": d, "outboundTag": DIRECT_TAG }));
@@ -532,7 +555,6 @@ pub fn user_rules(s: &RoutingSettings, geo: &GeoData, proxy: &Target, warnings: 
             out.push(json!({ "type": "field", "ip": i, "outboundTag": DIRECT_TAG }));
         }
     };
-    let simple = &s.simple;
     if simple.lan_direct {
         push(vec![], vec!["geoip:private".into()], warnings);
     }
@@ -694,6 +716,69 @@ pub fn proxy_target(config: &Value, panel_rules: &[Value]) -> Target {
     Target::Outbound(config["outbounds"][0]["tag"].as_str().unwrap_or("proxy").into())
 }
 
+/// Whether the TUN should split and capture private/LAN/CGNAT/ULA OS routes
+/// so xray's routing rules can proxy or block them.
+pub fn route_private_in_tun(s: &RoutingSettings) -> bool {
+    if !s.advanced {
+        return !s.simple.lan_direct;
+    }
+    let Some(p) = s.profile() else { return false };
+    for r in p.rules.iter().filter(|r| r.enabled) {
+        let entries = split_entries(&r.ips);
+        let unconditional = r.domains.trim().is_empty() && r.ports.trim().is_empty() && r.network.trim().is_empty();
+        if r.action == Action::Direct
+            && unconditional
+            && entries.iter().any(|e| e.eq_ignore_ascii_case("geoip:private"))
+        {
+            return false;
+        }
+        if matches!(r.action, Action::Proxy | Action::Block) && entries.iter().any(|e| is_private_rule_entry(e)) {
+            return true;
+        }
+    }
+    p.default_action != Action::Direct && !p.keep_panel_rules
+}
+
+fn is_private_rule_entry(entry: &str) -> bool {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    if entry.eq_ignore_ascii_case("geoip:private") {
+        return true;
+    }
+    let (ip, prefix) = if let Some((a, p)) = entry.split_once('/') {
+        let (Ok(ip), Ok(p)) = (a.trim().parse::<IpAddr>(), p.trim().parse::<u32>()) else {
+            return false;
+        };
+        if p < 2 {
+            return false;
+        }
+        (ip, p)
+    } else if let Ok(ip) = entry.trim().parse::<IpAddr>() {
+        (ip, if ip.is_ipv4() { 32 } else { 128 })
+    } else {
+        return false;
+    };
+    const V4_PRIV: [(Ipv4Addr, u32); 4] = [
+        (Ipv4Addr::new(10, 0, 0, 0), 8),
+        (Ipv4Addr::new(172, 16, 0, 0), 12),
+        (Ipv4Addr::new(192, 168, 0, 0), 16),
+        (Ipv4Addr::new(100, 64, 0, 0), 10),
+    ];
+    const V6_PRIV: [(Ipv6Addr, u32); 1] = [(Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 0), 7)];
+    match ip {
+        IpAddr::V4(a) if prefix <= 32 => V4_PRIV.iter().any(|&(net, np)| {
+            let min_p = prefix.min(np);
+            let mask = if min_p == 0 { 0 } else { !0u32 << (32 - min_p) };
+            (u32::from(a) & mask) == (u32::from(net) & mask)
+        }),
+        IpAddr::V6(a) if prefix <= 128 => V6_PRIV.iter().any(|&(net, np)| {
+            let min_p = prefix.min(np);
+            let mask = if min_p == 0 { 0 } else { !0u128 << (128 - min_p) };
+            (u128::from(a) & mask) == (u128::from(net) & mask)
+        }),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,8 +859,40 @@ mod tests {
         let w = apply(&mut c, &s, &g);
         assert_eq!(w, ["нет базы для geoip:ru-whitelist"]);
         let rules = c["routing"]["rules"].as_array().unwrap();
-        assert!(rules[2]["domain"].as_array().unwrap().len() > 500, "whitelist domains still used");
-        assert_eq!(rules[3]["domain"], json!(["domain:vk.com"]));
+        assert_eq!(rules[2]["ip"], json!(["geoip:private"]));
+        assert_eq!(rules[2]["balancerTag"], "B");
+        assert!(rules[3]["domain"].as_array().unwrap().len() > 500, "whitelist domains still used");
+        assert_eq!(rules[4]["domain"], json!(["domain:vk.com"]));
+    }
+
+    #[test]
+    fn lan_direct_off_overrides_panel_private_direct_rule() {
+        let mut c = panel();
+        c["routing"]["rules"]
+            .as_array_mut()
+            .unwrap()
+            .insert(2, json!({ "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }));
+        let s = RoutingSettings {
+            simple: SimpleRouting { lan_direct: false, ..Default::default() },
+            ..Default::default()
+        };
+        let w = apply(&mut c, &s, &geo());
+        assert!(w.is_empty(), "{w:?}");
+        let rules = c["routing"]["rules"].as_array().unwrap();
+        let proxy_pos = rules.iter().position(|r| r["ip"] == json!(["geoip:private"]) && r["balancerTag"] == "B").unwrap();
+        let panel_direct_pos = rules.iter().position(|r| r["ip"] == json!(["geoip:private"]) && r["outboundTag"] == "direct").unwrap();
+        assert!(proxy_pos < panel_direct_pos, "proxy rule must precede panel's direct rule");
+
+        // Without geoip:private in geoip.dat, falls back to explicit private CIDRs without warning.
+        let mut no_priv = geo();
+        no_priv.geoip.remove("private");
+        let mut c2 = panel();
+        let w2 = apply(&mut c2, &s, &no_priv);
+        assert!(w2.is_empty(), "{w2:?}");
+        let ips = c2["routing"]["rules"][2]["ip"].as_array().unwrap();
+        assert!(ips.contains(&json!("192.168.0.0/16")));
+        assert!(ips.contains(&json!("100.64.0.0/10")));
+        assert_eq!(c2["routing"]["rules"][2]["balancerTag"], "B");
     }
 
     #[test]
@@ -928,5 +1045,48 @@ mod tests {
             assert!(search_geosite(data, "x", 10).is_empty());
             assert!(search_geoip(data, "x", 10).is_empty());
         }
+    }
+
+    #[test]
+    fn route_private_in_tun_cases() {
+        // Simple mode: follows !lan_direct.
+        assert!(!route_private_in_tun(&RoutingSettings::default()));
+        let mut s = RoutingSettings::default();
+        s.simple.lan_direct = false;
+        assert!(route_private_in_tun(&s));
+
+        // Advanced default: keep_panel_rules=true, default=Proxy -> false.
+        let adv = |rules: Vec<RouteRule>, default_action: Action, keep_panel_rules: bool| RoutingSettings {
+            advanced: true,
+            profiles: vec![RouteProfile {
+                rules,
+                default_action,
+                keep_panel_rules,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!route_private_in_tun(&adv(vec![], Action::Proxy, true)));
+        // No panel rules and non-direct default -> true unless Direct geoip:private comes first.
+        assert!(route_private_in_tun(&adv(vec![], Action::Proxy, false)));
+        assert!(route_private_in_tun(&adv(vec![], Action::Block, false)));
+        assert!(!route_private_in_tun(&adv(vec![], Action::Direct, false)));
+
+        // Unconditional Direct geoip:private comes first -> false.
+        let direct_priv = RouteRule { action: Action::Direct, ips: "geoip:private".into(), ..Default::default() };
+        assert!(!route_private_in_tun(&adv(vec![direct_priv.clone()], Action::Proxy, false)));
+
+        // Proxy rule on private CIDR or geoip:private before Direct -> true.
+        let proxy_lan = RouteRule { action: Action::Proxy, ips: "192.168.1.0/24".into(), ..Default::default() };
+        assert!(route_private_in_tun(&adv(vec![proxy_lan, direct_priv.clone()], Action::Direct, true)));
+        let block_cgnat = RouteRule { action: Action::Block, ips: "100.64.0.0/10".into(), ..Default::default() };
+        assert!(route_private_in_tun(&adv(vec![block_cgnat], Action::Direct, true)));
+        let proxy_ula = RouteRule { action: Action::Proxy, ips: "fd00::/8".into(), ..Default::default() };
+        assert!(route_private_in_tun(&adv(vec![proxy_ula], Action::Direct, true)));
+        let disabled = RouteRule { enabled: false, action: Action::Proxy, ips: "geoip:private".into(), ..Default::default() };
+        assert!(!route_private_in_tun(&adv(vec![disabled], Action::Direct, true)));
+        // Public CIDR proxy rule does not trigger private capture.
+        let proxy_pub = RouteRule { action: Action::Proxy, ips: "8.8.8.0/24".into(), ..Default::default() };
+        assert!(!route_private_in_tun(&adv(vec![proxy_pub], Action::Direct, true)));
     }
 }
