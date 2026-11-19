@@ -93,6 +93,7 @@ DOWNLOADS = {
 # The Android app (DUORAY-Mobile): its version is the manifest's "android" section.
 ANDROID_DOWNLOADS = {
     "android": "DUORAY-{v}-arm64-v8a.apk",
+    "android-armv7": "DUORAY-{v}-armeabi-v7a.apk",
     "android-x86": "DUORAY-{v}-x86_64.apk",
 }
 
