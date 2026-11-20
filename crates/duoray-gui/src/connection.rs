@@ -150,6 +150,18 @@ fn effective_routing(routing: &RoutingSettings, proxy: Option<u16>) -> RoutingSe
     let mut routing = routing.clone();
     if proxy.is_some() {
         routing.apps = Default::default();
+    } else if !routing.advanced && routing.simple.games.iter().any(|game| game == "steam") && routing.apps.mode != AppMode::Only {
+        // Community servers may be outside Valve's networks. Match the game
+        // executable as well, leaving Steam store and CDN connections alone.
+        if routing.apps.mode == AppMode::Off {
+            routing.apps.apps.clear();
+        }
+        routing.apps.mode = AppMode::Bypass;
+        for name in ["cs2", "cs2.exe", "dota2", "dota2.exe"] {
+            if !routing.apps.apps.iter().any(|app| app.eq_ignore_ascii_case(name)) {
+                routing.apps.apps.push(name.into());
+            }
+        }
     }
     routing
 }
@@ -176,6 +188,8 @@ pub fn connect(
     let route_private = proxy_port.is_none() && duoray_core::routing::route_private_in_tun(routing);
     // Proxy mode needs no TUN, and the app sets the system proxy itself,
     // except on macOS: changing it needs root there, so the helper does it.
+    let apps_skipped = proxy_port.is_some() && routing.apps.active();
+    let routing = &effective_routing(routing, proxy_port);
     let mut helper = if proxy_port.is_none() || cfg!(target_os = "macos") {
         let helper = HelperSession::open().map_err(|e| match e {
             OpenError::Missing => ConnectError::HelperMissing,
@@ -201,8 +215,6 @@ pub fn connect(
     } else {
         None
     };
-    let apps_skipped = proxy_port.is_some() && routing.apps.active();
-    let routing = &effective_routing(routing, proxy_port);
     let iface = settle(&cancel, physical_interface)?;
     // Fresh databases if downloaded, else the ones shipped with xray (then
     // tags missing there, like geoip:ru-whitelist, are skipped).
@@ -584,16 +596,57 @@ fn keep_inbounds(config: &mut serde_json::Value, socks: u16, direct: Option<u16>
 mod tests {
     use super::*;
 
+    #[test]
+    fn steam_bypass_respects_explicit_app_mode() {
+        let mut settings = RoutingSettings::default();
+        settings.simple.games.push("steam".into());
+        settings.apps.apps.push("browser".into());
+        let effective = effective_routing(&settings, None);
+        assert_eq!(effective.apps.mode, AppMode::Bypass);
+        assert!(effective.apps.apps.iter().any(|a| a == "cs2.exe"));
+        assert!(!effective.apps.apps.contains(&"browser".into()));
+        assert!(!effective_routing(&settings, Some(8080)).apps.active());
+
+        settings.apps.mode = AppMode::Bypass;
+        settings.apps.apps.push("CS2.EXE".into());
+        let effective = effective_routing(&settings, None);
+        assert!(effective.apps.apps.contains(&"browser".into()));
+        assert_eq!(effective.apps.apps.iter().filter(|a| a.eq_ignore_ascii_case("cs2.exe")).count(), 1);
+        assert!(effective.apps.apps.contains(&"dota2".into()));
+
+        settings.apps.mode = AppMode::Only;
+        assert_eq!(effective_routing(&settings, None).apps, settings.apps);
+        settings.apps.mode = AppMode::Off;
+        settings.advanced = true;
+        assert_eq!(effective_routing(&settings, None).apps, settings.apps);
+    }
+
     #[cfg(unix)]
     #[test]
     fn wait_listening_sees_a_listener_and_names_the_error_without_one() {
         let mut child = Command::new("sleep").arg("30").spawn().unwrap();
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        assert!(wait_listening(addr, &mut child, Duration::from_secs(3), None).is_ok());
-        drop(listener);
-        let err = wait_listening(addr, &mut child, Duration::from_millis(300), None).unwrap_err().to_string();
-        assert!(err.contains("порт свободен; ConnectionRefused os error"), "{err}");
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            assert!(wait_listening(addr, &mut child, Duration::from_secs(3), None).is_ok());
+            drop(listener);
+            match wait_listening(addr, &mut child, Duration::from_millis(300), None) {
+                Ok(()) if attempts < 10 => {
+                    // Another parallel test may bind this just-released ephemeral port.
+                    let error = std::net::TcpListener::bind(addr).unwrap_err();
+                    assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
+                    continue;
+                }
+                Ok(()) => panic!("a closed port still looks ready after {attempts} attempts"),
+                Err(error) => {
+                    let error = error.to_string();
+                    assert!(error.contains("порт свободен; ConnectionRefused os error"), "{error}");
+                    break;
+                }
+            }
+        }
         let _ = child.kill();
         let _ = child.wait();
     }

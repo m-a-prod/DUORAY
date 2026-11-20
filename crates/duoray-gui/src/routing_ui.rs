@@ -168,6 +168,21 @@ fn active_profile(s: &mut RoutingSettings) -> &mut RouteProfile {
     &mut s.profiles[i]
 }
 
+fn filter_running(
+    names: ModelRc<slint::SharedString>,
+    apps: ModelRc<slint::SharedString>,
+    query: slint::SharedString,
+) -> ModelRc<slint::SharedString> {
+    let query = query.trim().to_lowercase();
+    let mut matches: Vec<_> = names.iter().filter(|name| name.to_lowercase().contains(&query)).collect();
+    matches.sort_by_key(|name| selected_app(&apps, name) < 0);
+    ModelRc::new(VecModel::from(matches))
+}
+
+fn selected_app(apps: &ModelRc<slint::SharedString>, name: &str) -> i32 {
+    apps.iter().position(|app| app.eq_ignore_ascii_case(name)).map_or(-1, |i| i as i32)
+}
+
 pub fn install(ui: &AppWindow, app: &Shared) {
     {
         let st = app.lock().unwrap();
@@ -460,6 +475,8 @@ pub fn install(ui: &AppWindow, app: &Shared) {
             committed(&ui);
         }
     });
+    ui.on_routing_filter_running(filter_running);
+    ui.on_routing_selected_app(|apps, name| selected_app(&apps, &name));
     ui.on_routing_pick_running({
         let ui_weak = ui.as_weak();
         move || {
@@ -658,6 +675,22 @@ fn running_apps() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strings(values: &[&str]) -> ModelRc<slint::SharedString> {
+        ModelRc::new(VecModel::from(values.iter().map(|value| (*value).into()).collect::<Vec<slint::SharedString>>()))
+    }
+
+    #[test]
+    fn running_filter_is_case_insensitive_and_selected_apps_come_first() {
+        let names = strings(&["agent", "cs2", "Chrome", "Telegram", "zen"]);
+        let apps = strings(&["Telegram", "CS2"]);
+        let all = filter_running(names.clone(), apps.clone(), "".into());
+        assert_eq!(all.iter().map(|name| name.to_string()).collect::<Vec<_>>(), ["cs2", "Telegram", "agent", "Chrome", "zen"]);
+        let filtered = filter_running(names, apps.clone(), "CH".into());
+        assert_eq!(filtered.iter().map(|name| name.to_string()).collect::<Vec<_>>(), ["Chrome"]);
+        assert_eq!(selected_app(&apps, "cs2"), 1);
+        assert_eq!(selected_app(&apps, "firefox"), -1);
+    }
 
     #[test]
     fn share_limit_keeps_room_for_each_source() {

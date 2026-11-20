@@ -3,7 +3,7 @@
 //!   refreshed daily;
 //! - `geosite.dat` copied from the one shipped with xray (domain-list-community);
 //! - `lists/*.txt`: game server IPs (Steam relays, Valve/Riot/Blizzard ASNs)
-//!   and the mobile whitelist domains, refreshed weekly.
+//!   and mobile whitelist domains/IP prefixes, refreshed weekly.
 //!
 //! Every download is validated before it replaces the old file, so a broken
 //! update never stops xray from starting.
@@ -19,6 +19,7 @@ use crate::routing::dat_tags;
 const GEOIP_URL: &str = "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/geoip.dat";
 const WHITELIST_URL: &str =
     "https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/main/whitelist.txt";
+const WHITELIST_IPS_URL: &str = "https://duoray.dualizm.space/v1/routing/whitelist-ips.txt";
 type ListFetch = fn() -> Result<Vec<String>>;
 
 const DAY: Duration = Duration::from_secs(24 * 3600);
@@ -76,11 +77,12 @@ impl GeoDir {
             }
         }
 
-        let lists: [(&str, ListFetch); 4] = [
+        let lists: [(&str, ListFetch); 5] = [
             ("valve", valve_ips),
             ("riot", || asn_prefixes(6507)),
             ("blizzard", || asn_prefixes(57976)),
             ("whitelist-domains", whitelist_domains),
+            ("whitelist-ips", whitelist_ips),
         ];
         for (name, fetch) in lists {
             let path = self.lists().join(format!("{name}.txt"));
@@ -97,6 +99,10 @@ impl GeoDir {
                     replace(&path, text.as_bytes())?;
                 }
                 Ok(_) => errors.push(crate::core_trf!("{name}: пустой список", name = name)),
+                Err(e) if name == "whitelist-ips" && not_found(&e) => {
+                    // Older hubs do not serve this optional list yet. Keep the
+                    // previous download or the snapshot bundled with the app.
+                }
                 Err(e) => errors.push(format!("{name}: {e:#}")),
             }
         }
@@ -131,6 +137,10 @@ fn download(url: &str, timeout: Duration) -> Result<Vec<u8>> {
     Ok(resp.body_mut().with_config().limit(64 << 20).read_to_vec()?)
 }
 
+fn not_found(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| matches!(cause.downcast_ref::<ureq::Error>(), Some(ureq::Error::StatusCode(404))))
+}
+
 fn json(url: &str) -> Result<serde_json::Value> {
     Ok(serde_json::from_slice(&download(url, Duration::from_secs(30))?)?)
 }
@@ -147,21 +157,57 @@ fn asn_prefixes(asn: u32) -> Result<Vec<String>> {
     Ok(set.into_iter().collect())
 }
 
-/// Steam Datagram Relay addresses (CS2 and Dota 2 matchmaking goes through
-/// them) plus everything Valve announces.
+/// Refresh all sources together so a partial Steam response cannot replace
+/// the last working list with one that is missing a game's relays.
 fn valve_ips() -> Result<Vec<String>> {
-    let mut set: BTreeSet<String> = asn_prefixes(32590)?.into_iter().collect();
+    let mut set: BTreeSet<_> = asn_prefixes(32590)?.into_iter().collect();
+    if set.is_empty() {
+        bail!("AS32590: empty prefix list");
+    }
     for app in [730, 570] {
-        let v = json(&format!("https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid={app}"))?;
-        for pop in v["pops"].as_object().into_iter().flat_map(|o| o.values()) {
-            for relay in pop["relays"].as_array().into_iter().flatten() {
-                if let Some(ip) = relay["ipv4"].as_str() {
-                    set.insert(format!("{ip}/32"));
-                }
+        let config = json(&format!("https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid={app}"))?;
+        let relays = sdr_relays(&config);
+        if relays.is_empty() {
+            bail!("SDR {app}: empty relay list");
+        }
+        set.extend(relays);
+    }
+    Ok(set.into_iter().collect())
+}
+
+/// Relay addresses of a `GetSDRConfig` answer.
+fn sdr_relays(v: &serde_json::Value) -> Vec<String> {
+    let mut out = vec![];
+    for pop in v["pops"].as_object().into_iter().flat_map(|o| o.values()) {
+        for relay in pop["relays"].as_array().into_iter().flatten() {
+            if let Some(ip) = relay["ipv4"].as_str().and_then(|s| s.parse::<std::net::Ipv4Addr>().ok()) {
+                out.push(format!("{ip}/32"));
+            }
+            if let Some(ip) = relay["ipv6"].as_str().and_then(|s| s.parse::<std::net::Ipv6Addr>().ok()) {
+                out.push(format!("{ip}/128"));
             }
         }
     }
-    Ok(set.into_iter().collect())
+    out
+}
+
+fn whitelist_ips() -> Result<Vec<String>> {
+    let text = String::from_utf8(download(WHITELIST_IPS_URL, Duration::from_secs(30))?)?;
+    Ok(parse_networks(&text))
+}
+
+fn parse_networks(text: &str) -> Vec<String> {
+    let set: BTreeSet<String> = crate::routing::parse_list(text)
+        .into_iter()
+        .filter_map(|entry| {
+            let (ip, prefix) = entry.split_once('/')?;
+            let ip = ip.parse::<std::net::IpAddr>().ok()?;
+            let prefix = prefix.parse::<u8>().ok()?;
+            let max = if ip.is_ipv4() { 32 } else { 128 };
+            (prefix <= max).then(|| format!("{ip}/{prefix}"))
+        })
+        .collect();
+    set.into_iter().collect()
 }
 
 fn whitelist_domains() -> Result<Vec<String>> {
@@ -172,4 +218,45 @@ fn whitelist_domains() -> Result<Vec<String>> {
         .filter(|d| d.contains('.') && d.chars().all(|c| c.is_ascii_alphanumeric() || ".-_".contains(c)))
         .collect();
     Ok(set.into_iter().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_absent_optional_list_is_silent() {
+        let missing = anyhow::Error::new(ureq::Error::StatusCode(404)).context("download failed");
+        assert!(not_found(&missing));
+        let failed = anyhow::Error::new(ureq::Error::StatusCode(500)).context("download failed");
+        assert!(!not_found(&failed));
+    }
+
+    #[test]
+    fn whitelist_networks_are_validated_and_canonicalized() {
+        let parsed = parse_networks(
+            "# comment\n2.60.247.0/24\n2.62.124.33/32\n2.62.124.33/32\n2001:0db8::/32\ninvalid\n1.2.3.4/33\n2001:db8::/129\n",
+        );
+        assert_eq!(parsed, ["2.60.247.0/24", "2.62.124.33/32", "2001:db8::/32"]);
+    }
+
+    #[test]
+    fn sdr_relays_validates_and_canonicalizes_addresses() {
+        let config = serde_json::json!({
+            "pops": {
+                "ams": {
+                    "relays": [
+                        { "ipv4": "155.133.252.34", "ipv6": "2a01:0bc4:0007:0101::2" },
+                        { "ipv4": "not an IP", "ipv6": "::1" },
+                        { "ipv4": "999.1.1.1", "ipv6": "not an IP" }
+                    ]
+                }
+            }
+        });
+        assert_eq!(
+            sdr_relays(&config),
+            ["155.133.252.34/32", "2a01:bc4:7:101::2/128", "::1/128"]
+        );
+        assert!(sdr_relays(&serde_json::json!({ "pops": {} })).is_empty());
+    }
 }

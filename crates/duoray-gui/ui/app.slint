@@ -2138,6 +2138,200 @@ component RuleCard inherits Rectangle {
     }
 }
 
+component AppPickRow inherits Rectangle {
+    in property <string> name;
+    in property <int> selected-index;
+    property <bool> selected: root.selected-index >= 0;
+    callback add(string);
+    callback remove(int);
+
+    height: 44px;
+    border-radius: 8px;
+    background: root.selected ? Theme.accent.with-alpha(pick-touch.has-hover ? 0.20 : 0.12)
+        : pick-touch.has-hover ? Theme.fg.with-alpha(0.06) : transparent;
+    animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: checkbox;
+    accessible-label: root.name;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => {
+        root.toggle();
+    }
+
+    function toggle() {
+        if (root.selected-index >= 0) {
+            root.remove(root.selected-index);
+        } else {
+            root.add(root.name);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 6px;
+            border-width: 1.5px;
+            border-color: root.selected ? Theme.accent : Theme.muted.with-alpha(0.65);
+            background: root.selected ? Theme.accent : transparent;
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.selected ? "✓" : "";
+                color: Theme.on-accent;
+                font-size: Theme.fs-body;
+                font-weight: 800;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.name;
+            color: Theme.fg;
+            font-size: Theme.fs-body;
+            font-weight: root.selected ? 700 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    pick-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.toggle();
+        }
+    }
+}
+
+component RunningAppsDialog inherits Rectangle {
+    in property <[string]> apps;
+    in property <[string]> running;
+    pure callback filter-running([string], [string], string) -> [string];
+    pure callback selected-app([string], string) -> int;
+    callback app-added(string);
+    callback app-removed(int);
+    callback refresh();
+    callback closed();
+    property <[string]> matches: root.filter-running(root.running, root.apps, search.text);
+
+    background: #000000a0;
+    TouchArea {
+        clicked => {
+            root.closed();
+        }
+    }
+    Rectangle {
+        width: min(560px, parent.width - 40px);
+        height: min(540px, parent.height - 40px);
+        border-radius: 16px;
+        background: Theme.bg;
+        drop-shadow-blur: 32px;
+        drop-shadow-offset-y: 10px;
+        drop-shadow-color: Theme.shadow;
+        TouchArea { }
+        keys := FocusScope {
+            forward-focus: search;
+            init => {
+                self.focus();
+            }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.closed();
+                    accept
+                } else {
+                    reject
+                }
+            }
+            VerticalLayout {
+                padding: 22px;
+                spacing: 14px;
+                Text {
+                    text: @tr("Выбор приложений");
+                    font-size: Theme.fs-heading;
+                    font-weight: 800;
+                }
+                Text {
+                    text: @tr("Нажмите на приложение, чтобы добавить или убрать его из списка.");
+                    font-size: Theme.fs-small;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                search := TextField {
+                    placeholder: @tr("Найти приложение");
+                }
+                HorizontalLayout {
+                    Text {
+                        horizontal-stretch: 1;
+                        text: @tr("Найдено: {}", root.matches.length);
+                        font-size: Theme.fs-small;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: @tr("Выбрано: {}", root.apps.length);
+                        font-size: Theme.fs-small;
+                        color: root.apps.length > 0 ? Theme.accent : Theme.muted;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: Theme.card;
+                    clip: true;
+                    if root.matches.length == 0: EmptyState {
+                        title: search.text == "" ? @tr("Нет запущенных приложений") : @tr("Ничего не найдено");
+                        hint: search.text == "" ? @tr("Нажмите «Обновить», чтобы повторить поиск.") : @tr("Попробуйте другое имя. Путь можно добавить вручную на странице маршрутизации.");
+                    }
+                    if root.matches.length > 0: ListView {
+                        x: 6px;
+                        y: 6px;
+                        width: parent.width - 12px;
+                        height: parent.height - 12px;
+                        content-width: self.visible-width;
+                        for name in root.matches: AppPickRow {
+                            name: name;
+                            selected-index: root.selected-app(root.apps, name);
+                            add(name) => {
+                                root.app-added(name);
+                            }
+                            remove(i) => {
+                                root.app-removed(i);
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button {
+                        text: @tr("Обновить");
+                        clicked => {
+                            root.refresh();
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: @tr("Готово");
+                        primary: true;
+                        clicked => {
+                            root.closed();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component RoutingPage inherits Rectangle {
     background: Theme.glassy ? transparent : Theme.bg;
 
@@ -2179,6 +2373,8 @@ component RoutingPage inherits Rectangle {
     callback geo-search(string);
     callback app-added(string);
     callback app-removed(int);
+    pure callback filter-running([string], [string], string) -> [string];
+    pure callback selected-app([string], string) -> int;
     callback pick-running();
 
     public function show-geo() {
@@ -2432,28 +2628,15 @@ component RoutingPage inherits Rectangle {
                 if root.app-mode != 0: VerticalLayout {
                     height: self.preferred-height;
                     spacing: 8px;
-                    for a[i] in root.apps: HorizontalLayout {
-                        height: self.preferred-height;
-                        spacing: 8px;
-                        Text {
-                            horizontal-stretch: 1;
-                            text: a;
-                            font-size: Theme.fs-body;
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                        IconButton {
-                            icon: Icons.delete;
-                            tint: Theme.danger;
-                            clicked => {
-                                root.app-removed(i);
-                            }
-                        }
-                    }
                     HorizontalLayout {
                         spacing: 8px;
                         new-app := TextField {
                             placeholder: @tr("steam.exe, Telegram или путь");
+                            horizontal-stretch: 1;
+                            accepted => {
+                                root.app-added(self.text);
+                                self.text = "";
+                            }
                         }
                         Button {
                             text: @tr("Добавить");
@@ -2463,39 +2646,40 @@ component RoutingPage inherits Rectangle {
                                 new-app.text = "";
                             }
                         }
-                        Button {
-                            text: root.picking ? @tr("Скрыть") : @tr("Из запущенных");
-                            clicked => {
-                                if (!root.picking) {
-                                    root.pick-running();
-                                }
-                                root.picking = !root.picking;
-                            }
+                    }
+                    Button {
+                        text: @tr("Выбрать из запущенных");
+                        clicked => {
+                            root.pick-running();
+                            root.picking = true;
                         }
                     }
-                    if root.picking: Rectangle {
-                        height: 240px;
-                        border-radius: 8px;
-                        background: Theme.bg;
-                        ListView {
-                            content-width: self.visible-width;
-                            for name in root.running: Rectangle {
-                                height: 32px;
-                                background: pick-touch.has-hover ? Theme.fg.with-alpha(0.08) : transparent;
-                                animate background { duration: 100ms; easing: ease-out; }
+                    if root.apps.length > 0: VerticalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: @tr("Выбранные приложения");
+                            font-size: Theme.fs-small;
+                            color: Theme.muted;
+                        }
+                        for a[i] in root.apps: Rectangle {
+                            height: 40px;
+                            border-radius: 8px;
+                            background: Theme.fg.with-alpha(0.04);
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 6px;
                                 Text {
-                                    x: 12px;
-                                    width: parent.width - 24px;
-                                    height: parent.height;
-                                    text: name;
+                                    horizontal-stretch: 1;
+                                    text: a;
                                     font-size: Theme.fs-body;
                                     vertical-alignment: center;
                                     overflow: elide;
                                 }
-                                pick-touch := TouchArea {
-                                    mouse-cursor: pointer;
+                                IconButton {
+                                    icon: Icons.delete;
+                                    tint: Theme.danger;
                                     clicked => {
-                                        root.app-added(name);
+                                        root.app-removed(i);
                                     }
                                 }
                             }
@@ -3087,6 +3271,8 @@ export component AppWindow inherits Window {
     in-out property <bool> routing-picking <=> routing-page.picking;
     callback routing-app-added <=> routing-page.app-added;
     callback routing-app-removed <=> routing-page.app-removed;
+    pure callback routing-filter-running <=> routing-page.filter-running;
+    pure callback routing-selected-app <=> routing-page.selected-app;
     callback routing-pick-running <=> routing-page.pick-running;
     callback buy();
     callback hide-buy();
@@ -4781,6 +4967,30 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    // ── Running applications picker ─────────────────────────────
+    if root.routing-picking: RunningAppsDialog {
+        apps: root.routing-apps;
+        running: root.routing-running;
+        filter-running(names, apps, query) => {
+            root.routing-filter-running(names, apps, query)
+        }
+        selected-app(apps, name) => {
+            root.routing-selected-app(apps, name)
+        }
+        app-added(name) => {
+            root.routing-app-added(name);
+        }
+        app-removed(i) => {
+            root.routing-app-removed(i);
+        }
+        refresh => {
+            root.routing-pick-running();
+        }
+        closed => {
+            root.routing-picking = false;
         }
     }
 

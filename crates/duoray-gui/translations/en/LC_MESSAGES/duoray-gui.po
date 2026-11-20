@@ -1644,11 +1644,11 @@ msgstr "My profile"
 msgid "нет базы для {e}"
 msgstr "no database for {e}"
 
-msgid "Steam и CS2"
-msgstr "Steam and CS2"
+msgid "Counter-Strike 2 и Dota 2"
+msgstr "Counter-Strike 2 and Dota 2"
 
-msgid "Матчи CS2 и Dota 2 (серверы Valve)"
-msgstr "CS2 and Dota 2 matches (Valve servers)"
+msgid "Игровые подключения и ретрансляторы Steam"
+msgstr "Game connections and Steam relays"
 
 msgid "Клиент и серверы FACEIT"
 msgstr "FACEIT client and servers"
@@ -1698,3 +1698,33 @@ msgstr "this is not a DUORAY settings file"
 msgid "файл из более новой версии DUORAY, обновите её"
 msgstr "the file is from a newer DUORAY version, update it"
 
+
+msgid "Выбрать из запущенных"
+msgstr "Choose running applications"
+
+msgid "Выбранные приложения"
+msgstr "Selected applications"
+
+msgid "Выбор приложений"
+msgstr "Select applications"
+
+msgid "Нажмите на приложение, чтобы добавить или убрать его из списка."
+msgstr "Click an application to add it to or remove it from the list."
+
+msgid "Найти приложение"
+msgstr "Find an application"
+
+msgid "Найдено: {}"
+msgstr "Found: {}"
+
+msgid "Выбрано: {}"
+msgstr "Selected: {}"
+
+msgid "Нет запущенных приложений"
+msgstr "No running applications"
+
+msgid "Нажмите «Обновить», чтобы повторить поиск."
+msgstr "Click Update to scan again."
+
+msgid "Попробуйте другое имя. Путь можно добавить вручную на странице маршрутизации."
+msgstr "Try another name. You can enter a path manually on the routing page."

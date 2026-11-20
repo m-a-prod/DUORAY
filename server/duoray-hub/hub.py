@@ -18,6 +18,7 @@ self-updates and Arch packages. Daily totals only, no cookies or scripts.
   GET  /v1/update/manifest.json    update manifest (signed, see manifest.sig)
   GET  /v1/update/manifest.sig
   GET  /v1/update/files/<name>     installers / AppImages
+  GET  /v1/routing/whitelist-ips.txt  mobile-whitelist IPv4 prefixes
   GET  /arch/<arch>/<file>          signed pacman repository (duoray.db, packages)
   GET  /download/<kind>              302 to the current build, e.g. /download/windows, /download/android
   GET  /, /robots.txt, /og.png, ... download page and its files (site/, see PAGES)
@@ -25,6 +26,7 @@ self-updates and Arch packages. Daily totals only, no cookies or scripts.
   GET  /health
 """
 
+import contextlib
 import gzip
 import hashlib
 import json
@@ -107,14 +109,20 @@ _salt = ("", b"")
 _traffic_lock = threading.Lock()
 
 
+@contextlib.contextmanager
 def db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
     os.makedirs(os.path.join(UPDATES, "files"), exist_ok=True)
+    os.makedirs(os.path.join(UPDATES, "routing"), exist_ok=True)
     with db() as c:
         c.execute(
             """CREATE TABLE IF NOT EXISTS reports (
@@ -359,6 +367,12 @@ class Handler(BaseHTTPRequestHandler):
                 count("visit", self.client_ip())
             cache = FOREVER if page[0].startswith("fonts/") else "no-cache"
             return self.send_file(os.path.join(SITE, page[0]), page[1], {"Cache-Control": cache}, site=True)
+        if self.path == "/v1/routing/whitelist-ips.txt":
+            return self.send_file(
+                os.path.join(UPDATES, "routing", "whitelist-ips.txt"),
+                "text/plain; charset=utf-8",
+                {"Cache-Control": "no-cache"},
+            )
         names = {
             "/v1/update/manifest.json": ("manifest.json", "application/json"),
             "/v1/update/manifest.sig": ("manifest.sig", "text/plain"),

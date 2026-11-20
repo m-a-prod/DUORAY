@@ -76,8 +76,8 @@ pub struct SimpleRouting {
     pub lan_direct: bool,
     /// All Russian IPs and Russian domains.
     pub ru_direct: bool,
-    /// The mobile-internet whitelist (hxehex): domains and IPs that stay
-    /// reachable when the operator restricts everything else.
+    /// Mobile-internet whitelists (hxehex and AyuGram): domains and IPs that
+    /// stay reachable when the operator restricts everything else.
     pub whitelist_direct: bool,
     /// Ids from [`GAMES`].
     pub games: Vec<String>,
@@ -181,8 +181,8 @@ pub struct Game {
 pub const GAMES: &[Game] = &[
     Game {
         id: "steam",
-        title: crate::i18n::n("Steam и CS2"),
-        subtitle: crate::i18n::n("Матчи CS2 и Dota 2 (серверы Valve)"),
+        title: crate::i18n::n("Counter-Strike 2 и Dota 2"),
+        subtitle: crate::i18n::n("Игровые подключения и ретрансляторы Steam"),
         // Game traffic only. The store, community and CDNs stay in the VPN:
         // their Russian Akamai edges block IPs that send many requests.
         geosite: &[],
@@ -214,6 +214,7 @@ pub const BUILTIN_LISTS: &[(&str, &str)] = &[
     ("riot", include_str!("../assets/routing/riot.txt")),
     ("blizzard", include_str!("../assets/routing/blizzard.txt")),
     ("whitelist-domains", include_str!("../assets/routing/whitelist-domains.txt")),
+    ("whitelist-ips", include_str!("../assets/routing/whitelist-ips.txt")),
 ];
 
 /// What the rules may reference: tags present in the geo files xray will load
@@ -560,7 +561,9 @@ pub fn user_rules(s: &RoutingSettings, geo: &GeoData, proxy: &Target, warnings: 
     }
     if simple.whitelist_direct {
         let domains = geo.list("whitelist-domains").iter().map(|d| format!("domain:{d}")).collect();
-        push(domains, vec!["geoip:ru-whitelist".into()], warnings);
+        let mut ips = geo.list("whitelist-ips").to_vec();
+        ips.push("geoip:ru-whitelist".into());
+        push(domains, ips, warnings);
     }
     if simple.ru_direct {
         let mut domains: Vec<String> = ["geosite:category-ru", "geosite:category-gov-ru"].map(String::from).into();
@@ -816,6 +819,21 @@ mod tests {
         assert!(g.list("valve").len() > 20);
         assert!(g.list("valve").iter().all(|c| c.contains('/')));
         assert!(g.list("whitelist-domains").len() > 500);
+        assert_eq!(g.list("whitelist-ips").len(), 6082);
+    }
+
+    #[test]
+    fn whitelist_includes_the_snapshot_and_geoip() {
+        let mut c = panel();
+        let s = RoutingSettings {
+            simple: SimpleRouting { whitelist_direct: true, ..Default::default() },
+            ..Default::default()
+        };
+        apply(&mut c, &s, &geo());
+        let rules = c["routing"]["rules"].as_array().unwrap();
+        let rule = rules.iter().find(|rule| rule["ip"].as_array().is_some_and(|ips| ips.iter().any(|ip| ip == "2.60.247.0/24"))).unwrap();
+        assert!(rule["ip"].as_array().unwrap().contains(&json!("geoip:ru-whitelist")));
+        assert_eq!(rule["outboundTag"], DIRECT_TAG);
     }
 
     #[test]
@@ -859,10 +877,11 @@ mod tests {
         let w = apply(&mut c, &s, &g);
         assert_eq!(w, ["нет базы для geoip:ru-whitelist"]);
         let rules = c["routing"]["rules"].as_array().unwrap();
-        assert_eq!(rules[2]["ip"], json!(["geoip:private"]));
-        assert_eq!(rules[2]["balancerTag"], "B");
-        assert!(rules[3]["domain"].as_array().unwrap().len() > 500, "whitelist domains still used");
-        assert_eq!(rules[4]["domain"], json!(["domain:vk.com"]));
+        assert!(rules.iter().any(|rule| rule["ip"] == json!(["geoip:private"]) && rule["balancerTag"] == "B"));
+        assert!(rules.iter().any(|rule| rule["domain"].as_array().is_some_and(|domains| domains.len() > 500)), "whitelist domains still used");
+        let snapshot = rules.iter().find(|rule| rule["ip"].as_array().is_some_and(|ips| ips.iter().any(|ip| ip == "2.60.247.0/24"))).unwrap();
+        assert!(!snapshot["ip"].as_array().unwrap().contains(&json!("geoip:ru-whitelist")));
+        assert!(rules.iter().any(|rule| rule["domain"] == json!(["domain:vk.com"])));
     }
 
     #[test]

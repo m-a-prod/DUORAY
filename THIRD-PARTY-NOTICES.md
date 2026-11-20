@@ -22,6 +22,7 @@ built from, the following third-party work.
 | [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) 2.051 (Windows build only) | OFL-1.1 | `crates/duoray-gui/assets/fonts/`, colour emoji in names. © Google. License: `crates/duoray-gui/assets/fonts/OFL-NotoColorEmoji.txt`. |
 | Flag images from [Twemoji](https://github.com/jdecked/twemoji) 17.0.3 | CC-BY 4.0 | `crates/duoray-gui/assets/flags/`, renamed to ISO 3166 codes. © Twitter, Inc and other contributors. |
 | `whitelist-domains.txt` from [hxehex/russia-mobile-internet-whitelist](https://github.com/hxehex/russia-mobile-internet-whitelist) | MIT | © 2025 hxehex.real. See `crates/duoray-core/assets/routing/NOTICE.md`. |
+| AyuGram `rumap-2026-11-03-1650.txt` snapshot | not stated | User-supplied IPv4 routing data, `crates/duoray-core/assets/routing/whitelist-ips.txt`. |
 | Valve / Riot / Blizzard address lists | public data | Steam Web API `GetSDRConfig`, prefixes announced by AS32590, AS6507, AS57976 (RIPEstat). |
 
 ## Downloaded at runtime

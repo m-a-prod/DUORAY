@@ -281,6 +281,7 @@ fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u
     std::fs::create_dir_all(dir)?;
     let target = dir.join(&asset.file);
     if sha256_file(&target).is_ok_and(|h| h.eq_ignore_ascii_case(&asset.sha256)) {
+        clean(dir, Some(&target));
         return Ok(target);
     }
     let url = format!("{hub}/v1/update/files/{}", asset.file);
@@ -315,7 +316,50 @@ fn download_from(asset: &Asset, hub: &str, dir: &Path, progress: &impl Fn(u64, u
         bail!(tr("файл обновления повреждён (контрольная сумма не сходится)"));
     }
     std::fs::rename(&part, &target)?;
+    clean(dir, Some(&target));
     Ok(target)
+}
+
+/// Deletes old downloads from the updates directory: everything but `keep`
+/// when a new one is ready; without `keep` (at start), whatever is not newer
+/// than this build, so an installed update does not stay behind. Files in
+/// use (an installer still running) are left for the next time.
+pub fn clean(dir: &Path, keep: Option<&Path>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if keep == Some(path.as_path()) || !entry.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let pending = keep.is_none()
+            && !name.ends_with(".part")
+            && file_version(&name).is_some_and(|v| newer(&v, env!("CARGO_PKG_VERSION")));
+        if !pending {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// The version in a release file name: `DUORAY-Setup-0.4.8-x64.exe`,
+/// `duoray_0.4.8-1_amd64.deb`, `duoray-0.4.8-1.x86_64.rpm`.
+fn file_version(name: &str) -> Option<String> {
+    let bytes = name.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'.') {
+            let rest = &name[i..];
+            let end = rest.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(rest.len());
+            let v = rest[..end].trim_end_matches('.');
+            if v.split('.').count() >= 3 && v.split('.').all(|p| !p.is_empty()) {
+                return Some(v.to_string());
+            }
+            i += end.max(1);
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 /// Starts installing a verified download. For `Setup` and `AppImage` the
@@ -503,6 +547,35 @@ mod tests {
         .unwrap();
         let rpm = ("linux-x86_64-rpm".to_string(), Install::Package(Package::Rpm));
         assert_eq!(select(m, "0.3.6", "abc", rpm).unwrap().install, Install::Package(Package::Rpm));
+    }
+
+    #[test]
+    fn old_downloads_are_cleaned() {
+        assert_eq!(file_version("DUORAY-Setup-0.4.8-x64.exe").as_deref(), Some("0.4.8"));
+        assert_eq!(file_version("duoray_0.4.10-1_amd64.deb").as_deref(), Some("0.4.10"));
+        assert_eq!(file_version("duoray-0.4.8-1.x86_64.rpm").as_deref(), Some("0.4.8"));
+        assert_eq!(file_version("DUORAY-0.5.0-x86_64.AppImage").as_deref(), Some("0.5.0"));
+        assert_eq!(file_version("x64.exe"), None);
+
+        let dir = std::env::temp_dir().join(format!("duoray-clean-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |n: &str| {
+            std::fs::write(dir.join(n), b"x").unwrap();
+            dir.join(n)
+        };
+        let (old, current, future) = (
+            file("DUORAY-Setup-0.3.8-x64.exe"),
+            file(&format!("DUORAY-Setup-{}-x64.exe", env!("CARGO_PKG_VERSION"))),
+            file("DUORAY-Setup-999.0.0-x64.exe"),
+        );
+        let part = file("DUORAY-Setup-999.0.1-x64.exe.part");
+        clean(&dir, None);
+        assert!(!old.exists() && !current.exists() && !part.exists());
+        assert!(future.exists(), "a downloaded update not installed yet stays");
+        let newest = file("DUORAY-Setup-999.1.0-x64.exe");
+        clean(&dir, Some(&newest));
+        assert!(newest.exists() && !future.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

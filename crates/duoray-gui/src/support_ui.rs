@@ -106,6 +106,10 @@ pub fn install(ui: &AppWindow, app: &Shared) {
         move || apply(&ui_weak.unwrap(), &app)
     });
 
+    // Installers of this and older versions, left by earlier updates.
+    let updates = crate::routing_ui::data_dir(app).join("updates");
+    std::thread::spawn(move || update::clean(&updates, None));
+
     let (ui_weak, app_) = (ui.as_weak(), app.clone());
     slint::Timer::single_shot(FIRST_CHECK, move || {
         let Some(ui) = ui_weak.upgrade() else { return };

@@ -132,13 +132,14 @@ rm -f "$OUT/.sig.bin" "$OUT/.pub.pem"
 
 # Files first, the manifest last: clients never see a manifest whose files
 # are still uploading.
-ssh "$HUB" "mkdir -p $REMOTE/files"
+ssh "$HUB" "mkdir -p $REMOTE/files $REMOTE/routing"
 for f in "$OUT"/DUORAY-* "$OUT"/duoray*; do
     [ -f "$f" ] && scp -q "$f" "$HUB:$REMOTE/files/"
 done
+scp -q crates/duoray-core/assets/routing/whitelist-ips.txt "$HUB:$REMOTE/routing/whitelist-ips.txt.new"
 # The pacman repository, if this version has Arch packages in dist/.
 packaging/linux/arch-repo.sh "$VERSION"
 scp -q "$OUT/manifest.json" "$HUB:$REMOTE/manifest.json.new"
 scp -q "$OUT/manifest.sig" "$HUB:$REMOTE/manifest.sig.new"
-ssh "$HUB" "cd $REMOTE && chmod -R a+rX files arch 2>/dev/null; chmod 644 manifest.*.new && mv manifest.sig.new manifest.sig && mv manifest.json.new manifest.json"
+ssh "$HUB" "cd $REMOTE && chmod -R a+rX files arch routing 2>/dev/null; chmod 644 manifest.*.new && mv routing/whitelist-ips.txt.new routing/whitelist-ips.txt && mv manifest.sig.new manifest.sig && mv manifest.json.new manifest.json"
 echo "published $VERSION ($BUILD_ID)"

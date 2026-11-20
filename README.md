@@ -135,6 +135,7 @@ DUORAY показывает описания серверов из панели.
 | Данные | Источник |
 |---|---|
 | Российские IP, белые списки IP | [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat) (`geoip:ru`, `geoip:ru-whitelist`), обновляется ежедневно |
+| Дополнительные белые списки IP | снимок AyuGram `rumap-2026-11-03-1650.txt` (6 082 префикса), встроен в приложение и обновляется через DUORAY hub |
 | Белые списки доменов | [hxehex/russia-mobile-internet-whitelist](https://github.com/hxehex/russia-mobile-internet-whitelist) |
 | Российские домены, игровые сервисы | `geosite.dat` из [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community) |
 | Серверы CS2 и Dota 2 | Steam Web API `GetSDRConfig`, подсети Valve (AS32590) |

@@ -6,6 +6,8 @@ Snapshots shipped with DUORAY; the app refreshes them at runtime
 - `whitelist-domains.txt`: `whitelist.txt` from
   [hxehex/russia-mobile-internet-whitelist](https://github.com/hxehex/russia-mobile-internet-whitelist),
   MIT License, Copyright (c) 2025 hxehex.real.
+- `whitelist-ips.txt`: 6,082 IPv4 prefixes from the user-supplied AyuGram
+  `rumap-2026-11-03-1650.txt` snapshot. Refreshed through DUORAY hub.
 - `valve.txt`: Steam Datagram Relay addresses from the public Steam Web API
   (`ISteamApps/GetSDRConfig`, CS2 and Dota 2) and prefixes announced by AS32590.
 - `riot.txt`, `blizzard.txt`: prefixes announced by AS6507 and AS57976
