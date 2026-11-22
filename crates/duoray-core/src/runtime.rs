@@ -137,6 +137,7 @@ pub fn build_with(
         None => vec![],
     };
     quiet_log(&mut config);
+    drop_localhost_dns(&mut config);
 
     let port = free_port()?;
     let socks = SocketAddr::from(([127, 0, 0, 1], port));
@@ -295,6 +296,22 @@ fn quiet_log(config: &mut Value) {
     let level = config["log"]["loglevel"].as_str().unwrap_or("warning");
     if matches!(level, "debug" | "info") {
         config["log"]["loglevel"] = json!("warning");
+    }
+}
+
+/// Drops `localhost` from `dns.servers` when other servers are configured.
+/// In TUN mode the OS resolver points at the TUN itself, so falling back to
+/// `localhost` on NXDOMAIN or empty answers (e.g. a domain without A records)
+/// loops back into xray's `dns` outbound until the query times out.
+fn drop_localhost_dns(config: &mut Value) {
+    let Some(servers) = config["dns"]["servers"].as_array_mut() else { return };
+    let is_localhost = |v: &Value| {
+        v.as_str()
+            .or_else(|| v.get("address").and_then(Value::as_str))
+            .is_some_and(|a| a.eq_ignore_ascii_case("localhost"))
+    };
+    if servers.iter().any(|s| !is_localhost(s)) {
+        servers.retain(|s| !is_localhost(s));
     }
 }
 
@@ -549,5 +566,31 @@ mod tests {
         assert_eq!(c["inbounds"][1]["settings"]["accounts"][0]["pass"], rt.pass.as_str());
         assert_eq!(rt.direct_socks.unwrap().port(), c["inbounds"][1]["port"].as_u64().unwrap() as u16);
         assert_eq!(rt.warnings, ["нет базы для geoip:private"], "no geo files in tests");
+    }
+
+    #[test]
+    fn drops_localhost_dns_fallback_when_other_servers_exist() {
+        let with_dns = |servers: Value| {
+            server(json!({
+                "outbounds": [{"tag": "proxy", "protocol": "vless",
+                               "settings": {"vnext": [{"address": "1.2.3.4", "port": 443, "users": [{"id": "u"}]}]}}],
+                "dns": {"servers": servers}
+            }))
+        };
+        let rt = build_with(
+            &with_dns(json!([
+                {"address": "https://dns.quad9.net/dns-query"},
+                "localhost",
+                {"address": "localhost", "domains": ["domain:local"]}
+            ])),
+            "en0",
+            None,
+            |_| unreachable!(),
+        )
+        .unwrap();
+        assert_eq!(rt.config["dns"]["servers"], json!([{"address": "https://dns.quad9.net/dns-query"}]));
+
+        let only_local = build_with(&with_dns(json!(["localhost"])), "en0", None, |_| unreachable!()).unwrap();
+        assert_eq!(only_local.config["dns"]["servers"], json!(["localhost"]), "never leaves servers empty");
     }
 }
