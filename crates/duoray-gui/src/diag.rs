@@ -300,7 +300,16 @@ fn build(kind: &str, message: &str, note: Option<&str>) -> Option<Value> {
     // Where the tunnel and xray say what went wrong; only for those errors.
     if WITH_LOGS.contains(&kind) {
         let data = st.queue.as_deref().and_then(Path::parent);
-        if let Some(text) = data.and_then(|d| tail_file(&d.join("run").join("xray.log"), 40)) {
+        if let Some(text) = data.and_then(|d| {
+            let run = d.join("run");
+            let newest = [run.join("xray.log"), run.join("xray-alt.log")]
+                .into_iter()
+                .filter_map(|p| std::fs::metadata(&p).and_then(|m| m.modified()).ok().map(|t| (t, p)))
+                .max_by_key(|(t, _)| *t)
+                .map(|(_, p)| p)
+                .unwrap_or_else(|| run.join("xray.log"));
+            tail_file(&newest, 40)
+        }) {
             report["xray_log"] = json!(sanitize(&text));
         }
         if let Some(text) = helper_log(150) {

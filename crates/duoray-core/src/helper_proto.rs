@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 /// v3: per-app routing (`TunRequest::apps`).
 /// v4: system proxy on macOS (`Request::SystemProxy`).
 /// v5: routing private networks through the TUN (`TunRequest::route_private`).
-pub const PROTOCOL: u32 = 5;
+/// v6: hot-swapping upstream SOCKS, bypass routes and apps in place (`Request::Switch`).
+pub const PROTOCOL: u32 = 6;
 /// Oldest helper the GUI still works with (without the newer features).
 pub const MIN_PROTOCOL: u32 = 2;
 /// First protocol with per-app routing.
@@ -28,6 +29,8 @@ pub const PROTOCOL_APPS: u32 = 3;
 pub const PROTOCOL_PROXY: u32 = 4;
 /// First protocol with private-network routing into the TUN.
 pub const PROTOCOL_PRIVATE: u32 = 5;
+/// First protocol with in-place TUN upstream switching.
+pub const PROTOCOL_SWITCH: u32 = 6;
 
 #[cfg(unix)]
 pub const SOCKET_PATH: &str = "/var/run/duoray-helper.sock";
@@ -43,6 +46,9 @@ pub const SERVICE_NAME: &str = "DuorayHelper";
 pub enum Request {
     Hello,
     Start(TunRequest),
+    /// Hot-swap the active TUN's upstream SOCKS, bypass routes and per-app
+    /// rules without recreating the TUN interface (protocol 6).
+    Switch(SwitchRequest),
     Stop,
     /// Is the TUN (or the system proxy) of this connection still up? Polled by the client.
     Status,
@@ -50,6 +56,19 @@ pub enum Request {
     /// `127.0.0.1:port` for as long as this connection lives (like a TUN
     /// session, it is undone on `Stop` or when the client goes away).
     SystemProxy { port: u16 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwitchRequest {
+    /// New xray SOCKS inbound; must be a loopback address.
+    pub socks: SocketAddr,
+    pub user: String,
+    pub pass: String,
+    /// New proxy server addresses that must bypass the TUN.
+    pub bypass: Vec<IpAddr>,
+    /// Per-app routing (`None` turns it off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apps: Option<AppsRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +102,7 @@ pub struct AppsRequest {
 pub enum Response {
     Hello { version: String, protocol: u32 },
     Started { tun: String },
+    Switched,
     ProxySet,
     Stopped,
     /// `error` is set once when the TUN died on its own.
@@ -126,6 +146,18 @@ mod tests {
         let back: Request = read_msg(&mut buf.as_slice()).unwrap().unwrap();
         assert!(matches!(back, Request::Start(t) if t.user == "u" && t.route_private));
         assert!(read_msg::<_, Request>(&mut &b""[..]).unwrap().is_none());
+
+        let sw = Request::Switch(SwitchRequest {
+            socks: "127.0.0.1:2080".parse().unwrap(),
+            user: "u2".into(),
+            pass: "p2".into(),
+            bypass: vec!["5.6.7.8".parse().unwrap()],
+            apps: None,
+        });
+        buf.clear();
+        write_msg(&mut buf, &sw).unwrap();
+        let back: Request = read_msg(&mut buf.as_slice()).unwrap().unwrap();
+        assert!(matches!(back, Request::Switch(s) if s.socks.port() == 2080 && s.user == "u2"));
     }
 
     /// A v2 client's request (no `apps` or `route_private`) still parses in a v5 helper.

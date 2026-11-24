@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 #[cfg(target_os = "macos")]
 use duoray_core::helper_proto::PROTOCOL_PROXY;
-use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, PROTOCOL_PRIVATE, TunRequest};
+use duoray_core::helper_proto::{AppsRequest, PROTOCOL_APPS, PROTOCOL_PRIVATE, PROTOCOL_SWITCH, SwitchRequest, TunRequest};
 use duoray_core::routing::AppMode;
 use duoray_core::geo::GeoDir;
 use duoray_core::routing::{GeoData, RoutingSettings};
@@ -71,7 +71,7 @@ pub struct Connection {
     pub balancer: Option<(SocketAddr, Balancer)>,
     /// xray's API, for the traffic counters.
     pub api: Option<SocketAddr>,
-    respawn: Respawn,
+    respawn: Arc<Mutex<Respawn>>,
     /// What the tunnel was set up with: a routing change that keeps these can
     /// be applied by restarting xray alone (see [`Connection::rerouter`]).
     tunnel: TunnelInputs,
@@ -81,6 +81,8 @@ pub struct Connection {
 struct TunnelInputs {
     /// Proxy mode: the system proxy's port, no TUN.
     proxy: Option<u16>,
+    kill_switch: bool,
+    run_dir: PathBuf,
     server: Server,
     iface: String,
     apps: duoray_core::routing::AppRouting,
@@ -285,13 +287,13 @@ pub fn connect(
     let mut child = spawn_xray(&config_path, &log_path, assets.as_deref())?;
     let pid_file = run_dir.join("xray.pid");
     let _ = std::fs::write(&pid_file, child.id().to_string());
-    let respawn = Respawn {
+    let respawn = Arc::new(Mutex::new(Respawn {
         config: config_path.clone(),
         log: log_path.clone(),
         assets: assets.clone(),
         pid_file,
         socks: rt.socks,
-    };
+    }));
 
     if let Err(e) = wait_listening(rt.socks, &mut child, Duration::from_secs(20), Some(&cancel)) {
         let _ = child.kill();
@@ -306,6 +308,8 @@ pub fn connect(
     let (socks, user, pass) = (rt.socks, rt.user.clone(), rt.pass.clone());
     let tunnel = TunnelInputs {
         proxy: proxy_port,
+        kill_switch,
+        run_dir: run_dir.to_path_buf(),
         server: server.clone(),
         iface: iface.clone(),
         apps: routing.apps.clone(),
@@ -375,7 +379,6 @@ pub fn connect(
     // Watchdog: the helper never pushes messages, so ask it (and check xray).
     std::thread::spawn({
         let (xray, helper, closing) = (xray.clone(), helper.clone(), closing.clone());
-        let log_path = log_path.clone();
         let iface = iface.clone();
         let respawn = respawn.clone();
         move || {
@@ -403,13 +406,14 @@ pub fn connect(
                     if gone(&closing) {
                         return;
                     }
-                    let mut why = trf!("xray остановился ({status}). {p0}", status = status, p0 = log_tail(&log_path));
+                    let r = respawn.lock().unwrap().clone();
+                    let mut why = trf!("xray остановился ({status}). {p0}", status = status, p0 = log_tail(&r.log));
                     let others = other_vpn_processes();
                     if !others.is_empty() {
                         why = trf!("{why} | другие VPN: {p0}", why = why, p0 = others.join(", "));
                     }
                     if kill_switch {
-                        if restart_xray(&xray, &respawn, &closing) {
+                        if restart_xray(&xray, &r, &closing) {
                             crate::diag::log(format!("kill switch: xray stopped ({status}), started again"));
                             continue;
                         }
@@ -420,7 +424,7 @@ pub fn connect(
                     // stays up. A config xray keeps dying on gives up after three
                     // restarts in ten minutes.
                     restarts.retain(|t| t.elapsed() < Duration::from_secs(600));
-                    if restarts.len() < 3 && restart_xray(&xray, &respawn, &closing) {
+                    if restarts.len() < 3 && restart_xray(&xray, &r, &closing) {
                         restarts.push(Instant::now());
                         crate::diag::auto("xray_restarted", &why);
                         continue;
@@ -471,14 +475,158 @@ pub fn connect(
 }
 
 impl Connection {
+    /// Whether switching to another server or routing settings can hot-swap
+    /// xray and update the TUN in place without tearing down the TUN interface.
+    pub fn can_switch(&self, routing: &RoutingSettings, proxy_port: Option<u16>, kill_switch: bool) -> bool {
+        if proxy_port.is_some() || self.tunnel.proxy.is_some() || kill_switch != self.tunnel.kill_switch {
+            return false;
+        }
+        let route_private = duoray_core::routing::route_private_in_tun(routing);
+        if route_private != self.tunnel.route_private {
+            return false;
+        }
+        self.helper
+            .as_ref()
+            .is_some_and(|h| h.lock().unwrap().protocol >= PROTOCOL_SWITCH)
+    }
+
+    /// Hot-swaps the active TUN connection to `server` and `routing`: starts a
+    /// fresh xray on a new loopback port while the old one keeps serving traffic,
+    /// asks the helper to update bypass routes and switch DUOTUN to the new
+    /// SOCKS inbound, then kills the old xray. On failure returns the untouched
+    /// existing `Connection` along with the error.
+    pub fn switch(
+        mut self,
+        server: &Server,
+        routing: &RoutingSettings,
+        geo: &GeoDir,
+    ) -> std::result::Result<Self, (Self, anyhow::Error)> {
+        let started = Instant::now();
+        let routing = effective_routing(routing, None);
+        let assets = geo.assets().map(Path::to_path_buf).or_else(|| find_xray().ok().and_then(|(_, a)| a));
+        let geo_data = GeoData::load(assets.as_deref(), Some(&geo.lists()));
+        let mut rt = match runtime::build(server, &self.tunnel.iface, Some(runtime::Routing { settings: &routing, geo: &geo_data }))
+            .context("preparing xray config")
+        {
+            Ok(rt) => rt,
+            Err(e) => return Err((self, e)),
+        };
+        let config_done = started.elapsed();
+
+        let warnings = rt.warnings.clone();
+        let hysteria = rt.config["outbounds"]
+            .as_array()
+            .is_some_and(|o| o.iter().any(|ob| matches!(ob["protocol"].as_str(), Some("hysteria" | "hysteria2"))));
+
+        let api = runtime::free_port().ok().map(|port| SocketAddr::from(([127, 0, 0, 1], port)));
+        if let Some(api) = api {
+            balancer::add_api(&mut rt.config, api);
+        }
+        let balancer = api.and_then(|api| balancer::main_balancer(&rt.config).map(|b| (api, b)));
+
+        // Alternate config/log file names so the still-running old xray does
+        // not hold a file lock on Windows while the new one starts.
+        let prev = self.respawn.lock().unwrap().clone();
+        let use_alt = prev.config.file_name().is_some_and(|n| n == "xray.json");
+        let config_path = self.tunnel.run_dir.join(if use_alt { "xray-alt.json" } else { "xray.json" });
+        let log_path = self.tunnel.run_dir.join(if use_alt { "xray-alt.log" } else { "xray.log" });
+
+        let config_bytes = match serde_json::to_vec_pretty(&rt.config) {
+            Ok(b) => b,
+            Err(e) => return Err((self, e.into())),
+        };
+        if let Err(e) = write_private(&config_path, &config_bytes) {
+            return Err((self, e));
+        }
+        let mut fresh = match spawn_xray(&config_path, &log_path, assets.as_deref()) {
+            Ok(c) => c,
+            Err(e) => return Err((self, e)),
+        };
+        if let Err(e) = wait_listening(rt.socks, &mut fresh, Duration::from_secs(20), None) {
+            let _ = fresh.kill();
+            let _ = fresh.wait();
+            return Err((self, e.context(log_tail(&log_path))));
+        }
+        let xray_done = started.elapsed();
+
+        let switch_req = SwitchRequest {
+            socks: rt.socks,
+            user: rt.user.clone(),
+            pass: rt.pass.clone(),
+            bypass: rt.bypass.clone(),
+            apps: rt.direct_socks.map(|direct_socks| AppsRequest {
+                only: routing.apps.mode == AppMode::Only,
+                apps: routing.apps.apps.clone(),
+                direct_socks,
+            }),
+        };
+
+        // Hold the xray lock across the swap so the watchdog never observes
+        // the old xray exiting.
+        let switch_res = {
+            let mut old_xray = self.xray.lock().unwrap();
+            let helper_res = match &self.helper {
+                Some(h) => h.lock().unwrap().switch(switch_req).context("TUN switch"),
+                None => Err(anyhow::anyhow!("no helper session")),
+            };
+            match helper_res {
+                Ok(()) => {
+                    let _ = old_xray.kill();
+                    let _ = old_xray.wait();
+                    let _ = std::fs::write(&prev.pid_file, fresh.id().to_string());
+                    *old_xray = fresh;
+                    *self.respawn.lock().unwrap() = Respawn {
+                        config: config_path,
+                        log: log_path,
+                        assets,
+                        pid_file: prev.pid_file,
+                        socks: rt.socks,
+                    };
+                    Ok(())
+                }
+                Err(e) => {
+                    let _ = fresh.kill();
+                    let _ = fresh.wait();
+                    Err(e)
+                }
+            }
+        };
+        if let Err(e) = switch_res {
+            return Err((self, e));
+        }
+
+        let secs = |d: Duration| format!("{:.2}", d.as_secs_f32());
+        self.timings = format!(
+            "in {} s (config {}, xray {}, switch {})",
+            secs(started.elapsed()),
+            secs(config_done),
+            secs(xray_done - config_done),
+            secs(started.elapsed() - xray_done),
+        );
+        self.socks = rt.socks;
+        self.user = rt.user;
+        self.pass = rt.pass;
+        self.warnings = warnings;
+        self.hysteria = hysteria;
+        self.balancer = balancer;
+        self.api = api;
+        self.tunnel.server = server.clone();
+        self.tunnel.apps = routing.apps;
+        self.tunnel.bypass = rt.bypass;
+        self.tunnel.direct_socks = rt.direct_socks;
+        self.tunnel.api = api;
+        Ok(self)
+    }
+
     /// Restarts xray with the same config, port and credentials while the TUN
     /// stays up: open connections drop, new ones go through the fresh xray.
     /// Returns a job to run off the UI thread. The watchdog shares the lock,
     /// so it never sees the old process exit.
     pub fn xray_restarter(&self) -> impl FnOnce() -> Result<()> + Send + 'static {
-        let (xray, r) = (self.xray.clone(), self.respawn.clone());
+        let (xray, respawn) = (self.xray.clone(), self.respawn.clone());
         move || {
             let mut child = xray.lock().unwrap();
+            let r = respawn.lock().unwrap().clone();
             let _ = child.kill();
             let _ = child.wait();
             let mut fresh = spawn_xray(&r.config, &r.log, r.assets.as_deref())?;
@@ -506,9 +654,10 @@ impl Connection {
         if routing.apps != self.tunnel.apps || route_private != self.tunnel.route_private {
             return None;
         }
-        let (t, r, xray) = (self.tunnel.clone(), self.respawn.clone(), self.xray.clone());
+        let (t, respawn, xray) = (self.tunnel.clone(), self.respawn.clone(), self.xray.clone());
         let (user, pass, lists) = (self.user.clone(), self.pass.clone(), geo.lists());
         Some(move || {
+            let r = respawn.lock().unwrap().clone();
             let geo_data = GeoData::load(r.assets.as_deref(), Some(&lists));
             let mut rt = runtime::build(&t.server, &t.iface, Some(runtime::Routing { settings: &routing, geo: &geo_data }))
                 .context("preparing xray config")?;

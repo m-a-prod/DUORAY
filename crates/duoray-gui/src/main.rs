@@ -1970,7 +1970,12 @@ fn follow_selection(ui: &AppWindow, app: &Shared) {
 
 /// Restarts the active connection (e.g. the routing changed).
 fn reconnect(ui: &AppWindow, app: &Shared) {
-    switch_connection(ui, app, true);
+    switch_connection_with(ui, app, true, true);
+}
+
+/// Tears down and recreates the tunnel (e.g. physical uplink interface changed).
+fn full_reconnect(ui: &AppWindow, app: &Shared) {
+    switch_connection_with(ui, app, true, false);
 }
 
 /// Winit-level fixes for the main window, registered once the winit window
@@ -2097,14 +2102,94 @@ fn apply_routing(ui: &AppWindow, app: &Shared) {
 }
 
 fn switch_connection(ui: &AppWindow, app: &Shared, force: bool) {
+    switch_connection_with(ui, app, force, true);
+}
+
+fn switch_connection_with(ui: &AppWindow, app: &Shared, force: bool, allow_hot_swap: bool) {
     let mut st = app.lock().unwrap();
-    let Some(wanted) = server_key(ui, &st) else { return };
+    let (Some(server), Some(wanted)) = (selected_server(ui, &st), server_key(ui, &st)) else { return };
     let ConnState::Connected { key, .. } = &st.conn_state else { return };
     if *key == wanted && !force {
         return;
     }
-    let name = selected_server(ui, &st).map(|s| display_name(&s.name).1).unwrap_or_default();
+    let name = display_name(&server.name).1;
+    let routing = st.store.settings.routing.clone();
+    let proxy_port = st.store.settings.proxy_mode.then_some(st.store.settings.proxy_port);
+    let kill_switch = st.store.settings.kill_switch;
+    let siblings = current(ui, &st).map(|s| s.servers.clone()).unwrap_or_default();
+    let can_hot_swap = allow_hot_swap
+        && st
+            .conn
+            .as_ref()
+            .is_some_and(|c| c.can_switch(&routing, proxy_port, kill_switch));
     let conn = st.conn.take();
+
+    if can_hot_swap && let Some(conn) = conn {
+        // Keep `conn_gen` so the reused Connection's watchdog stays bound to it.
+        let generation = st.conn_gen;
+        diag::log(format!("switch: {} {}/{}, {} outbound(s)", server.protocol, server.network, server.security, server.proxies));
+        st.failover_quiet_until = None;
+        st.conn_state = ConnState::Switching { name: name.clone() };
+        render(ui, &st);
+        drop(st);
+        let geo = routing_ui::geo_dir(app);
+        let (ui_weak, app) = (ui.as_weak(), app.clone());
+        std::thread::spawn(move || {
+            let result = conn.switch(&server, &routing, &geo);
+            let node_names = match &result {
+                Ok(c) if c.balancer.is_some() => duoray_core::balancer::node_names(&server.config_json(), &siblings),
+                _ => vec![],
+            };
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                match result {
+                    Ok(conn) => {
+                        let mut st = app.lock().unwrap();
+                        let still_wanted = st.conn_gen == generation && matches!(st.conn_state, ConnState::Switching { .. });
+                        if !still_wanted {
+                            drop(st);
+                            std::thread::spawn(move || conn.disconnect());
+                            return;
+                        }
+                        ui.set_routing_warnings(
+                            if conn.warnings.is_empty() {
+                                String::new()
+                            } else {
+                                trf!("Предупреждения:\n{p0}", p0 = conn.warnings.join("\n"))
+                            }
+                            .into(),
+                        );
+                        diag::log(format!("switched via {} {}", conn.tun, conn.timings));
+                        st.conn_state = ConnState::Connected { name, tun: conn.tun.clone(), key: wanted };
+                        st.conn = Some(conn);
+                        st.xray_started = Some(std::time::Instant::now());
+                        st.live_ping = None;
+                        st.live_failures = 0;
+                        (st.exit, st.exit_node, st.traffic) = (None, None, None);
+                        st.node_names = node_names.into_iter().collect();
+                        measure_live_ping(&ui, &app, &mut st);
+                        measure_exit(&ui, &app, &mut st);
+                        render(&ui, &st);
+                        drop(st);
+                        follow_selection(&ui, &app);
+                    }
+                    Err((old_conn, e)) => {
+                        diag::log(format!("hot-swap failed ({}), falling back to full reconnect", first_line(&format!("{e:#}"))));
+                        {
+                            let mut st = app.lock().unwrap();
+                            st.conn_gen += 1;
+                        }
+                        let (ui_weak, app) = (ui.as_weak(), app.clone());
+                        std::thread::spawn(move || {
+                            old_conn.disconnect();
+                            let _ = ui_weak.upgrade_in_event_loop(move |ui| start_connect(&ui, &app));
+                        });
+                    }
+                }
+            });
+        });
+        return;
+    }
+
     // Invalidate failure reports of the connection being replaced.
     st.conn_gen += 1;
     st.conn_state = ConnState::Switching { name };
@@ -2246,7 +2331,7 @@ fn start_connect(ui: &AppWindow, app: &Shared) {
                     st.conn_gen == generation && matches!(st.conn_state, ConnState::Connected { .. })
                 };
                 if current {
-                    reconnect(&ui, &app);
+                    full_reconnect(&ui, &app);
                 }
             });
         }

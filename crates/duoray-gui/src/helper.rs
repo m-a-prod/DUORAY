@@ -5,7 +5,7 @@ use std::io::BufReader;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use duoray_core::helper_proto::{self, MIN_PROTOCOL, PROTOCOL, Request, Response, TunRequest};
+use duoray_core::helper_proto::{self, MIN_PROTOCOL, PROTOCOL, Request, Response, SwitchRequest, TunRequest};
 
 #[derive(Debug)]
 pub enum OpenError {
@@ -55,6 +55,14 @@ impl HelperSession {
     pub fn start(&mut self, req: TunRequest) -> Result<String> {
         match self.call(&Request::Start(req))? {
             Response::Started { tun } => Ok(tun),
+            Response::Error { message } => bail!("{message}"),
+            other => bail!("unexpected reply {other:?}"),
+        }
+    }
+
+    pub fn switch(&mut self, req: SwitchRequest) -> Result<()> {
+        match self.call(&Request::Switch(req))? {
+            Response::Switched => Ok(()),
             Response::Error { message } => bail!("{message}"),
             other => bail!("unexpected reply {other:?}"),
         }

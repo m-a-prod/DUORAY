@@ -172,6 +172,7 @@ fn allowed_uid_arg() -> Result<u32> {
 
 struct Session {
     stop: oneshot::Sender<()>,
+    handle: duotun::TunHandle,
     task: JoinHandle<Result<()>>,
 }
 
@@ -266,6 +267,13 @@ where
                     }
                 }
             }
+            Request::Switch(req) => match &session {
+                Some((s, _)) => match switch(&s.handle, req).await {
+                    Ok(()) => Response::Switched,
+                    Err(e) => Response::Error { message: format!("{e:#}") },
+                },
+                None => Response::Error { message: "not started".into() },
+            },
             Request::Stop => {
                 if let Some((s, _guard)) = session.take() {
                     stop(s).await;
@@ -352,24 +360,24 @@ async fn start(req: TunRequest) -> Result<(Session, String)> {
     info!(socks = %cfg.socks.server, bypass = ?cfg.bypass, "starting TUN");
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    let (ready_tx, ready_rx) = oneshot::channel::<String>();
-    let mut task = tokio::spawn(duotun::run_notify(
+    let (ready_tx, ready_rx) = oneshot::channel::<(String, duotun::TunHandle)>();
+    let mut task = tokio::spawn(duotun::run_with_handle(
         cfg,
         async {
             let _ = stop_rx.await;
         },
-        move |tun| {
-            let _ = ready_tx.send(tun);
+        move |tun, handle| {
+            let _ = ready_tx.send((tun, handle));
         },
     ));
 
     tokio::select! {
         tun = ready_rx => match tun {
-            Ok(tun) => {
+            Ok((tun, handle)) => {
                 info!("TUN {tun} up");
-                Ok((Session { stop: stop_tx, task }, tun))
+                Ok((Session { stop: stop_tx, handle, task }, tun))
             }
-            // Sender dropped: run_notify failed before the TUN came up.
+            // Sender dropped: run_with_handle failed before the TUN came up.
             Err(_) => match (&mut task).await {
                 Ok(Err(e)) => Err(e),
                 Ok(Ok(())) => bail!("TUN exited before coming up"),
@@ -384,6 +392,30 @@ async fn start(req: TunRequest) -> Result<(Session, String)> {
     }
 }
 
+async fn switch(handle: &duotun::TunHandle, req: duoray_core::helper_proto::SwitchRequest) -> Result<()> {
+    validate_endpoints(req.socks, &req.user, &req.pass, &req.bypass, req.apps.as_ref())?;
+    let auth = Some((req.user, req.pass));
+    let (apps, direct_socks) = match req.apps {
+        Some(a) => {
+            let mode = if a.only { duotun::process::AppMode::Only } else { duotun::process::AppMode::Bypass };
+            (
+                Some(duotun::process::AppRules { mode, apps: a.apps }),
+                Some(Socks5 { server: a.direct_socks, auth: auth.clone() }),
+            )
+        }
+        None => (None, None),
+    };
+    info!(socks = %req.socks, bypass = ?req.bypass, "switching TUN upstream");
+    handle
+        .switch(duotun::SwitchUpdate {
+            socks: Socks5 { server: req.socks, auth },
+            bypass: req.bypass,
+            apps,
+            direct_socks,
+        })
+        .await
+}
+
 async fn stop(s: Session) {
     let _ = s.stop.send(());
     match s.task.await {
@@ -394,17 +426,27 @@ async fn stop(s: Session) {
 }
 
 fn validate(req: &TunRequest) -> Result<()> {
+    validate_endpoints(req.socks, &req.user, &req.pass, &req.bypass, req.apps.as_ref())
+}
+
+fn validate_endpoints(
+    socks: std::net::SocketAddr,
+    user: &str,
+    pass: &str,
+    bypass: &[std::net::IpAddr],
+    apps: Option<&duoray_core::helper_proto::AppsRequest>,
+) -> Result<()> {
     // Only ever tunnel into a proxy on this machine.
-    if !req.socks.ip().is_loopback() {
-        bail!("SOCKS address must be loopback, got {}", req.socks);
+    if !socks.ip().is_loopback() {
+        bail!("SOCKS address must be loopback, got {}", socks);
     }
-    if req.user.is_empty() || req.pass.is_empty() {
+    if user.is_empty() || pass.is_empty() {
         bail!("SOCKS credentials are required");
     }
-    if req.bypass.len() > 256 {
+    if bypass.len() > 256 {
         bail!("too many bypass addresses");
     }
-    if let Some(a) = &req.apps {
+    if let Some(a) = apps {
         if !a.direct_socks.ip().is_loopback() {
             bail!("direct SOCKS address must be loopback, got {}", a.direct_socks);
         }
